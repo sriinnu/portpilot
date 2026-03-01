@@ -1,0 +1,40 @@
+name: PortPilot
+options:
+  bundleIdPrefix: com.portpilot
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    PRODUCT_NAME: PortPilot
+
+targets:
+  PortPilot:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/PortPilot
+        excludes:
+          - "**/.DS_Store"
+      - path: Sources/PortManagerLib
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.portpilot.app
+        INFOPLIST_FILE: Sources/PortPilot/Info.plist
+        PRODUCT_NAME: PortPilot
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_ENTITLEMENTS: Sources/PortPilot/PortPilot.entitlements
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+    entitlements:
+      path: Sources/PortPilot/PortPilot.entitlements

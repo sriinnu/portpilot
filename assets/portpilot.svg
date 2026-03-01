@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2D3748"/>
+      <stop offset="100%" style="stop-color:#1A202C"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="100" fill="url(#bg)"/>
+
+  <!-- Network/Port icon - simplified bold design -->
+  <g transform="translate(106, 136)">
+    <!-- Main hub circle -->
+    <circle cx="150" cy="120" r="55" fill="#4ECDC4"/>
+
+    <!-- Connection nodes -->
+    <circle cx="50" cy="200" r="35" fill="#FF6B6B"/>
+    <circle cx="250" cy="200" r="35" fill="#FF6B6B"/>
+    <circle cx="150" cy="280" r="40" fill="#4ECDC4"/>
+
+    <!-- Connection lines -->
+    <line x1="150" y1="175" x2="50" y2="165" stroke="#4ECDC4" stroke-width="10" stroke-linecap="round"/>
+    <line x1="150" y1="175" x2="250" y2="165" stroke="#4ECDC4" stroke-width="10" stroke-linecap="round"/>
+    <line x1="150" y1="160" x2="150" y2="240" stroke="#4ECDC4" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</svg>

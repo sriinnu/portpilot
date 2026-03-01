@@ -1,0 +1,386 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		02424985B3D3D0153B71C2E8 /* FavoritesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */; };
+		090F6E3B429AC22F6E659A6A /* PortManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */; };
+		0AE5E0C4D87AADF5DAFEB5D2 /* ConfigurationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */; };
+		0B024D3B0C818006E02CA79D /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E705010BB6BCC26217B8BE0 /* MenuBarController.swift */; };
+		10D96EE61150BDB66AE0029F /* PortPilotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */; };
+		135F70795593D5787A37120D /* MenuBarDropdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */; };
+		53FADF13C4BE66641E932DA1 /* PortViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */; };
+		559D9C8BC5304235283C5518 /* LogsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774B16A739CCA03682C7791E /* LogsPanel.swift */; };
+		5D7BACC7B281C23E9110B48B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F425A17AF5886E28CEAECA52 /* ContentView.swift */; };
+		64CD01E9489530F2554BF1EE /* PortListPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3642965AC0E095B5E0863B11 /* PortListPanel.swift */; };
+		680841545D8FF9CC9A107352 /* PortWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E856A016D49BF0EA323BF579 /* PortWatcher.swift */; };
+		9343794A1F217DEC030C0BD7 /* MainWindowToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A861967EF449E3C64C56EE0 /* MainWindowToolbar.swift */; };
+		9B0A28A18BA8D2DE42700994 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3F7925D712801392988B9C16 /* Assets.xcassets */; };
+		B6056CDF3AC5F27F7445D59E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73849239FC92C331256E34F8 /* SettingsView.swift */; };
+		BA480F29F6C419D18820C9A2 /* MenuBarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */; };
+		DF5E4A8F751D7C40856D8F17 /* menubar_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 64AC2C24FB81D274ADBAA08D /* menubar_icon.png */; };
+		E1A03A464A6EAB4D026ED740 /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */; };
+		D4E5F6A1B2C30718293A4B5C /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* Theme.swift */; };
+		E2851162D6E2FE56F6B01127 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306E20A02CAD6507A9EABC0D /* AppSettings.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPilotApp.swift; sourceTree = "<group>"; };
+		2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationPanel.swift; sourceTree = "<group>"; };
+		29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortViewModel.swift; sourceTree = "<group>"; };
+		306E20A02CAD6507A9EABC0D /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryManager.swift; sourceTree = "<group>"; };
+		3642965AC0E095B5E0863B11 /* PortListPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListPanel.swift; sourceTree = "<group>"; };
+		3F7925D712801392988B9C16 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		4538E828BD932E87FB855FE4 /* PortPilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortPilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		64AC2C24FB81D274ADBAA08D /* menubar_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = menubar_icon.png; sourceTree = "<group>"; };
+		6D00CC9727B2DEBDF517DEF8 /* PortPilot.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PortPilot.entitlements; sourceTree = "<group>"; };
+		73849239FC92C331256E34F8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		774B16A739CCA03682C7791E /* LogsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsPanel.swift; sourceTree = "<group>"; };
+		8309BC095CFA83DD1EC0B7FB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		8A861967EF449E3C64C56EE0 /* MainWindowToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowToolbar.swift; sourceTree = "<group>"; };
+		8E705010BB6BCC26217B8BE0 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
+		950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesManager.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5C /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanel.swift; sourceTree = "<group>"; };
+		B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortManager.swift; sourceTree = "<group>"; };
+		C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarDropdownView.swift; sourceTree = "<group>"; };
+		E856A016D49BF0EA323BF579 /* PortWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortWatcher.swift; sourceTree = "<group>"; };
+		F425A17AF5886E28CEAECA52 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1216CFD81C08D52E410A16C8 /* PortPilot */ = {
+			isa = PBXGroup;
+			children = (
+				306E20A02CAD6507A9EABC0D /* AppSettings.swift */,
+				3F7925D712801392988B9C16 /* Assets.xcassets */,
+				2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */,
+				F425A17AF5886E28CEAECA52 /* ContentView.swift */,
+				8309BC095CFA83DD1EC0B7FB /* Info.plist */,
+				774B16A739CCA03682C7791E /* LogsPanel.swift */,
+				8A861967EF449E3C64C56EE0 /* MainWindowToolbar.swift */,
+				64AC2C24FB81D274ADBAA08D /* menubar_icon.png */,
+				8E705010BB6BCC26217B8BE0 /* MenuBarController.swift */,
+				C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */,
+				AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */,
+				3642965AC0E095B5E0863B11 /* PortListPanel.swift */,
+				6D00CC9727B2DEBDF517DEF8 /* PortPilot.entitlements */,
+				1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */,
+				29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */,
+				73849239FC92C331256E34F8 /* SettingsView.swift */,
+				A1B2C3D4E5F60718293A4B5C /* Theme.swift */,
+			);
+			name = PortPilot;
+			path = Sources/PortPilot;
+			sourceTree = "<group>";
+		};
+		5553A2760A7223C67F500D4C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				4538E828BD932E87FB855FE4 /* PortPilot.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		66F303C5E78C62B382C796F6 /* PortManagerLib */ = {
+			isa = PBXGroup;
+			children = (
+				950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */,
+				30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */,
+				B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */,
+				E856A016D49BF0EA323BF579 /* PortWatcher.swift */,
+			);
+			name = PortManagerLib;
+			path = Sources/PortManagerLib;
+			sourceTree = "<group>";
+		};
+		983A46182F4FDFFFDCF4809C = {
+			isa = PBXGroup;
+			children = (
+				66F303C5E78C62B382C796F6 /* PortManagerLib */,
+				1216CFD81C08D52E410A16C8 /* PortPilot */,
+				5553A2760A7223C67F500D4C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4D26D46F9213594A6115E704 /* PortPilot */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F8B4770BCE14AB626EDC33F3 /* Build configuration list for PBXNativeTarget "PortPilot" */;
+			buildPhases = (
+				F90A23A44A6D1E6D8517AE88 /* Sources */,
+				28AD33E258716B630F56D450 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PortPilot;
+			packageProductDependencies = (
+			);
+			productName = PortPilot;
+			productReference = 4538E828BD932E87FB855FE4 /* PortPilot.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		CB34D621EC9DCC7C24CDACCA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					4D26D46F9213594A6115E704 = {
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 1AC2E64663D58499C7C0B1E7 /* Build configuration list for PBXProject "PortPilot" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 983A46182F4FDFFFDCF4809C;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4D26D46F9213594A6115E704 /* PortPilot */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		28AD33E258716B630F56D450 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9B0A28A18BA8D2DE42700994 /* Assets.xcassets in Resources */,
+				DF5E4A8F751D7C40856D8F17 /* menubar_icon.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		F90A23A44A6D1E6D8517AE88 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E2851162D6E2FE56F6B01127 /* AppSettings.swift in Sources */,
+				0AE5E0C4D87AADF5DAFEB5D2 /* ConfigurationPanel.swift in Sources */,
+				5D7BACC7B281C23E9110B48B /* ContentView.swift in Sources */,
+				02424985B3D3D0153B71C2E8 /* FavoritesManager.swift in Sources */,
+				E1A03A464A6EAB4D026ED740 /* HistoryManager.swift in Sources */,
+				559D9C8BC5304235283C5518 /* LogsPanel.swift in Sources */,
+				9343794A1F217DEC030C0BD7 /* MainWindowToolbar.swift in Sources */,
+				0B024D3B0C818006E02CA79D /* MenuBarController.swift in Sources */,
+				135F70795593D5787A37120D /* MenuBarDropdownView.swift in Sources */,
+				BA480F29F6C419D18820C9A2 /* MenuBarPanel.swift in Sources */,
+				64CD01E9489530F2554BF1EE /* PortListPanel.swift in Sources */,
+				090F6E3B429AC22F6E659A6A /* PortManager.swift in Sources */,
+				10D96EE61150BDB66AE0029F /* PortPilotApp.swift in Sources */,
+				53FADF13C4BE66641E932DA1 /* PortViewModel.swift in Sources */,
+				680841545D8FF9CC9A107352 /* PortWatcher.swift in Sources */,
+				B6056CDF3AC5F27F7445D59E /* SettingsView.swift in Sources */,
+				D4E5F6A1B2C30718293A4B5C /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		01DF9BD84EC2662F327329E7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/PortPilot/PortPilot.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = Sources/PortPilot/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.portpilot.app;
+				PRODUCT_NAME = PortPilot;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		0E5CD22E887B8A4ED5D40B65 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = PortPilot;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		C871091CCF4D2C8172ABCA78 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Sources/PortPilot/PortPilot.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = Sources/PortPilot/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.portpilot.app;
+				PRODUCT_NAME = PortPilot;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		D25457CB5574850DDB29F980 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = PortPilot;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1AC2E64663D58499C7C0B1E7 /* Build configuration list for PBXProject "PortPilot" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0E5CD22E887B8A4ED5D40B65 /* Debug */,
+				D25457CB5574850DDB29F980 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F8B4770BCE14AB626EDC33F3 /* Build configuration list for PBXNativeTarget "PortPilot" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				01DF9BD84EC2662F327329E7 /* Debug */,
+				C871091CCF4D2C8172ABCA78 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = CB34D621EC9DCC7C24CDACCA /* Project object */;
+}
