@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/@sriinnu/portpilot"><img src="https://img.shields.io/npm/v/@sriinnu/portpilot?style=flat-square&logo=npm&logoColor=white&color=cb3837" alt="npm"></a>
   <img src="https://img.shields.io/badge/macOS-13.0%2B-brightgreen?style=flat-square" alt="macOS 13.0+">
   <img src="https://img.shields.io/badge/Linux-CLI-orange?style=flat-square" alt="Linux CLI">
   <img src="https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift&logoColor=white" alt="Swift 5.9">
