@@ -35,6 +35,7 @@ public final class PortWatcher {
     private var watchedPorts: [Int: WatchedPort] = [:]
     private var timer: Timer?
     private let queue = DispatchQueue(label: "com.portkiller.watcher", qos: .background)
+    private let lock = NSLock()
 
     public weak var delegate: PortWatcherDelegate?
 
@@ -53,7 +54,9 @@ public final class PortWatcher {
 
     public func addPort(_ port: Int, protocolName: String = "tcp") {
         let watchedPort = WatchedPort(port: port, protocolName: protocolName)
+        lock.lock()
         watchedPorts[port] = watchedPort
+        lock.unlock()
 
         queue.async { [weak self] in
             self?.checkPortState(port: port, protocol: protocolName)
@@ -61,14 +64,20 @@ public final class PortWatcher {
     }
 
     public func removePort(_ port: Int) {
+        lock.lock()
         watchedPorts.removeValue(forKey: port)
+        lock.unlock()
     }
 
     public func getWatchedPorts() -> [WatchedPort] {
+        lock.lock()
+        defer { lock.unlock() }
         return Array(watchedPorts.values).sorted { $0.port < $1.port }
     }
 
     public func getWatchedPort(_ port: Int) -> WatchedPort? {
+        lock.lock()
+        defer { lock.unlock() }
         return watchedPorts[port]
     }
 
@@ -100,7 +109,11 @@ public final class PortWatcher {
     // MARK: - State Checking
 
     public func checkAllPorts() {
-        for (port, var watchedPort) in watchedPorts {
+        lock.lock()
+        let snapshot = watchedPorts
+        lock.unlock()
+
+        for (port, var watchedPort) in snapshot {
             let newState = checkPortStateSync(port: port, protocolName: watchedPort.protocolName)
 
             let stateChanged = watchedPort.lastKnownState != newState
@@ -126,29 +139,35 @@ public final class PortWatcher {
                 }
             }
 
+            lock.lock()
             watchedPorts[port] = watchedPort
+            lock.unlock()
         }
     }
 
     private func checkPortState(port: Int, protocol proto: String) {
         let state = checkPortStateSync(port: port, protocolName: proto)
 
-        if var watchedPort = watchedPorts[port] {
-            let stateChanged = watchedPort.lastKnownState != state
-            watchedPort.lastKnownState = state
-            watchedPort.isWatching = isWatching
+        lock.lock()
+        guard var watchedPort = watchedPorts[port] else {
+            lock.unlock()
+            return
+        }
+        let stateChanged = watchedPort.lastKnownState != state
+        watchedPort.lastKnownState = state
+        watchedPort.isWatching = isWatching
 
-            if stateChanged {
-                watchedPort.lastStateChange = Date()
-            }
+        if stateChanged {
+            watchedPort.lastStateChange = Date()
+        }
 
-            watchedPorts[port] = watchedPort
+        watchedPorts[port] = watchedPort
+        lock.unlock()
 
-            if stateChanged {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-                    self.delegate?.portWatcher(self, didUpdateState: state, forPort: port)
-                }
+        if stateChanged {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.delegate?.portWatcher(self, didUpdateState: state, forPort: port)
             }
         }
     }

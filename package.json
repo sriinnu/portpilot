@@ -1,0 +1,60 @@
+{
+  "name": "@sriinnu/portpilot",
+  "version": "2.0.0",
+  "description": "Port management from your menu bar — monitor ports, discover daemons, proxy traffic, kill processes. macOS app + cross-platform CLI.",
+  "scripts": {
+    "prebuild": "which xcodegen > /dev/null 2>&1 && xcodegen generate || echo 'xcodegen not found, using existing project'",
+    "build": "xcodebuild -project PortPilot.xcodeproj -scheme PortPilot -configuration Release -derivedDataPath .build/xcode build | tail -5",
+    "build:cli": "swift build -c release",
+    "build:debug": "xcodebuild -project PortPilot.xcodeproj -scheme PortPilot -configuration Debug -derivedDataPath .build/xcode build",
+    "build:all": "npm run build && npm run build:cli",
+    "install:app": "cp -R .build/xcode/Build/Products/Release/PortPilot.app /Applications/ && echo '✓ PortPilot.app installed to /Applications'",
+    "install:cli": "mkdir -p /usr/local/bin 2>/dev/null; cp .build/release/portpilot /usr/local/bin/portpilot && echo '✓ portpilot CLI installed to /usr/local/bin' || echo '⚠ CLI install needs: sudo cp .build/release/portpilot /usr/local/bin/'",
+    "postinstall": "echo '⚠ PortPilot requires Swift 5.9+ to build. Run: npm run release'",
+    "release": "npm run build:all && npm run install:app && npm run install:cli && echo '✓ PortPilot v2.0.0 released!'",
+    "update": "git pull && npm run release",
+    "open": "open /Applications/PortPilot.app || open .build/xcode/Build/Products/Release/PortPilot.app",
+    "uninstall": "pkill -f PortPilot.app 2>/dev/null; rm -rf /Applications/PortPilot.app && rm -f /usr/local/bin/portpilot && echo '✓ PortPilot removed'",
+    "reinstall": "npm run uninstall && npm run release",
+    "clean": "rm -rf .build && echo '✓ Build artifacts cleaned'",
+    "dev": "npm run build:debug && open .build/xcode/Build/Products/Debug/PortPilot.app"
+  },
+  "keywords": [
+    "port",
+    "ports",
+    "manager",
+    "macos",
+    "menubar",
+    "menu-bar",
+    "cli",
+    "network",
+    "proxy",
+    "socket",
+    "kill",
+    "process",
+    "lsof",
+    "tunnel",
+    "ssh",
+    "kubernetes",
+    "docker",
+    "developer-tools"
+  ],
+  "author": "Srinivas Pendela",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sriinnu/portpilot.git"
+  },
+  "homepage": "https://github.com/sriinnu/portpilot#readme",
+  "bugs": {
+    "url": "https://github.com/sriinnu/portpilot/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ]
+}

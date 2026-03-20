@@ -1,11 +1,11 @@
 import SwiftUI
-import PortManagerLib
 
 // MARK: - Port List Panel
 struct PortListPanel: View {
     @ObservedObject var viewModel: PortViewModel
     @Binding var selectedPort: PortProcess?
     let onKill: (Int) -> Void
+    let onAdd: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,15 +22,20 @@ struct PortListPanel: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(viewModel.filteredPorts, id: \.port) { port in
+                        ForEach(viewModel.filteredPorts, id: \.id) { port in
                             PortListRow(
                                 port: port,
                                 isSelected: selectedPort?.port == port.port,
+                                isFavorite: viewModel.isFavorite(port: port.port),
                                 onSelect: { selectedPort = port },
                                 onKill: { onKill(port.port) },
+                                onToggleFavorite: { viewModel.toggleFavorite(port: port.port) },
+                                processType: viewModel.processType(for: port),
                                 typeColor: viewModel.connectionType(for: port).color,
                                 typeIcon: viewModel.connectionType(for: port).icon,
-                                tunnelName: viewModel.tunnelName(for: port)
+                                tunnelName: viewModel.tunnelName(for: port),
+                                parentProcessName: viewModel.parentProcessName(for: port),
+                                processUptime: viewModel.processUptime(for: port)
                             )
                             Divider().padding(.leading, 12)
                         }
@@ -41,7 +46,7 @@ struct PortListPanel: View {
             Divider()
 
             // Bottom buttons
-            PortListFooter()
+            PortListFooter(onAdd: onAdd)
         }
         .frame(minWidth: 220, idealWidth: 260)
         .background(Theme.Surface.controlBackground)
@@ -70,27 +75,75 @@ struct PortListHeader: View {
 struct PortListRow: View {
     let port: PortProcess
     let isSelected: Bool
+    let isFavorite: Bool
     let onSelect: () -> Void
     let onKill: () -> Void
+    let onToggleFavorite: () -> Void
+    var processType: ProcessType = .other
     var typeColor: Color = Theme.Status.connected
     var typeIcon: String = Theme.Icon.local
     var tunnelName: String? = nil
+    var parentProcessName: String? = nil
+    var processUptime: String? = nil
 
     @State private var isHovered = false
 
+    private var infoTooltip: String {
+        var lines: [String] = []
+        lines.append("PID: \(port.pid)")
+        if let ppid = port.parentPID {
+            lines.append("PPID: \(ppid)" + (parentProcessName.map { " (\($0))" } ?? ""))
+        }
+        if let uptime = processUptime {
+            lines.append("Uptime: \(uptime)")
+        }
+        if let cwd = port.workingDirectory, !cwd.isEmpty {
+            lines.append("CWD: \(cwd)")
+        }
+        if let fullCmd = port.fullCommand, !fullCmd.isEmpty {
+            lines.append("Command: \(fullCmd)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     var body: some View {
         HStack(spacing: 8) {
+            // Favorite button
+            Button(action: onToggleFavorite) {
+                Image(systemName: isFavorite ? "star.fill" : "star")
+                    .font(.system(size: 11))
+                    .foregroundColor(isFavorite ? .yellow : .gray)
+            }
+            .buttonStyle(.plain)
+            .help(isFavorite ? "Remove from favorites" : "Add to favorites")
+
             // Type indicator
             Image(systemName: typeIcon)
                 .font(.system(size: 10))
                 .foregroundColor(typeColor)
                 .frame(width: 14)
 
+            // Process type badge
+            Text(processType.rawValue)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(processTypeColor(processType))
+                )
+
             // Port info
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(":\(port.port)")
-                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    if port.isUnixSocket {
+                        Text("PID \(port.pid)")
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    } else {
+                        Text(":\(port.port)")
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    }
                     Text(port.protocolName.uppercased())
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(.secondary)
@@ -99,8 +152,8 @@ struct PortListRow: View {
                         .background(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
                         .cornerRadius(3)
                 }
-                Text(tunnelName ?? port.command)
-                    .font(.system(size: 11))
+                Text(tunnelName ?? port.socketPath ?? port.fullCommand ?? port.command)
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
@@ -109,6 +162,13 @@ struct PortListRow: View {
 
             // Action buttons
             HStack(spacing: 6) {
+                // Info indicator with tooltip
+                Image(systemName: "info.circle")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .help(infoTooltip)
+                    .opacity(isHovered || isSelected ? 1 : 0.3)
+
                 Button(action: onKill) {
                     Image(systemName: Theme.Icon.kill)
                         .font(.system(size: 13))
@@ -140,6 +200,15 @@ struct PortListRow: View {
             withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
         }
     }
+
+    private func processTypeColor(_ type: ProcessType) -> Color {
+        switch type {
+        case .system: return Theme.Classification.system
+        case .userApp: return Theme.Classification.userApp
+        case .developerTool: return Theme.Classification.developerTool
+        case .other: return Theme.Classification.other
+        }
+    }
 }
 
 // MARK: - Empty State
@@ -168,9 +237,11 @@ struct PortListEmptyState: View {
 
 // MARK: - Footer
 struct PortListFooter: View {
+    let onAdd: () -> Void
+
     var body: some View {
         HStack(spacing: 8) {
-            Button(action: {}) {
+            Button(action: onAdd) {
                 HStack(spacing: 4) {
                     // Green filled circle with white "+"
                     ZStack {
@@ -187,7 +258,7 @@ struct PortListFooter: View {
                 }
             }
             .buttonStyle(.plain)
-            .help("Add port forward (coming soon)")
+            .help("Add port forward")
 
             Button(action: {}) {
                 HStack(spacing: 4) {

@@ -1,58 +1,16 @@
 import SwiftUI
-import PortManagerLib
 import Combine
 import AppKit
 
+// Pure AppKit entry point — no SwiftUI App/Scene, so zero Dock icon
 @main
-struct PortPilotApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var appSettings = AppSettings.shared
-    @StateObject private var notificationManager = NotificationManager.shared
-
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environmentObject(appDelegate.sharedViewModel)
-                .frame(minWidth: 800, minHeight: 500)
-        }
-        .windowStyle(.titleBar)
-        .windowResizability(.contentMinSize)
-        .commands {
-            CommandGroup(replacing: .appInfo) {
-                Button("About PortPilot") {
-                    NSApplication.shared.orderFrontStandardAboutPanel(
-                        options: [
-                            .applicationName: "PortPilot",
-                            .applicationVersion: "1.0.0",
-                            .credits: NSAttributedString(string: "Your port management companion")
-                        ]
-                    )
-                }
-            }
-
-            CommandGroup(after: .appSettings) {
-                Button("Refresh Ports") {
-                    appDelegate.sharedViewModel.refreshPorts()
-                }
-                .keyboardShortcut("r", modifiers: .command)
-
-                Divider()
-
-                Button("Open Main Window") {
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-
-                Divider()
-
-                Toggle("Background Monitoring", isOn: $appSettings.backgroundMonitoring)
-            }
-        }
-
-        Settings {
-            SettingsView()
-                .environmentObject(appDelegate.sharedViewModel)
-        }
+enum PortPilotLauncher {
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.accessory)
+        app.run()
     }
 }
 
@@ -62,35 +20,116 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let sharedViewModel = PortViewModel()
     private var autoRefreshTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    private var mainWindow: NSWindow?
+    private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Apply all saved settings on launch
-        AppSettings.shared.applyAllOnLaunch()
+        // Enforce single instance
+        let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+        if runningApps.count > 1 {
+            for app in runningApps {
+                if app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                    app.activate(options: [.activateIgnoringOtherApps])
+                    break
+                }
+            }
+            NSApp.terminate(nil)
+            return
+        }
 
-        // Sync force kill setting
+        // Ensure no Dock icon
+        NSApp.setActivationPolicy(.accessory)
+
+        // Apply settings
+        AppSettings.shared.applyAllOnLaunch()
         sharedViewModel.forceKill = AppSettings.shared.defaultForceKill
 
-        // Create menu bar controller using the shared view model
+        // Create menu bar
         menuBarController = MenuBarController(
             portViewModel: sharedViewModel,
             notificationManager: NotificationManager.shared
         )
 
-        // Observe menu bar visibility changes
+        // Listen for requests
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleOpenMainWindow),
+            name: .openMainWindow, object: nil
+        )
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleMenuBarVisibility(_:)),
             name: .menuBarIconVisibilityChanged, object: nil
         )
-
-        // Observe auto-refresh changes
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleAutoRefreshChanged),
             name: .autoRefreshChanged, object: nil
         )
 
-        // Start auto-refresh if enabled
         setupAutoRefreshTimer()
     }
+
+    // MARK: - Main Window
+
+    @objc private func handleOpenMainWindow() {
+        openMainWindow()
+    }
+
+    func openMainWindow() {
+        if let window = mainWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            return
+        }
+
+        let contentView = ContentView()
+            .environmentObject(sharedViewModel)
+            .frame(minWidth: 800, minHeight: 500)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 950, height: 620),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "PortPilot"
+        window.contentView = NSHostingView(rootView: contentView)
+        window.center()
+        window.setFrameAutosaveName("PortPilotMainWindow")
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+
+        mainWindow = window
+    }
+
+    // MARK: - Settings Window
+
+    func openSettingsWindow() {
+        if let window = settingsWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            return
+        }
+
+        let settingsView = SettingsView()
+            .environmentObject(sharedViewModel)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 450),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "PortPilot Settings"
+        window.contentView = NSHostingView(rootView: settingsView)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+
+        settingsWindow = window
+    }
+
+    // MARK: - Observers
 
     @objc private func handleMenuBarVisibility(_ notification: Notification) {
         guard let visible = notification.object as? Bool else { return }

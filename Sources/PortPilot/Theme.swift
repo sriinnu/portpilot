@@ -32,7 +32,15 @@ enum Theme {
             light: NSColor(red: 0.20, green: 0.68, blue: 0.30, alpha: 1),
             dark: NSColor(red: 0.35, green: 0.82, blue: 0.45, alpha: 1)
         )
+        static let database = Color(
+            light: NSColor(red: 0.85, green: 0.45, blue: 0.20, alpha: 1),
+            dark: NSColor(red: 1.00, green: 0.60, blue: 0.40, alpha: 1)
+        )
         static let ssh = Color(
+            light: NSColor(red: 0.55, green: 0.30, blue: 0.75, alpha: 1),
+            dark: NSColor(red: 0.72, green: 0.50, blue: 0.90, alpha: 1)
+        )
+        static let proxy = Color(
             light: NSColor(red: 0.55, green: 0.30, blue: 0.75, alpha: 1),
             dark: NSColor(red: 0.72, green: 0.50, blue: 0.90, alpha: 1)
         )
@@ -119,6 +127,10 @@ enum Theme {
                 light: NSColor(red: 0.85, green: 0.20, blue: 0.20, alpha: 1),
                 dark: NSColor(red: 1.00, green: 0.40, blue: 0.40, alpha: 1)
             )
+            case "proxy": return Color(
+                light: NSColor(red: 0.55, green: 0.30, blue: 0.75, alpha: 1),
+                dark: NSColor(red: 0.72, green: 0.50, blue: 0.90, alpha: 1)
+            )
             default: return Color(
                 light: NSColor(red: 0.50, green: 0.50, blue: 0.55, alpha: 1),
                 dark: NSColor(red: 0.65, green: 0.65, blue: 0.70, alpha: 1)
@@ -140,12 +152,37 @@ enum Theme {
                 light: NSColor(red: 0.85, green: 0.20, blue: 0.20, alpha: 0.12),
                 dark: NSColor(red: 1.00, green: 0.40, blue: 0.40, alpha: 0.18)
             )
+            case "proxy": return Color(
+                light: NSColor(red: 0.55, green: 0.30, blue: 0.75, alpha: 0.12),
+                dark: NSColor(red: 0.72, green: 0.50, blue: 0.90, alpha: 0.18)
+            )
             default: return Color(
                 light: NSColor(red: 0.50, green: 0.50, blue: 0.55, alpha: 0.10),
                 dark: NSColor(red: 0.65, green: 0.65, blue: 0.70, alpha: 0.15)
             )
             }
         }
+    }
+
+    // MARK: - Classification Colors
+
+    enum Classification {
+        static let system = Color(
+            light: NSColor(red: 0.50, green: 0.50, blue: 0.55, alpha: 1),
+            dark: NSColor(red: 0.65, green: 0.65, blue: 0.70, alpha: 1)
+        )
+        static let userApp = Color(
+            light: NSColor(red: 0.20, green: 0.45, blue: 0.85, alpha: 1),
+            dark: NSColor(red: 0.40, green: 0.65, blue: 1.00, alpha: 1)
+        )
+        static let developerTool = Color(
+            light: NSColor(red: 0.85, green: 0.55, blue: 0.10, alpha: 1),
+            dark: NSColor(red: 1.00, green: 0.72, blue: 0.30, alpha: 1)
+        )
+        static let other = Color(
+            light: NSColor(red: 0.50, green: 0.50, blue: 0.55, alpha: 0.6),
+            dark: NSColor(red: 0.65, green: 0.65, blue: 0.70, alpha: 0.6)
+        )
     }
 
     // MARK: - Surface Colors (auto-adapt via system NSColors)
@@ -162,6 +199,7 @@ enum Theme {
     enum Icon {
         // Connection types
         static let local = "desktopcomputer"
+        static let database = "cylinder.fill"
         static let kubernetes = "cube.fill"
         static let cloudflare = "cloud.fill"
         static let ssh = "terminal.fill"
@@ -193,12 +231,19 @@ enum Theme {
         static let process = "terminal"
         static let pid = "number"
         static let user = "person"
+        static let ppid = "person.2"
+        static let uptime = "clock"
+        static let workingDirectory = "folder"
 
         // Options icons
         static let autoReconnect = "arrow.clockwise"
         static let enabled = "checkmark.circle"
         static let notifyConnect = "bell.fill"
         static let notifyDisconnect = "bell.slash"
+
+        // Proxy
+        static let proxy = "arrow.left.arrow.right.circle"
+        static let proxyActive = "arrow.left.arrow.right.circle.fill"
 
         // Port mapping
         static let portArrow = "arrow.left.arrow.right"
@@ -209,8 +254,12 @@ enum Theme {
         static let chevronDown = "chevron.down"
         static let chevronRight = "chevron.right"
 
+        // Process classification
+        static let hideSystem = "eye.slash"
+        static let showSystem = "eye"
+
         // App logo
-        static let appLogo = "network"
+        static let appLogo = "network.badge.shield.half.filled"
     }
 
     // MARK: - Config Field Icon Colors
@@ -235,6 +284,18 @@ enum Theme {
         static let user = Color(
             light: NSColor(red: 0.55, green: 0.30, blue: 0.75, alpha: 1),
             dark: NSColor(red: 0.72, green: 0.50, blue: 0.90, alpha: 1)
+        )
+        static let ppid = Color(
+            light: NSColor(red: 0.20, green: 0.60, blue: 0.80, alpha: 1),
+            dark: NSColor(red: 0.40, green: 0.78, blue: 0.90, alpha: 1)
+        )
+        static let uptime = Color(
+            light: NSColor(red: 0.85, green: 0.55, blue: 0.10, alpha: 1),
+            dark: NSColor(red: 1.00, green: 0.72, blue: 0.30, alpha: 1)
+        )
+        static let workingDirectory = Color(
+            light: NSColor(red: 0.20, green: 0.55, blue: 0.85, alpha: 1),
+            dark: NSColor(red: 0.45, green: 0.70, blue: 1.00, alpha: 1)
         )
     }
 

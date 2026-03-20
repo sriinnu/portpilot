@@ -1,5 +1,4 @@
 import SwiftUI
-import PortManagerLib
 
 // MARK: - Protocol Filter for Menu Bar
 enum MenuBarProtocolFilter: String, CaseIterable {
@@ -20,14 +19,30 @@ struct MenuBarDropdownView: View {
     @State private var searchText = ""
     @State private var protocolFilter: MenuBarProtocolFilter = .all
     @State private var showTreeView = false
+    @State private var hideSystemProcesses = false
+    @State private var connectionTypeFilter: ConnectionType? = nil
+    @State private var activeTab: MenuBarTab = .ports
+
+    enum MenuBarTab: String, CaseIterable {
+        case ports = "Ports"
+        case sockets = "Sockets"
+    }
 
     private var filteredPorts: [PortProcess] {
         var result = viewModel.ports
+
+        if hideSystemProcesses {
+            result = result.filter { !ProcessClassifier.shared.isSystemProcess(pid: $0.pid) }
+        }
 
         if protocolFilter != .all {
             result = result.filter {
                 $0.protocolName.lowercased() == protocolFilter.rawValue.lowercased()
             }
+        }
+
+        if let typeFilter = connectionTypeFilter {
+            result = result.filter { viewModel.connectionType(for: $0) == typeFilter }
         }
 
         if !searchText.isEmpty {
@@ -40,6 +55,14 @@ struct MenuBarDropdownView: View {
         }
 
         return result
+    }
+
+    private var networkPorts: [PortProcess] {
+        filteredPorts.filter { !$0.isUnixSocket }
+    }
+
+    private var socketProcesses: [PortProcess] {
+        filteredPorts.filter { $0.isUnixSocket }
     }
 
     private var groupedPorts: [(process: String, ports: [PortProcess])] {
@@ -59,52 +82,125 @@ struct MenuBarDropdownView: View {
                 portCount: viewModel.ports.count
             )
 
-            // Protocol filter pills
-            MenuBarProtocolPicker(selected: $protocolFilter)
+            // Tab switcher: Ports | Sockets
+            HStack(spacing: 0) {
+                ForEach(MenuBarTab.allCases, id: \.self) { tab in
+                    let count = tab == .ports ? networkPorts.count : socketProcesses.count
+                    Button(action: { withAnimation(.easeInOut(duration: 0.15)) { activeTab = tab } }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: tab == .ports ? "network" : "point.3.connected.trianglepath.dotted")
+                                .font(.system(size: 10))
+                            Text(tab.rawValue)
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("\(count)")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(activeTab == tab ? .white.opacity(0.7) : .secondary.opacity(0.6))
+                        }
+                        .foregroundColor(activeTab == tab ? .white : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            activeTab == tab
+                                ? Theme.Badge.accentBackground
+                                : Color.clear
+                        )
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(Color(nsColor: .quaternaryLabelColor).opacity(0.3))
+
+            // Filter pills (only for Ports tab)
+            if activeTab == .ports {
+                MenuBarFilterBar(
+                    protocolFilter: $protocolFilter,
+                    connectionTypeFilter: $connectionTypeFilter,
+                    hideSystemProcesses: $hideSystemProcesses,
+                    typeCounts: groupedFilteredPorts.mapValues { $0.count }
+                )
+            }
 
             Divider().padding(.vertical, 2)
 
-            // Port sections
+            // Content based on tab
             Group {
-                if filteredPorts.isEmpty {
-                    MenuBarEmptyState(hasSearch: !searchText.isEmpty || protocolFilter != .all)
-                } else if showTreeView {
-                    ScrollView {
-                        VStack(spacing: 2) {
-                            ForEach(groupedPorts, id: \.process) { group in
-                                MenuBarTreeSection(
-                                    processName: group.process,
-                                    ports: group.ports,
-                                    onKill: { port in viewModel.killPort(port) },
-                                    onCopy: { port in viewModel.copyPortInfo(port) }
-                                )
+                if activeTab == .ports {
+                    // Port sections
+                    if networkPorts.isEmpty {
+                        MenuBarEmptyState(hasSearch: !searchText.isEmpty || protocolFilter != .all)
+                    } else if showTreeView {
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(groupedPorts.filter { $0.ports.contains(where: { !$0.isUnixSocket }) }, id: \.process) { group in
+                                    let netPorts = group.ports.filter { !$0.isUnixSocket }
+                                    if !netPorts.isEmpty {
+                                        MenuBarTreeSection(
+                                            processName: group.process,
+                                            ports: netPorts,
+                                            onKill: { port in viewModel.killPort(port) },
+                                            onCopy: { port in viewModel.copyPortInfo(port) }
+                                        )
+                                    }
+                                }
                             }
+                            .padding(.vertical, 6)
                         }
-                        .padding(.vertical, 6)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(ConnectionType.allCases) { type in
+                                    let portsForType = (groupedFilteredPorts[type] ?? []).filter { !$0.isUnixSocket }
+                                    if !portsForType.isEmpty {
+                                        MenuBarPortSection(
+                                            title: type.rawValue,
+                                            icon: type.icon,
+                                            iconColor: type.color,
+                                            ports: portsForType,
+                                            onKill: { port in viewModel.killPort(port) },
+                                            onCopy: { port in viewModel.copyPortInfo(port) },
+                                            tunnelDetailProvider: { port in viewModel.tunnelDetail(for: port) },
+                                            tunnelNameProvider: { port in viewModel.tunnelName(for: port) },
+                                            namespaceProvider: type == .kubernetes ? { port in viewModel.kubeNamespace(for: port) } : nil,
+                                            isLocalSection: type == .local,
+                                            statusColor: type.color
+                                        )
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
                     }
                 } else {
-                    ScrollView {
-                        VStack(spacing: 2) {
-                            ForEach(ConnectionType.allCases) { type in
-                                let portsForType = groupedFilteredPorts[type] ?? []
-                                if !portsForType.isEmpty {
-                                    MenuBarPortSection(
-                                        title: type.rawValue,
-                                        icon: type.icon,
-                                        iconColor: type.color,
-                                        ports: portsForType,
-                                        onKill: { port in viewModel.killPort(port) },
-                                        onCopy: { port in viewModel.copyPortInfo(port) },
-                                        tunnelDetailProvider: { port in viewModel.tunnelDetail(for: port) },
-                                        tunnelNameProvider: { port in viewModel.tunnelName(for: port) },
-                                        namespaceProvider: type == .kubernetes ? { port in viewModel.kubeNamespace(for: port) } : nil,
-                                        isLocalSection: type == .local,
-                                        statusColor: type.color
+                    // Sockets tab - show Unix socket processes with PIDs
+                    if socketProcesses.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "point.3.connected.trianglepath.dotted")
+                                .font(.system(size: 24))
+                                .foregroundColor(.secondary)
+                            Text("No App Sockets")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("Local app daemons with Unix sockets appear here")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(socketProcesses, id: \.id) { proc in
+                                    MenuBarSocketRow(
+                                        process: proc,
+                                        processType: ProcessClassifier.shared.classify(pid: proc.pid),
+                                        onKill: { viewModel.killPort(proc.port) },
+                                        onCopy: { viewModel.copyPortInfo(proc) }
                                     )
                                 }
                             }
+                            .padding(.vertical, 6)
                         }
-                        .padding(.vertical, 6)
                     }
                 }
             }
@@ -147,32 +243,92 @@ struct MenuBarDropdownView: View {
     }
 }
 
-// MARK: - Protocol Picker
-struct MenuBarProtocolPicker: View {
-    @Binding var selected: MenuBarProtocolFilter
+// MARK: - Filter Bar
+struct MenuBarFilterBar: View {
+    @Binding var protocolFilter: MenuBarProtocolFilter
+    @Binding var connectionTypeFilter: ConnectionType?
+    @Binding var hideSystemProcesses: Bool
+    let typeCounts: [ConnectionType: Int]
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(MenuBarProtocolFilter.allCases, id: \.self) { filter in
-                Button(action: { selected = filter }) {
-                    Text(filter.rawValue)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(selected == filter ? .white : .secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+        VStack(spacing: 4) {
+            // Row 1: Protocol + Hide System
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    ForEach(MenuBarProtocolFilter.allCases, id: \.self) { filter in
+                        Button(action: { protocolFilter = protocolFilter == filter ? .all : filter }) {
+                            Text(filter.rawValue)
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(protocolFilter == filter ? .white : .secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(
+                                    protocolFilter == filter
+                                        ? Theme.Badge.accentBackground
+                                        : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
+                                )
+                                .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 1, height: 14)
+
+                    // Connection type pills
+                    ForEach(ConnectionType.allCases) { type in
+                        let count = typeCounts[type] ?? 0
+                        Button(action: {
+                            connectionTypeFilter = connectionTypeFilter == type ? nil : type
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: type.icon)
+                                    .font(.system(size: 8))
+                                if count > 0 {
+                                    Text("\(count)")
+                                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                }
+                            }
+                            .foregroundColor(connectionTypeFilter == type ? .white : type.color)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                connectionTypeFilter == type
+                                    ? type.color
+                                    : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
+                            )
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                        .help(type.rawValue)
+                    }
+
+                    Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 1, height: 14)
+
+                    // Hide system toggle
+                    Button(action: { hideSystemProcesses.toggle() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: hideSystemProcesses ? "eye.slash" : "eye")
+                                .font(.system(size: 8))
+                            Text("Sys")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .foregroundColor(hideSystemProcesses ? .white : .secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
                         .background(
-                            selected == filter
-                                ? Theme.Badge.accentBackground
+                            hideSystemProcesses
+                                ? Theme.Section.ssh
                                 : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
                         )
-                        .cornerRadius(10)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .help(hideSystemProcesses ? "Show system processes" : "Hide system processes")
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
             }
-            Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 5)
     }
 }
 
@@ -183,15 +339,17 @@ struct MenuBarSearchHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: Theme.Icon.appLogo)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [Theme.Action.treeView, Theme.Section.kubernetes],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+            VStack(spacing: 0) {
+                Image(systemName: "network.badge.shield.half.filled")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Theme.Action.treeView, Theme.Section.kubernetes],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
+            }
 
             HStack(spacing: 6) {
                 Image(systemName: Theme.Icon.search)
@@ -288,7 +446,7 @@ struct MenuBarPortSection: View {
                         )
                     }
                 } else {
-                    ForEach(ports, id: \.port) { port in
+                    ForEach(ports, id: \.id) { port in
                         MenuBarDropdownPortRow(
                             port: port,
                             onKill: { onKill(port.port) },
@@ -343,7 +501,7 @@ struct MenuBarNamespaceSubSection: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                ForEach(ports, id: \.port) { port in
+                ForEach(ports, id: \.id) { port in
                     MenuBarDropdownPortRow(
                         port: port,
                         onKill: { onKill(port.port) },
@@ -393,7 +551,7 @@ struct MenuBarTreeSection: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                ForEach(ports, id: \.port) { port in
+                ForEach(ports, id: \.id) { port in
                     MenuBarDropdownPortRow(
                         port: port,
                         onKill: { onKill(port.port) },
@@ -427,9 +585,15 @@ struct MenuBarDropdownPortRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
-                    Text(":\(port.port)")
-                        .font(.system(size: 12, design: .monospaced))
-                        .fontWeight(.medium)
+                    if port.isUnixSocket {
+                        Text("PID \(port.pid)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .fontWeight(.medium)
+                    } else {
+                        Text(":\(port.port)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .fontWeight(.medium)
+                    }
 
                     Text(port.protocolName.uppercased())
                         .font(.system(size: 9, weight: .medium))
@@ -452,6 +616,12 @@ struct MenuBarDropdownPortRow: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
+                } else if let socketPath = port.socketPath {
+                    Text(socketPath)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
 
@@ -649,6 +819,97 @@ struct MenuBarActionButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+        }
+    }
+}
+
+// MARK: - Socket Row (for Sockets tab)
+struct MenuBarSocketRow: View {
+    let process: PortProcess
+    let processType: ProcessType
+    let onKill: () -> Void
+    let onCopy: () -> Void
+
+    @State private var isHovered = false
+
+    private var typeColor: Color {
+        switch processType {
+        case .system: return Theme.Classification.system
+        case .userApp: return Theme.Classification.userApp
+        case .developerTool: return Theme.Classification.developerTool
+        case .other: return Theme.Classification.other
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(typeColor)
+                .frame(width: Theme.Size.statusDotLarge, height: Theme.Size.statusDotLarge)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(process.command)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+
+                    Text("PID \(process.pid)")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(typeColor.opacity(0.8))
+                        .cornerRadius(4)
+
+                    Text(processType.rawValue)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
+                        .cornerRadius(3)
+                }
+
+                if let socketPath = process.socketPath {
+                    Text(socketPath)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else if let fullCmd = process.fullCommand {
+                    Text(fullCmd)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Spacer()
+
+            if isHovered {
+                Button(action: onCopy) {
+                    Image(systemName: Theme.Icon.copy)
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.Action.treeView)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onKill) {
+                    Image(systemName: Theme.Icon.kill)
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.Action.kill)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(isHovered ? Theme.Surface.hover : .clear)
+        .cornerRadius(Theme.Size.cornerRadiusSmall)
+        .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
         }

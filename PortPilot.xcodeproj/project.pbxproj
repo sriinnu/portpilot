@@ -13,30 +13,49 @@
 		0B024D3B0C818006E02CA79D /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E705010BB6BCC26217B8BE0 /* MenuBarController.swift */; };
 		10D96EE61150BDB66AE0029F /* PortPilotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */; };
 		135F70795593D5787A37120D /* MenuBarDropdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */; };
+		36BBA1CD6F505249CD1D6184 /* TCPProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27629EA5FE623F463B619EAB /* TCPProxyManager.swift */; };
+		3CC8F08BC715035E95B24F96 /* InteractiveMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588D0EFE0FBD4393233E704D /* InteractiveMode.swift */; };
+		45B63A44A1DCA31EF12C887F /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = A31E063060BCD5F12FF17B27 /* ArgumentParser */; };
 		53FADF13C4BE66641E932DA1 /* PortViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */; };
 		559D9C8BC5304235283C5518 /* LogsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774B16A739CCA03682C7791E /* LogsPanel.swift */; };
 		5D7BACC7B281C23E9110B48B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F425A17AF5886E28CEAECA52 /* ContentView.swift */; };
 		64CD01E9489530F2554BF1EE /* PortListPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3642965AC0E095B5E0863B11 /* PortListPanel.swift */; };
 		680841545D8FF9CC9A107352 /* PortWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E856A016D49BF0EA323BF579 /* PortWatcher.swift */; };
+		6E28F1020175E3718E988818 /* FavoritesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */; };
+		8C3BCB5E2BDD443952126871 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D852C65A93061DC605B8E880 /* Theme.swift */; };
 		9343794A1F217DEC030C0BD7 /* MainWindowToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A861967EF449E3C64C56EE0 /* MainWindowToolbar.swift */; };
 		9B0A28A18BA8D2DE42700994 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3F7925D712801392988B9C16 /* Assets.xcassets */; };
+		A5C7B7031CBD15F652D56C54 /* PortManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */; };
+		A8C2647D076157EE14C94959 /* ProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */; };
+		B323941FDAF42AF131E25F4C /* PortWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E856A016D49BF0EA323BF579 /* PortWatcher.swift */; };
 		B6056CDF3AC5F27F7445D59E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73849239FC92C331256E34F8 /* SettingsView.swift */; };
+		B7592B5695DBABFDA4FD2AAA /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = 8AC5A41FA239A188B477F865 /* ArgumentParser */; };
+		B897DFA2984AFA8DA0EF4370 /* TCPProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27629EA5FE623F463B619EAB /* TCPProxyManager.swift */; };
 		BA480F29F6C419D18820C9A2 /* MenuBarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */; };
+		BB0285020B57C85A45E9C530 /* CLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CE2A404599C5F45A843D7C /* CLI.swift */; };
 		DF5E4A8F751D7C40856D8F17 /* menubar_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 64AC2C24FB81D274ADBAA08D /* menubar_icon.png */; };
 		E1A03A464A6EAB4D026ED740 /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */; };
-		D4E5F6A1B2C30718293A4B5C /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* Theme.swift */; };
 		E2851162D6E2FE56F6B01127 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306E20A02CAD6507A9EABC0D /* AppSettings.swift */; };
+		ED36F456BF44A34D39E05933 /* PortForwardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97954318FFAD19EBB7495DBF /* PortForwardSheet.swift */; };
+		F773C21500E67FB766BE028B /* PortHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AFDD18AB717D8523F24B00D /* PortHistoryView.swift */; };
+		F8B95C825566C7102D39B04B /* ProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */; };
+		FBCDFFA1C78CC98B520C00DB /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0397B2DBB0086B28EA73306C /* portpilot */ = {isa = PBXFileReference; includeInIndex = 0; path = portpilot; sourceTree = BUILT_PRODUCTS_DIR; };
 		1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPilotApp.swift; sourceTree = "<group>"; };
 		2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationPanel.swift; sourceTree = "<group>"; };
+		27629EA5FE623F463B619EAB /* TCPProxyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPProxyManager.swift; sourceTree = "<group>"; };
 		29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortViewModel.swift; sourceTree = "<group>"; };
+		2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessClassifier.swift; sourceTree = "<group>"; };
 		306E20A02CAD6507A9EABC0D /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryManager.swift; sourceTree = "<group>"; };
+		32CE2A404599C5F45A843D7C /* CLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLI.swift; sourceTree = "<group>"; };
 		3642965AC0E095B5E0863B11 /* PortListPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListPanel.swift; sourceTree = "<group>"; };
 		3F7925D712801392988B9C16 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4538E828BD932E87FB855FE4 /* PortPilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortPilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		588D0EFE0FBD4393233E704D /* InteractiveMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveMode.swift; sourceTree = "<group>"; };
 		64AC2C24FB81D274ADBAA08D /* menubar_icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = menubar_icon.png; sourceTree = "<group>"; };
 		6D00CC9727B2DEBDF517DEF8 /* PortPilot.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PortPilot.entitlements; sourceTree = "<group>"; };
 		73849239FC92C331256E34F8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -45,13 +64,34 @@
 		8A861967EF449E3C64C56EE0 /* MainWindowToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowToolbar.swift; sourceTree = "<group>"; };
 		8E705010BB6BCC26217B8BE0 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesManager.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4B5C /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		97954318FFAD19EBB7495DBF /* PortForwardSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortForwardSheet.swift; sourceTree = "<group>"; };
+		9AFDD18AB717D8523F24B00D /* PortHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortHistoryView.swift; sourceTree = "<group>"; };
 		AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanel.swift; sourceTree = "<group>"; };
 		B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortManager.swift; sourceTree = "<group>"; };
 		C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarDropdownView.swift; sourceTree = "<group>"; };
+		D852C65A93061DC605B8E880 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		E856A016D49BF0EA323BF579 /* PortWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortWatcher.swift; sourceTree = "<group>"; };
 		F425A17AF5886E28CEAECA52 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1CA11F834E13BE45A301B63B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7592B5695DBABFDA4FD2AAA /* ArgumentParser in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5D4D0D4A834D8EEC4AF2BE12 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				45B63A44A1DCA31EF12C887F /* ArgumentParser in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		1216CFD81C08D52E410A16C8 /* PortPilot */ = {
@@ -68,12 +108,14 @@
 				8E705010BB6BCC26217B8BE0 /* MenuBarController.swift */,
 				C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */,
 				AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */,
+				97954318FFAD19EBB7495DBF /* PortForwardSheet.swift */,
+				9AFDD18AB717D8523F24B00D /* PortHistoryView.swift */,
 				3642965AC0E095B5E0863B11 /* PortListPanel.swift */,
 				6D00CC9727B2DEBDF517DEF8 /* PortPilot.entitlements */,
 				1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */,
 				29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */,
 				73849239FC92C331256E34F8 /* SettingsView.swift */,
-				A1B2C3D4E5F60718293A4B5C /* Theme.swift */,
+				D852C65A93061DC605B8E880 /* Theme.swift */,
 			);
 			name = PortPilot;
 			path = Sources/PortPilot;
@@ -82,6 +124,7 @@
 		5553A2760A7223C67F500D4C /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				0397B2DBB0086B28EA73306C /* portpilot */,
 				4538E828BD932E87FB855FE4 /* PortPilot.app */,
 			);
 			name = Products;
@@ -94,6 +137,8 @@
 				30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */,
 				B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */,
 				E856A016D49BF0EA323BF579 /* PortWatcher.swift */,
+				2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */,
+				27629EA5FE623F463B619EAB /* TCPProxyManager.swift */,
 			);
 			name = PortManagerLib;
 			path = Sources/PortManagerLib;
@@ -102,21 +147,52 @@
 		983A46182F4FDFFFDCF4809C = {
 			isa = PBXGroup;
 			children = (
+				E6F92F38F122F389CD7D46FD /* PortKillerCLI */,
 				66F303C5E78C62B382C796F6 /* PortManagerLib */,
 				1216CFD81C08D52E410A16C8 /* PortPilot */,
 				5553A2760A7223C67F500D4C /* Products */,
 			);
 			sourceTree = "<group>";
 		};
+		E6F92F38F122F389CD7D46FD /* PortKillerCLI */ = {
+			isa = PBXGroup;
+			children = (
+				32CE2A404599C5F45A843D7C /* CLI.swift */,
+				588D0EFE0FBD4393233E704D /* InteractiveMode.swift */,
+			);
+			name = PortKillerCLI;
+			path = Sources/PortKillerCLI;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		34DCD69A3EDEF82D08FEDB61 /* portpilot */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F674CB5FA1EEEBC31B6D088C /* Build configuration list for PBXNativeTarget "portpilot" */;
+			buildPhases = (
+				764A482109706F2359D62E6D /* Sources */,
+				1CA11F834E13BE45A301B63B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = portpilot;
+			packageProductDependencies = (
+				8AC5A41FA239A188B477F865 /* ArgumentParser */,
+			);
+			productName = portpilot;
+			productReference = 0397B2DBB0086B28EA73306C /* portpilot */;
+			productType = "com.apple.product-type.tool";
+		};
 		4D26D46F9213594A6115E704 /* PortPilot */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = F8B4770BCE14AB626EDC33F3 /* Build configuration list for PBXNativeTarget "PortPilot" */;
 			buildPhases = (
 				F90A23A44A6D1E6D8517AE88 /* Sources */,
 				28AD33E258716B630F56D450 /* Resources */,
+				5D4D0D4A834D8EEC4AF2BE12 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -124,6 +200,7 @@
 			);
 			name = PortPilot;
 			packageProductDependencies = (
+				A31E063060BCD5F12FF17B27 /* ArgumentParser */,
 			);
 			productName = PortPilot;
 			productReference = 4538E828BD932E87FB855FE4 /* PortPilot.app */;
@@ -138,6 +215,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
+					34DCD69A3EDEF82D08FEDB61 = {
+						ProvisioningStyle = Manual;
+					};
 					4D26D46F9213594A6115E704 = {
 						ProvisioningStyle = Manual;
 					};
@@ -153,11 +233,15 @@
 			);
 			mainGroup = 983A46182F4FDFFFDCF4809C;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1ECDB724DB889E24C5DA033 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
+			);
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				4D26D46F9213594A6115E704 /* PortPilot */,
+				34DCD69A3EDEF82D08FEDB61 /* portpilot */,
 			);
 		};
 /* End PBXProject section */
@@ -175,6 +259,21 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		764A482109706F2359D62E6D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB0285020B57C85A45E9C530 /* CLI.swift in Sources */,
+				6E28F1020175E3718E988818 /* FavoritesManager.swift in Sources */,
+				FBCDFFA1C78CC98B520C00DB /* HistoryManager.swift in Sources */,
+				3CC8F08BC715035E95B24F96 /* InteractiveMode.swift in Sources */,
+				A5C7B7031CBD15F652D56C54 /* PortManager.swift in Sources */,
+				B323941FDAF42AF131E25F4C /* PortWatcher.swift in Sources */,
+				A8C2647D076157EE14C94959 /* ProcessClassifier.swift in Sources */,
+				36BBA1CD6F505249CD1D6184 /* TCPProxyManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F90A23A44A6D1E6D8517AE88 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -189,13 +288,17 @@
 				0B024D3B0C818006E02CA79D /* MenuBarController.swift in Sources */,
 				135F70795593D5787A37120D /* MenuBarDropdownView.swift in Sources */,
 				BA480F29F6C419D18820C9A2 /* MenuBarPanel.swift in Sources */,
+				ED36F456BF44A34D39E05933 /* PortForwardSheet.swift in Sources */,
+				F773C21500E67FB766BE028B /* PortHistoryView.swift in Sources */,
 				64CD01E9489530F2554BF1EE /* PortListPanel.swift in Sources */,
 				090F6E3B429AC22F6E659A6A /* PortManager.swift in Sources */,
 				10D96EE61150BDB66AE0029F /* PortPilotApp.swift in Sources */,
 				53FADF13C4BE66641E932DA1 /* PortViewModel.swift in Sources */,
 				680841545D8FF9CC9A107352 /* PortWatcher.swift in Sources */,
+				F8B95C825566C7102D39B04B /* ProcessClassifier.swift in Sources */,
 				B6056CDF3AC5F27F7445D59E /* SettingsView.swift in Sources */,
-				D4E5F6A1B2C30718293A4B5C /* Theme.swift in Sources */,
+				B897DFA2984AFA8DA0EF4370 /* TCPProxyManager.swift in Sources */,
+				8C3BCB5E2BDD443952126871 /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,6 +387,20 @@
 			};
 			name = Debug;
 		};
+		B18181C47FAB83AB5868A6BE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.portpilot.cli;
+				PRODUCT_NAME = portpilot;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
 		C871091CCF4D2C8172ABCA78 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -359,6 +476,20 @@
 			};
 			name = Release;
 		};
+		DEA554090E34A4941998EA12 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.portpilot.cli;
+				PRODUCT_NAME = portpilot;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -367,6 +498,15 @@
 			buildConfigurations = (
 				0E5CD22E887B8A4ED5D40B65 /* Debug */,
 				D25457CB5574850DDB29F980 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F674CB5FA1EEEBC31B6D088C /* Build configuration list for PBXNativeTarget "portpilot" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DEA554090E34A4941998EA12 /* Debug */,
+				B18181C47FAB83AB5868A6BE /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -381,6 +521,30 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A1ECDB724DB889E24C5DA033 /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-argument-parser.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8AC5A41FA239A188B477F865 /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1ECDB724DB889E24C5DA033 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
+		};
+		A31E063060BCD5F12FF17B27 /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1ECDB724DB889E24C5DA033 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = CB34D621EC9DCC7C24CDACCA /* Project object */;
 }

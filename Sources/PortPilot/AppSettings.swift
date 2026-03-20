@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import SwiftUI
 
 // MARK: - Appearance Mode
 enum AppearanceMode: String, CaseIterable, Identifiable {
@@ -9,6 +10,44 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     case dark = "Dark"
 
     var id: String { rawValue }
+}
+
+// MARK: - Custom Program
+struct CustomProgram: Codable, Identifiable, Hashable {
+    var id: UUID
+    var name: String
+    var processNames: [String]
+    var icon: String
+    var colorHex: String
+
+    var color: Color {
+        Color(hex: colorHex) ?? .accentColor
+    }
+
+    init(id: UUID = UUID(), name: String, processNames: [String], icon: String = "app.fill", colorHex: String = "#007AFF") {
+        self.id = id
+        self.name = name
+        self.processNames = processNames
+        self.icon = icon
+        self.colorHex = colorHex
+    }
+}
+
+// MARK: - Color Hex Extension
+extension Color {
+    init?(hex: String) {
+        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        hexSanitized = hexSanitized.replacingOccurrences(of: "#", with: "")
+
+        var rgb: UInt64 = 0
+        guard Scanner(string: hexSanitized).scanHexInt64(&rgb) else { return nil }
+
+        let r = Double((rgb & 0xFF0000) >> 16) / 255.0
+        let g = Double((rgb & 0x00FF00) >> 8) / 255.0
+        let b = Double(rgb & 0x0000FF) / 255.0
+
+        self.init(red: r, green: g, blue: b)
+    }
 }
 
 // MARK: - App Settings
@@ -30,6 +69,8 @@ class AppSettings: ObservableObject {
         static let confirmBeforeKill = "confirmBeforeKill"
         static let defaultForceKill = "defaultForceKill"
         static let appearanceMode = "AppearanceMode"
+        static let reservedPorts = "ReservedPorts"
+        static let customPrograms = "CustomPrograms"
     }
 
     // Published properties
@@ -111,6 +152,18 @@ class AppSettings: ObservableObject {
         }
     }
 
+    @Published var reservedPorts: [Int] {
+        didSet {
+            defaults.set(reservedPorts, forKey: Keys.reservedPorts)
+        }
+    }
+
+    @Published var customPrograms: [CustomProgram] {
+        didSet {
+            saveCustomPrograms()
+        }
+    }
+
     private init() {
         self.showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? true
         self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
@@ -125,6 +178,10 @@ class AppSettings: ObservableObject {
 
         let modeString = defaults.string(forKey: Keys.appearanceMode) ?? "System"
         self.appearanceMode = AppearanceMode(rawValue: modeString) ?? .system
+
+        self.reservedPorts = defaults.array(forKey: Keys.reservedPorts) as? [Int] ?? []
+
+        self.customPrograms = Self.loadCustomPrograms()
 
         NotificationManager.shared.notificationsEnabled = showNotifications
     }
@@ -161,6 +218,64 @@ class AppSettings: ObservableObject {
         if backgroundMonitoring {
             NotificationManager.shared.startWatching()
         }
+    }
+
+    // MARK: - Custom Programs Persistence
+
+    private static func loadCustomPrograms() -> [CustomProgram] {
+        guard let data = UserDefaults.standard.data(forKey: Keys.customPrograms) else {
+            return defaultCustomPrograms()
+        }
+        do {
+            return try JSONDecoder().decode([CustomProgram].self, from: data)
+        } catch {
+            print("Failed to decode custom programs: \(error)")
+            return defaultCustomPrograms()
+        }
+    }
+
+    private func saveCustomPrograms() {
+        do {
+            let data = try JSONEncoder().encode(customPrograms)
+            UserDefaults.standard.set(data, forKey: Keys.customPrograms)
+        } catch {
+            print("Failed to encode custom programs: \(error)")
+        }
+    }
+
+    private static func defaultCustomPrograms() -> [CustomProgram] {
+        [
+            CustomProgram(
+                name: "PostgreSQL",
+                processNames: ["postgres", "postmaster", "pg_ctl"],
+                icon: "cylinder.fill",
+                colorHex: "#336791"
+            ),
+            CustomProgram(
+                name: "Redis",
+                processNames: ["redis-server", "redis-cli", "redis-sentinel"],
+                icon: "square.stack.3d.up.fill",
+                colorHex: "#DC382D"
+            ),
+            CustomProgram(
+                name: "MongoDB",
+                processNames: ["mongod", "mongos"],
+                icon: "leaf.fill",
+                colorHex: "#47A248"
+            ),
+            CustomProgram(
+                name: "Node.js",
+                processNames: ["node", "node.exe"],
+                icon: "chevron.left.forwardslash.chevron.right",
+                colorHex: "#339933"
+            ),
+            CustomProgram(
+                name: "Docker",
+                processNames: ["docker", "dockerd", "containerd"],
+                icon: "shippingbox.fill",
+                colorHex: "#2496ED"
+            ),
+        ]
     }
 }
 

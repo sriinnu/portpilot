@@ -25,12 +25,22 @@ struct SettingsView: View {
                     Label("Notifications", systemImage: "bell")
                 }
 
+            ReservedPortsSettingsView()
+                .tabItem {
+                    Label("Reserved", systemImage: "lock.shield")
+                }
+
+            CustomProgramsSettingsView()
+                .tabItem {
+                    Label("Programs", systemImage: "app.fill")
+                }
+
             AboutSettingsView()
                 .tabItem {
                     Label("About", systemImage: "info.circle")
                 }
         }
-        .frame(width: 480, height: 380)
+        .frame(width: 480, height: 420)
     }
 }
 
@@ -97,10 +107,12 @@ struct AppearanceSettingsView: View {
 
             Section {
                 HStack(spacing: 16) {
+                    // System preview
+                    AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .system, label: "System")
                     // Light preview
-                    AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .light)
+                    AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .light, label: "Light")
                     // Dark preview
-                    AppearancePreviewCard(isDark: true, isActive: appSettings.appearanceMode == .dark)
+                    AppearancePreviewCard(isDark: true, isActive: appSettings.appearanceMode == .dark, label: "Dark")
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 4)
@@ -133,39 +145,40 @@ struct AppearanceSettingsView: View {
 struct AppearancePreviewCard: View {
     let isDark: Bool
     let isActive: Bool
+    var label: String = "Light"
 
     var body: some View {
         VStack(spacing: 6) {
             RoundedRectangle(cornerRadius: 8)
                 .fill(isDark ? Color(white: 0.15) : Color(white: 0.95))
-                .frame(width: 120, height: 70)
+                .frame(width: 100, height: 60)
                 .overlay(
                     VStack(spacing: 4) {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(isDark ? Color(white: 0.25) : Color(white: 0.85))
-                            .frame(height: 12)
+                            .frame(height: 10)
                         HStack(spacing: 4) {
-                            Circle().fill(Theme.Status.connected).frame(width: 6, height: 6)
+                            Circle().fill(Theme.Status.connected).frame(width: 5, height: 5)
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(isDark ? Color(white: 0.3) : Color(white: 0.8))
-                                .frame(height: 8)
+                                .frame(height: 6)
                         }
                         HStack(spacing: 4) {
-                            Circle().fill(Theme.Status.connected).frame(width: 6, height: 6)
+                            Circle().fill(Theme.Status.connected).frame(width: 5, height: 5)
                             RoundedRectangle(cornerRadius: 2)
                                 .fill(isDark ? Color(white: 0.3) : Color(white: 0.8))
-                                .frame(height: 8)
+                                .frame(height: 6)
                         }
                     }
-                    .padding(8)
+                    .padding(6)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(isActive ? Color.accentColor : Color.clear, lineWidth: 2)
                 )
 
-            Text(isDark ? "Dark" : "Light")
-                .font(.system(size: 11))
+            Text(label)
+                .font(.system(size: 11, weight: isActive ? .semibold : .regular))
                 .foregroundColor(isActive ? .primary : .secondary)
         }
     }
@@ -306,6 +319,349 @@ struct NotificationsSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+}
+
+// MARK: - Reserved Ports Settings
+struct ReservedPortsSettingsView: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+    @EnvironmentObject var viewModel: PortViewModel
+    @State private var newReservedPort: String = ""
+    @State private var showWarning: Bool = false
+    @State private var warningMessage: String = ""
+
+    var body: some View {
+        Form {
+            Section {
+                Text("Reserved ports are protected from being accidentally killed. When a reserved port becomes occupied by an unknown process, you'll receive a warning notification.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("About Reserved Ports")
+            }
+
+            Section {
+                HStack {
+                    TextField("Port number", text: $newReservedPort)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                    Button("Add Port") {
+                        if let port = Int(newReservedPort), port > 0, port <= 65535 {
+                            if !appSettings.reservedPorts.contains(port) {
+                                appSettings.reservedPorts.append(port)
+                                appSettings.reservedPorts.sort()
+                                newReservedPort = ""
+                            }
+                        }
+                    }
+                    .disabled(newReservedPort.isEmpty || Int(newReservedPort) == nil)
+                }
+
+                if !appSettings.reservedPorts.isEmpty {
+                    ForEach(appSettings.reservedPorts, id: \.self) { port in
+                        HStack {
+                            Image(systemName: "lock.shield.fill")
+                                .foregroundColor(Theme.Status.warning)
+                                .font(.system(size: 12))
+                            Text("Port \(port)")
+                                .font(.system(size: 12, design: .monospaced))
+                            Spacer()
+
+                            // Show warning if port is occupied
+                            if let process = viewModel.ports.first(where: { $0.port == port }) {
+                                Text("Occupied by \(process.command)")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(Theme.Status.error)
+                            } else {
+                                Text("Available")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(Theme.Status.connected)
+                            }
+
+                            Button(action: {
+                                appSettings.reservedPorts.removeAll { $0 == port }
+                            }) {
+                                Image(systemName: Theme.Icon.clearSearch)
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                } else {
+                    Text("No reserved ports configured")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } header: {
+                Text("Reserved Ports")
+            } footer: {
+                Text("Add ports that should be protected. You can still manually kill processes on reserved ports.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Section {
+                Button("Check Reserved Ports") {
+                    let threatened = viewModel.checkReservedPorts()
+                    if threatened.isEmpty {
+                        warningMessage = "All reserved ports are available."
+                        showWarning = true
+                    } else {
+                        let descriptions = threatened.map { "Port \($0.port): \($0.occupant)" }.joined(separator: "\n")
+                        warningMessage = "Warning: The following reserved ports are occupied:\n\(descriptions)"
+                        showWarning = true
+                    }
+                }
+            } header: {
+                Text("Status")
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .alert("Reserved Ports Status", isPresented: $showWarning) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(warningMessage)
+        }
+    }
+}
+
+// MARK: - Custom Programs Settings
+struct CustomProgramsSettingsView: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+    @EnvironmentObject var viewModel: PortViewModel
+
+    @State private var editingProgram: CustomProgram?
+    @State private var isAddingNew: Bool = false
+    @State private var newProgramName: String = ""
+    @State private var newProcessNames: String = ""
+    @State private var newIcon: String = "app.fill"
+    @State private var newColorHex: String = "#007AFF"
+
+    private let availableIcons = [
+        "app.fill", "desktopcomputer", "server.rack", "cylinder.fill",
+        "square.stack.3d.up.fill", "leaf.fill", "chevron.left.forwardslash.chevron.right",
+        "shippingbox.fill", "film", "music.note", "gamecontroller.fill",
+        "brackets.curl", "terminal.fill", "hammer.fill", "wrench.and.screwdriver.fill"
+    ]
+
+    private let availableColors = [
+        "#007AFF", "#34C759", "#FF9500", "#FF3B30",
+        "#5856D6", "#AF52DE", "#00C7BE", "#FF2D55",
+        "#336791", "#DC382D", "#47A248", "#2496ED"
+    ]
+
+    var body: some View {
+        Form {
+            Section {
+                Text("Custom programs let you track all PIDs for a program by its process name(s). Define which process names to track, then view and kill all processes from Settings or the main window.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("About Custom Programs")
+            }
+
+            Section {
+                if appSettings.customPrograms.isEmpty {
+                    Text("No custom programs configured")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(appSettings.customPrograms) { program in
+                        HStack(spacing: 12) {
+                            Image(systemName: program.icon)
+                                .font(.system(size: 16))
+                                .foregroundColor(program.color)
+                                .frame(width: 24)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(program.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                Text(program.processNames.joined(separator: ", "))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer()
+
+                            // Show running count
+                            let processes = viewModel.getProcessesByName(names: program.processNames)
+                            if !processes.isEmpty {
+                                Text("\(processes.count) running")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(Theme.Status.connected)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Theme.Badge.connectedBackground)
+                                    .cornerRadius(4)
+                            }
+
+                            Button(action: {
+                                editingProgram = program
+                                newProgramName = program.name
+                                newProcessNames = program.processNames.joined(separator: ", ")
+                                newIcon = program.icon
+                                newColorHex = program.colorHex
+                                isAddingNew = false
+                            }) {
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(.borderless)
+
+                            Button(action: {
+                                appSettings.customPrograms.removeAll { $0.id == program.id }
+                            }) {
+                                Image(systemName: Theme.Icon.clearSearch)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Theme.Status.error)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+            } header: {
+                Text("Custom Programs")
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .sheet(item: $editingProgram) { program in
+            CustomProgramEditorView(
+                program: program,
+                isNew: isAddingNew,
+                onSave: { name, processNames, icon, colorHex in
+                    if isAddingNew {
+                        let newProgram = CustomProgram(
+                            name: name,
+                            processNames: processNames,
+                            icon: icon,
+                            colorHex: colorHex
+                        )
+                        appSettings.customPrograms.append(newProgram)
+                    } else {
+                        if let index = appSettings.customPrograms.firstIndex(where: { $0.id == program.id }) {
+                            appSettings.customPrograms[index].name = name
+                            appSettings.customPrograms[index].processNames = processNames
+                            appSettings.customPrograms[index].icon = icon
+                            appSettings.customPrograms[index].colorHex = colorHex
+                        }
+                    }
+                    editingProgram = nil
+                },
+                onCancel: {
+                    editingProgram = nil
+                }
+            )
+        }
+    }
+}
+
+// MARK: - Custom Program Editor View
+struct CustomProgramEditorView: View {
+    let program: CustomProgram?
+    let isNew: Bool
+    let onSave: (String, [String], String, String) -> Void
+    let onCancel: () -> Void
+
+    @State private var programName: String = ""
+    @State private var processNames: String = ""
+    @State private var selectedIcon: String = "app.fill"
+    @State private var selectedColor: String = "#007AFF"
+
+    private let availableIcons = [
+        "app.fill", "desktopcomputer", "server.rack", "cylinder.fill",
+        "square.stack.3d.up.fill", "leaf.fill", "chevron.left.forwardslash.chevron.right",
+        "shippingbox.fill", "film", "music.note", "gamecontroller.fill",
+        "brackets.curl", "terminal.fill", "hammer.fill", "wrench.and.screwdriver.fill"
+    ]
+
+    private let availableColors = [
+        "#007AFF", "#34C759", "#FF9500", "#FF3B30",
+        "#5856D6", "#AF52DE", "#00C7BE", "#FF2D55",
+        "#336791", "#DC382D", "#47A248", "#2496ED"
+    ]
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text(isNew ? "Add Custom Program" : "Edit Custom Program")
+                .font(.headline)
+
+            Form {
+                Section {
+                    TextField("Program Name", text: $programName)
+                        .textFieldStyle(.roundedBorder)
+
+                    TextField("Process Names (comma-separated)", text: $processNames)
+                        .textFieldStyle(.roundedBorder)
+                        .help("e.g., postgres, postmaster, pg_ctl")
+
+                    Text("Separate multiple process names with commas. All PIDs matching these names will be tracked.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } header: {
+                    Text("Program Details")
+                }
+
+                Section {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 40))], spacing: 12) {
+                        ForEach(availableIcons, id: \.self) { icon in
+                            Button(action: { selectedIcon = icon }) {
+                                Image(systemName: icon)
+                                    .font(.system(size: 20))
+                                    .frame(width: 36, height: 36)
+                                    .background(selectedIcon == icon ? Color.accentColor.opacity(0.2) : Color.clear)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } header: {
+                    Text("Icon")
+                }
+
+                Section {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 40))], spacing: 8) {
+                        ForEach(availableColors, id: \.self) { color in
+                            Button(action: { selectedColor = color }) {
+                                Circle()
+                                    .fill(Color(hex: color) ?? .blue)
+                                    .frame(width: 28, height: 28)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(selectedColor == color ? Color.primary : Color.clear, lineWidth: 2)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } header: {
+                    Text("Color")
+                }
+            }
+
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    let names = processNames.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    onSave(programName, names, selectedIcon, selectedColor)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(programName.isEmpty || processNames.isEmpty)
+            }
+        }
+        .padding()
+        .frame(width: 400, height: 480)
+        .onAppear {
+            if let program = program {
+                programName = program.name
+                processNames = program.processNames.joined(separator: ", ")
+                selectedIcon = program.icon
+                selectedColor = program.colorHex
+            }
+        }
     }
 }
 

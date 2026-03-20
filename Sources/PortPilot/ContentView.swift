@@ -1,5 +1,4 @@
 import SwiftUI
-import PortManagerLib
 import AppKit
 
 // MARK: - Content View
@@ -12,12 +11,15 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top toolbar
+            // Top toolbar with filter pills
             MainWindowToolbar(
                 searchText: $viewModel.searchText,
+                viewModel: viewModel,
                 onRefresh: { viewModel.refreshPorts() },
                 onSettings: {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    if let delegate = NSApp.delegate as? AppDelegate {
+                        delegate.openSettingsWindow()
+                    }
                 },
                 isLoading: viewModel.isLoading,
                 portCount: viewModel.portCount,
@@ -39,7 +41,8 @@ struct ContentView: View {
                         } else {
                             viewModel.killPort(port)
                         }
-                    }
+                    },
+                    onAdd: {}
                 )
                 .frame(minWidth: 220, maxWidth: 350)
 
@@ -83,6 +86,31 @@ struct ContentView: View {
             if let success = viewModel.successMessage {
                 SuccessToast(message: success)
                     .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !viewModel.proxySessions.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.left.arrow.right.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.Section.ssh)
+                    Text("\(viewModel.proxySessions.count) active proxy")
+                        .font(.system(size: 11, weight: .medium))
+                    Button(action: { viewModel.stopAllProxies() }) {
+                        Text("Stop All")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(Theme.Action.kill)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.regularMaterial)
+                        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+                )
+                .padding(12)
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.75), value: viewModel.successMessage)

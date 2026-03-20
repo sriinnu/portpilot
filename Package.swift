@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "PortPilot",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v13),
     ],
     products: [
         .executable(

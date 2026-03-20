@@ -1,12 +1,12 @@
 import Foundation
 import Combine
-import PortManagerLib
 import AppKit
 import SwiftUI
 
 // MARK: - Connection Type
 enum ConnectionType: String, CaseIterable, Identifiable {
     case local = "Local"
+    case database = "Database"
     case kubernetes = "Kubernetes"
     case cloudflare = "Cloudflare"
     case ssh = "SSH"
@@ -16,6 +16,7 @@ enum ConnectionType: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .local: return Theme.Icon.local
+        case .database: return Theme.Icon.database
         case .kubernetes: return Theme.Icon.kubernetes
         case .cloudflare: return Theme.Icon.cloudflare
         case .ssh: return Theme.Icon.ssh
@@ -25,6 +26,7 @@ enum ConnectionType: String, CaseIterable, Identifiable {
     var color: Color {
         switch self {
         case .local: return Theme.Section.local
+        case .database: return Theme.Section.database
         case .kubernetes: return Theme.Section.kubernetes
         case .cloudflare: return Theme.Section.cloudflare
         case .ssh: return Theme.Section.ssh
@@ -73,6 +75,14 @@ struct PortMappingInfo {
     let protocolName: String
 }
 
+// MARK: - Docker Info
+struct DockerInfo {
+    let containerId: String
+    let containerName: String
+    let imageName: String
+    let status: String
+}
+
 // MARK: - Port View Model
 @MainActor
 class PortViewModel: ObservableObject {
@@ -93,6 +103,10 @@ class PortViewModel: ObservableObject {
     // Port forwards (all local for now)
     @Published var portForwards: [PortForward] = []
 
+    // Proxy sessions
+    @Published var proxySessions: [ProxySession] = []
+    @Published var isProxySheetPresented: Bool = false
+
     @Published var selectedProtocol: ProtocolFilter = .tcp {
         didSet { applyFilters() }
     }
@@ -105,9 +119,15 @@ class PortViewModel: ObservableObject {
     @Published var selectedCategory: FilterCategory = .all {
         didSet { applyFilters() }
     }
+    @Published var hideSystemProcesses: Bool = false {
+        didSet { applyFilters() }
+    }
+
+    @Published var selectedCustomProgram: CustomProgram? = nil
 
     private let portManager = PortManager()
     private var allPortsCache: [PortProcess] = []
+    private var parentProcessNameCache: [Int: String] = [:]
 
     @Published private(set) var favorites: Set<Int> = []
     @Published private(set) var connectionNames: [String: String] = [:]
@@ -115,6 +135,7 @@ class PortViewModel: ObservableObject {
     enum ProtocolFilter: String, CaseIterable {
         case tcp = "TCP"
         case udp = "UDP"
+        case unix = "Unix"
         case all = "All"
     }
 
@@ -122,6 +143,7 @@ class PortViewModel: ObservableObject {
         loadFavorites()
         loadConnectionNames()
         refreshPorts()
+        setupProxyCallbacks()
     }
 
     var portCount: Int { filteredPorts.count }
@@ -147,9 +169,43 @@ class PortViewModel: ObservableObject {
 
     // MARK: - Tunnel Detection
 
+    /// Known database process names
+    static let databaseProcesses: Set<String> = [
+        "postgres", "postmaster", "pg_ctl",      // PostgreSQL
+        "mysqld", "mariadb",                     // MySQL/MariaDB
+        "mongod", "mongos",                      // MongoDB
+        "redis-server", "redis-cli", "redis-sentinel",  // Redis
+        "memcached",                             // Memcached
+        "sqlserver",                             // SQL Server
+        "oracle",                                // Oracle
+        "cassandra",                             // Cassandra
+        "cockroach",                             // CockroachDB
+        "neo4j",                                 // Neo4j
+        "influxd",                               // InfluxDB
+        "clickhouse-server",                     // ClickHouse
+        "duckdb",                                // DuckDB
+        "qdrant",                                // Qdrant vector DB
+        "weaviate",                              // Weaviate vector DB
+        "milvus",                                // Milvus vector DB
+        "pgbouncer",                             // PgBouncer connection pooler
+        "haproxy",                               // HAProxy
+    ]
+
     func connectionType(for port: PortProcess) -> ConnectionType {
         let basename = port.command.lowercased()
         let full = (port.fullCommand ?? "").lowercased()
+
+        // Check for database processes first
+        if Self.databaseProcesses.contains(basename) {
+            return .database
+        }
+
+        // Check full command for database patterns
+        for dbProcess in Self.databaseProcesses {
+            if full.contains(dbProcess) {
+                return .database
+            }
+        }
 
         switch basename {
         case "cloudflared":
@@ -222,6 +278,8 @@ class PortViewModel: ObservableObject {
             }
             return nil
 
+        case .database:
+            return nil
         case .local:
             return nil
         }
@@ -238,6 +296,8 @@ class PortViewModel: ObservableObject {
             return parseKubectlTunnelDetail(full)
         case .cloudflare:
             return parseCloudflareTunnelDetail(full)
+        case .database:
+            return port.command
         case .local:
             return nil
         }
@@ -299,6 +359,8 @@ class PortViewModel: ObservableObject {
                 }
             }
 
+        case .database:
+            break
         case .local:
             break
         }
@@ -377,6 +439,10 @@ class PortViewModel: ObservableObject {
         return .all
     }
 
+    func processType(for port: PortProcess) -> ProcessType {
+        return ProcessClassifier.shared.classify(pid: port.pid)
+    }
+
     // MARK: - Refresh
 
     func refreshPorts() {
@@ -389,19 +455,39 @@ class PortViewModel: ObservableObject {
                 let startPort = portRangeStart.isEmpty ? nil : Int(portRangeStart)
                 let endPort = portRangeEnd.isEmpty ? nil : Int(portRangeEnd)
 
-                let processes = try portManager.getListeningProcesses(
+                var processes = try portManager.getListeningProcesses(
                     startPort: startPort,
                     endPort: endPort,
                     protocolFilter: nil
                 )
 
+                // Also discover Unix socket processes (local apps/daemons)
+                let socketProcesses = portManager.getUnixSocketProcesses()
+                // Only keep non-system socket processes (user apps, dev tools)
+                let appSocketProcesses = socketProcesses.filter {
+                    let type = ProcessClassifier.shared.classify(pid: $0.pid)
+                    return type != .system
+                }
+                processes.append(contentsOf: appSocketProcesses)
+
+                ProcessClassifier.shared.clearCache()
+
+                let totalPorts = processes.filter { !$0.isUnixSocket }.count
+                let totalSockets = appSocketProcesses.count
+
                 await MainActor.run {
-                    self.allPortsCache = processes.sorted { $0.port < $1.port }
+                    self.dockerInfoCache.removeAll()
+                    self.allPortsCache = processes.sorted {
+                        // Sort: network ports first (by port), then sockets (by command)
+                        if $0.isUnixSocket != $1.isUnixSocket { return !$0.isUnixSocket }
+                        if !$0.isUnixSocket { return $0.port < $1.port }
+                        return $0.command < $1.command
+                    }
                     self.ports = self.allPortsCache
                     self.lastRefresh = Date()
                     self.applyFilters()
                     self.isLoading = false
-                    self.addLog(source: "system", message: "Refreshed: found \(processes.count) ports", level: .info)
+                    self.addLog(source: "system", message: "Refreshed: \(totalPorts) ports, \(totalSockets) sockets", level: .info)
                 }
             } catch {
                 await MainActor.run {
@@ -438,6 +524,11 @@ class PortViewModel: ObservableObject {
 
     func applyFilters() {
         var result = allPortsCache
+
+        // Filter system processes if toggle is on
+        if hideSystemProcesses {
+            result = result.filter { !ProcessClassifier.shared.isSystemProcess(pid: $0.pid) }
+        }
 
         if selectedProtocol != .all {
             result = result.filter { $0.protocolName.lowercased() == selectedProtocol.rawValue.lowercased() }
@@ -633,11 +724,298 @@ class PortViewModel: ObservableObject {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
     }
+
+    // MARK: - Process Intelligence
+
+    /// Returns a human-readable uptime string like "2h 30m" or "3d 4h"
+    func processUptime(for port: PortProcess) -> String? {
+        guard let startTime = port.startTime else { return nil }
+        let interval = Date().timeIntervalSince(startTime)
+        guard interval > 0 else { return nil }
+
+        let secondsInMinute: Double = 60
+        let secondsInHour: Double = 3600
+        let secondsInDay: Double = 86400
+
+        let days = Int(interval / secondsInDay)
+        let hours = Int((interval.truncatingRemainder(dividingBy: secondsInDay)) / secondsInHour)
+        let minutes = Int((interval.truncatingRemainder(dividingBy: secondsInHour)) / secondsInMinute)
+
+        if days > 0 {
+            return "\(days)d \(hours)h"
+        } else if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+
+    /// Returns the parent process name for a given port process.
+    /// Results are cached per PID within the session.
+    /// Returns nil if not cached - use this only for display after data is loaded.
+    func parentProcessName(for port: PortProcess) -> String? {
+        guard let ppid = port.parentPID else { return nil }
+        // Only return cached values - don't call runCommand during view rendering
+        return parentProcessNameCache[ppid]
+    }
+
+    // MARK: - Docker Integration
+
+    /// Known Docker-related process names
+    private static let dockerProcessNames: Set<String> = [
+        "docker", "dockerd", "containerd", "docker-compose",
+        "com.docker.hyperkit", "com.docker.vpnkit", "docker-proxy"
+    ]
+
+    // Docker info cache to avoid blocking calls during rendering
+    private var dockerInfoCache: [Int: DockerInfo?] = [:]
+
+    /// Returns cached Docker container info. Never blocks - returns nil if not cached yet.
+    func dockerInfo(for port: PortProcess) -> DockerInfo? {
+        let command = port.command.lowercased()
+
+        let isDockerRelated = Self.dockerProcessNames.contains(command) ||
+                            command.contains("docker") ||
+                            command.contains("containerd")
+
+        guard isDockerRelated else { return nil }
+
+        // Return cached value if available
+        if let cached = dockerInfoCache[port.port] {
+            return cached
+        }
+
+        // Fetch asynchronously - don't block the main thread
+        let portNum = port.port
+        Task.detached { [weak self] in
+            let containerInfo = await self?.getContainerForPortAsync(portNum)
+            await MainActor.run {
+                self?.dockerInfoCache[portNum] = containerInfo
+                self?.objectWillChange.send()
+            }
+        }
+        return nil
+    }
+
+    /// Check if a port is running inside a Docker container
+    func isDockerContainer(for port: PortProcess) -> Bool {
+        let command = port.command.lowercased()
+        return Self.dockerProcessNames.contains(command) ||
+               command.contains("docker") ||
+               command.contains("containerd")
+    }
+
+    /// Get container info for a specific port (runs off main thread)
+    private nonisolated func getContainerForPortAsync(_ port: Int) -> DockerInfo? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
+        process.arguments = ["ps", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else { return nil }
+
+            let lines = output.components(separatedBy: "\n")
+            for line in lines {
+                guard !line.isEmpty else { continue }
+                let parts = line.split(separator: "|")
+                guard parts.count >= 4 else { continue }
+
+                let containerId = String(parts[0])
+                let containerName = String(parts[1])
+                let imageName = String(parts[2])
+                let status = String(parts[3])
+
+                if hasPortMappingSync(containerId: containerId, port: port) {
+                    return DockerInfo(
+                        containerId: containerId,
+                        containerName: containerName,
+                        imageName: imageName,
+                        status: status
+                    )
+                }
+            }
+        } catch {
+            // Docker not available
+        }
+
+        return nil
+    }
+
+    /// Check if a container has a specific port mapped (sync, off main thread only)
+    private nonisolated func hasPortMappingSync(containerId: String, port: Int) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
+        process.arguments = ["port", containerId]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else { return false }
+            return output.contains(":\(port)") || output.contains("\(port)/")
+        } catch {
+            return false
+        }
+    }
+
+    /// Stop a Docker container (async to avoid blocking UI)
+    func stopContainer(_ containerId: String) {
+        Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
+            process.arguments = ["stop", containerId]
+            try? process.run()
+            process.waitUntilExit()
+        }
+    }
+
+    /// Restart a Docker container (async to avoid blocking UI)
+    func restartContainer(_ containerId: String) {
+        Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
+            process.arguments = ["restart", containerId]
+            try? process.run()
+            process.waitUntilExit()
+        }
+    }
+
+    // MARK: - Reserved Ports
+
+    func isReserved(port: Int) -> Bool {
+        AppSettings.shared.reservedPorts.contains(port)
+    }
+
+    func checkReservedPorts() -> [(port: Int, occupant: String)] {
+        var threatened: [(port: Int, occupant: String)] = []
+        let reserved = AppSettings.shared.reservedPorts
+
+        for port in reserved {
+            if let process = allPortsCache.first(where: { $0.port == port }) {
+                threatened.append((port: port, occupant: "\(process.command) (PID: \(process.pid))"))
+            }
+        }
+
+        return threatened
+    }
+
+    func addReservedPort(_ port: Int) {
+        if !AppSettings.shared.reservedPorts.contains(port) && port > 0 && port <= 65535 {
+            AppSettings.shared.reservedPorts.append(port)
+            AppSettings.shared.reservedPorts.sort()
+        }
+    }
+
+    func removeReservedPort(_ port: Int) {
+        AppSettings.shared.reservedPorts.removeAll { $0 == port }
+    }
+
+    // MARK: - Custom Programs
+
+    /// Returns all custom programs with their matching processes
+    func getCustomProgramPorts() -> [(program: CustomProgram, processes: [PortProcess])] {
+        var results: [(program: CustomProgram, processes: [PortProcess])] = []
+
+        for customProgram in AppSettings.shared.customPrograms {
+            let processes = portManager.getProcessesByName(names: customProgram.processNames)
+            results.append((program: customProgram, processes: processes))
+        }
+
+        return results
+    }
+
+    /// Returns processes for a specific custom program name
+    func getCustomProgramProcesses(named name: String) -> [PortProcess] {
+        guard let customProgram = AppSettings.shared.customPrograms.first(where: { $0.name == name }) else {
+            return []
+        }
+        return portManager.getProcessesByName(names: customProgram.processNames)
+    }
+
+    /// Get processes by process names directly
+    func getProcessesByName(names: [String]) -> [PortProcess] {
+        return portManager.getProcessesByName(names: names)
+    }
+
+    /// Kill all processes matching a custom program name
+    func killCustomProgram(named name: String, force: Bool = false) throws {
+        guard let customProgram = AppSettings.shared.customPrograms.first(where: { $0.name == name }) else {
+            return
+        }
+        try portManager.killAllProcesses(named: customProgram.processNames, force: force)
+    }
+
+    /// Kill all processes for a given program name string
+    func killAllProcesses(named name: String, force: Bool = false) throws {
+        try portManager.killAllProcesses(named: [name], force: force)
+    }
+
+    // MARK: - Proxy Management
+
+    func startProxy(listenPort: Int, targetHost: String, targetPort: Int) {
+        do {
+            let session = try TCPProxyManager.shared.startProxy(
+                listenPort: listenPort,
+                targetHost: targetHost,
+                targetPort: targetPort
+            )
+            proxySessions.append(session)
+            addLog(source: "proxy", message: "Started proxy :\(listenPort) \u{2192} \(targetHost):\(targetPort)", level: .success, port: listenPort)
+        } catch {
+            errorMessage = error.localizedDescription
+            addLog(source: "proxy", message: "Failed to start proxy: \(error.localizedDescription)", level: .error)
+        }
+    }
+
+    func stopProxy(id: UUID) {
+        TCPProxyManager.shared.stopProxy(id: id)
+        proxySessions.removeAll { $0.id == id }
+        addLog(source: "proxy", message: "Stopped proxy session", level: .info)
+    }
+
+    func stopAllProxies() {
+        TCPProxyManager.shared.stopAll()
+        proxySessions.removeAll()
+        addLog(source: "proxy", message: "Stopped all proxy sessions", level: .info)
+    }
+
+    func setupProxyCallbacks() {
+        TCPProxyManager.shared.onSessionUpdated = { [weak self] session in
+            DispatchQueue.main.async {
+                if let index = self?.proxySessions.firstIndex(where: { $0.id == session.id }) {
+                    self?.proxySessions[index] = session
+                }
+            }
+        }
+        TCPProxyManager.shared.onLog = { [weak self] message in
+            DispatchQueue.main.async {
+                self?.addLog(source: "proxy", message: message, level: .info)
+            }
+        }
+        TCPProxyManager.shared.onError = { [weak self] _, error in
+            DispatchQueue.main.async {
+                self?.addLog(source: "proxy", message: error, level: .error)
+            }
+        }
+    }
 }
 
 // MARK: - PortViewModel Extension for hasActiveFilters
 extension PortViewModel {
     var hasActiveFilters: Bool {
-        !searchText.isEmpty || selectedCategory != .all || selectedProtocol != .all
+        !searchText.isEmpty || selectedCategory != .all || selectedProtocol != .all || hideSystemProcesses
     }
 }

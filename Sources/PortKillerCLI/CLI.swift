@@ -2,14 +2,7 @@ import Foundation
 import ArgumentParser
 import PortManagerLib
 
-@main
-struct PortKiller: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        abstract: "A tiny CLI for viewing and clearing ports in use by running processes.",
-        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self],
-        defaultSubcommand: List.self
-    )
-}
+// MARK: - Command Types (defined first for subcommands reference)
 
 // MARK: - List Command
 extension PortKiller {
@@ -17,13 +10,13 @@ extension PortKiller {
         static let configuration = CommandConfiguration(
             abstract: "List all processes listening on ports"
         )
-        
+
         @Option(name: .shortAndLong, help: "Start of port range")
         var start: Int?
-        
+
         @Option(name: .shortAndLong, help: "End of port range")
         var end: Int?
-        
+
         @Option(name: .shortAndLong, help: "Filter by protocol (tcp/udp)")
         var proto: String?
 
@@ -37,25 +30,25 @@ extension PortKiller {
                 endPort: end,
                 protocolFilter: proto
             )
-            
+
             if json {
                 try outputJSON(processes)
             } else {
                 outputTable(processes)
             }
         }
-        
+
         private func outputTable(_ processes: [PortProcess]) {
             if processes.isEmpty {
                 print("No processes found listening on the specified ports.")
                 return
             }
-            
+
             print("\n🔍 Listening Processes:")
             print(String(repeating: "─", count: 80))
             print(headerRow())
             print(String(repeating: "─", count: 80))
-            
+
             for process in processes.sorted(by: { $0.port < $1.port }) {
                 print(row(process))
             }
@@ -70,7 +63,7 @@ extension PortKiller {
             let user = "USER".padRight(width: 18)
             return "\(port) \(proto) \(pid) \(user) COMMAND"
         }
-        
+
         private func row(_ process: PortProcess) -> String {
             let port = "\(process.port)".padRight(width: 8)
             let proto = process.protocolName.uppercased().padRight(width: 6)
@@ -79,7 +72,7 @@ extension PortKiller {
             let command = process.command.truncated(to: 28)
             return "\(port) \(proto) \(pid) \(user) \(command)"
         }
-        
+
         private func outputJSON(_ processes: [PortProcess]) throws {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
@@ -97,20 +90,32 @@ extension PortKiller {
         static let configuration = CommandConfiguration(
             abstract: "Kill process listening on a specific port"
         )
-        
-        @Argument(help: "Port number to kill")
-        var port: Int
-        
+
+        @Argument(help: "Port number to kill (prefix with ':' for shell-style input, e.g., :8080)")
+        var port: String
+
         @Flag(name: .long, help: "Force kill without graceful termination")
         var force: Bool = false
-        
+
         @Option(name: .long, help: "Timeout for graceful termination in milliseconds")
         var timeout: Int = 5000
-        
+
         func run() throws {
             let portManager = PortManager()
-            try portManager.killProcessOnPort(port, force: force, timeout: timeout)
-            print("✅ Process on port \(port) has been terminated.")
+            let portNumber = parsePort(port)
+
+            guard portNumber > 0 else {
+                print("Invalid port number: \(port)")
+                throw ExitCode(1)
+            }
+
+            try portManager.killProcessOnPort(portNumber, force: force, timeout: timeout)
+            print("✅ Process on port \(portNumber) has been terminated.")
+        }
+
+        private func parsePort(_ input: String) -> Int {
+            let cleaned = input.hasPrefix(":") ? String(input.dropFirst()) : input
+            return Int(cleaned) ?? 0
         }
     }
 }
@@ -121,13 +126,13 @@ extension PortKiller {
         static let configuration = CommandConfiguration(
             abstract: "Interactive mode to select and kill processes"
         )
-        
+
         @Option(name: .shortAndLong, help: "Start of port range")
         var start: Int?
-        
+
         @Option(name: .shortAndLong, help: "End of port range")
         var end: Int?
-        
+
         func run() throws {
             let portManager = PortManager()
             let interactive = InteractiveMode(portManager: portManager)
@@ -142,27 +147,48 @@ extension PortKiller {
         static let configuration = CommandConfiguration(
             abstract: "Kill all processes (use with caution)"
         )
-        
+
         @Option(name: .shortAndLong, help: "Start of port range")
         var start: Int?
-        
+
         @Option(name: .shortAndLong, help: "End of port range")
         var end: Int?
-        
+
+        @Option(name: .shortAndLong, help: "Kill processes matching command pattern")
+        var pattern: String?
+
         @Flag(name: .long, help: "Force kill without confirmation")
         var force: Bool = false
         @Flag(name: .long, help: "Skip confirmation before killing")
         var yes: Bool = false
-        
+        @Flag(name: .long, help: "Show what would be killed without actually killing")
+        var dryRun: Bool = false
+
         func run() throws {
             let portManager = PortManager()
-            if !yes {
-                let processes = try portManager.getListeningProcesses(startPort: start, endPort: end)
-                guard !processes.isEmpty else {
-                    print("No processes found for the specified range.")
-                    return
+            var processes = try portManager.getListeningProcesses(startPort: start, endPort: end)
+
+            // Filter by pattern if provided
+            if let pattern = pattern, !pattern.isEmpty {
+                let lowercasedPattern = pattern.lowercased()
+                processes = processes.filter { $0.command.lowercased().contains(lowercasedPattern) }
+            }
+
+            if processes.isEmpty {
+                print("No processes found matching the criteria.")
+                return
+            }
+
+            if dryRun {
+                print("🔍 Dry run - the following processes would be killed:")
+                for process in processes.sorted(by: { $0.port < $1.port }) {
+                    print("  • \(process.port): \(process.command) (pid: \(process.pid), user: \(process.user))")
                 }
-                
+                print("\nTotal: \(processes.count) process(es)")
+                return
+            }
+
+            if !yes {
                 print("⚠️  This will kill \(processes.count) process(es):")
                 for process in processes.sorted(by: { $0.port < $1.port }) {
                     print("  • \(process.port): \(process.command) (pid: \(process.pid), user: \(process.user))")
@@ -170,11 +196,397 @@ extension PortKiller {
                 print("Add --yes to confirm, or re-run with `--force` + `--yes`.")
                 return
             }
-            
-            try portManager.killAllProcesses(startPort: start, endPort: end, force: force)
+
+            try portManager.killAllProcesses(startPort: start, endPort: end, force: force, pattern: pattern)
             print("✅ All matching processes have been terminated.")
         }
     }
+}
+
+// MARK: - PID Command
+extension PortKiller {
+    struct PID: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Get the process ID for a port"
+        )
+
+        @Argument(help: "Port number (prefix with ':' for kill-style input)")
+        var port: String
+
+        @Flag(name: .shortAndLong, help: "Output only the PID number")
+        var quiet: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+            let portNumber = parsePort(port)
+
+            guard portNumber > 0 else {
+                print("Invalid port number: \(port)")
+                throw ExitCode(1)
+            }
+
+            guard let pid = portManager.getPID(forPort: portNumber) else {
+                if !quiet {
+                    print("No process found listening on port \(portNumber)")
+                }
+                throw ExitCode(1)
+            }
+
+            if quiet {
+                print(pid)
+            } else {
+                print("Port \(portNumber) -> PID \(pid)")
+            }
+        }
+
+        private func parsePort(_ input: String) -> Int {
+            let cleaned = input.hasPrefix(":") ? String(input.dropFirst()) : input
+            return Int(cleaned) ?? 0
+        }
+    }
+}
+
+// MARK: - PIDs Command
+extension PortKiller {
+    struct PIDs: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Get process IDs for multiple ports"
+        )
+
+        @Argument(help: "Port numbers (prefix with ':' for kill-style input, e.g., :3000 :8080 :5432)")
+        var ports: [String]
+
+        @Flag(name: .shortAndLong, help: "Output only the PIDs, one per line")
+        var quiet: Bool = false
+
+        @Flag(name: .long, help: "Show only ports that are in use")
+        var occupiedOnly: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+            let portNumbers = ports.map { parsePort($0) }
+
+            guard !portNumbers.contains(0) else {
+                print("Invalid port number in input")
+                throw ExitCode(1)
+            }
+
+            let results = portManager.getPIDs(forPorts: portNumbers)
+
+            if results.isEmpty {
+                if !quiet {
+                    print("No processes found for the specified ports.")
+                }
+                return
+            }
+
+            if quiet {
+                for (_, pid) in results.sorted(by: { $0.key < $1.key }) {
+                    print(pid)
+                }
+            } else {
+                print("\n🔍 Port -> PID Mapping:")
+                print(String(repeating: "─", count: 40))
+
+                let sorted = results.sorted { $0.key < $1.key }
+                for (port, pid) in sorted {
+                    print("Port \(port)".padRight(width: 12) + "-> PID \(pid)")
+                }
+
+                print(String(repeating: "─", count: 40))
+                print("\nFound \(results.count) port(s) in use")
+            }
+        }
+
+        private func parsePort(_ input: String) -> Int {
+            let cleaned = input.hasPrefix(":") ? String(input.dropFirst()) : input
+            return Int(cleaned) ?? 0
+        }
+    }
+}
+
+// MARK: - Find Command
+extension PortKiller {
+    struct Find: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Find available ports in a range"
+        )
+
+        @Option(name: .shortAndLong, help: "Start of port range (e.g., 3000)")
+        var start: Int?
+
+        @Option(name: .shortAndLong, help: "End of port range (e.g., 9000)")
+        var end: Int?
+
+        @Option(name: .shortAndLong, help: "Number of available ports to find")
+        var count: Int = 1
+
+        @Flag(name: .long, help: "Output in JSON format")
+        var json: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+            let availablePorts = try portManager.findAvailablePorts(startPort: start, endPort: end, count: count)
+
+            if availablePorts.isEmpty {
+                print("No available ports found in the specified range.")
+                return
+            }
+
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .prettyPrinted
+                let data = try encoder.encode(availablePorts)
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print(jsonString)
+                }
+            } else {
+                print("\n🔍 Available Ports:")
+                print(String(repeating: "─", count: 40))
+                for port in availablePorts {
+                    print("  • \(port)")
+                }
+                print(String(repeating: "─", count: 40))
+                print("\nFound \(availablePorts.count) available port(s)")
+            }
+        }
+    }
+}
+
+// MARK: - Docker Command
+extension PortKiller {
+    struct Docker: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Show Docker container information for ports"
+        )
+
+        @Option(name: .shortAndLong, help: "Start of port range")
+        var start: Int?
+
+        @Option(name: .shortAndLong, help: "End of port range")
+        var end: Int?
+
+        @Flag(name: .long, help: "Show only Docker-related processes")
+        var dockerOnly: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+            let processes = try portManager.getListeningProcesses(startPort: start, endPort: end)
+
+            // Filter for Docker processes
+            let dockerProcesses = processes.filter { port in
+                let command = port.command.lowercased()
+                return Self.dockerProcessNames.contains(command) ||
+                       command.contains("docker") ||
+                       command.contains("containerd")
+            }
+
+            let displayProcesses = dockerOnly ? dockerProcesses : processes
+
+            if displayProcesses.isEmpty {
+                print("No Docker-related processes found.")
+                return
+            }
+
+            print("\n🐳 Docker Processes:")
+            print(String(repeating: "─", count: 80))
+            print("PORT     PROTO   PID       USER              COMMAND")
+            print(String(repeating: "─", count: 80))
+
+            for process in displayProcesses.sorted(by: { $0.port < $1.port }) {
+                let isDocker = Self.dockerProcessNames.contains(process.command.lowercased()) ||
+                               process.command.lowercased().contains("docker") ||
+                               process.command.lowercased().contains("containerd")
+                let marker = isDocker ? "🐳" : "  "
+                print("\(marker) \(process.port)".padRight(width: 8) +
+                      "\(process.protocolName.uppercased())".padRight(width: 7) +
+                      "\(process.pid)".padRight(width: 10) +
+                      "\(process.user)".padRight(width: 17) +
+                      process.command)
+            }
+
+            print(String(repeating: "─", count: 80))
+            let dockerCount = dockerProcesses.count
+            print("\nTotal: \(displayProcesses.count) process(es), \(dockerCount) Docker-related")
+        }
+
+        private static let dockerProcessNames: Set<String> = [
+            "docker", "dockerd", "containerd", "docker-compose",
+            "com.docker.hyperkit", "com.docker.vpnkit", "docker-proxy"
+        ]
+    }
+}
+
+// MARK: - Program PIDs Command
+extension PortKiller {
+    struct ProgramPids: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Get process IDs for a custom program"
+        )
+
+        @Option(name: .shortAndLong, help: "Program name to search for")
+        var program: String
+
+        @Flag(name: .shortAndLong, help: "Output only the PIDs, one per line")
+        var quiet: Bool = false
+
+        @Flag(name: .long, help: "Output in JSON format")
+        var json: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+            let processes = portManager.getProcessesByName(names: [program])
+
+            if processes.isEmpty {
+                if !quiet {
+                    print("No processes found for program '\(program)'")
+                }
+                return
+            }
+
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .prettyPrinted
+                let data = try encoder.encode(processes)
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print(jsonString)
+                }
+                return
+            }
+
+            if quiet {
+                for process in processes {
+                    print(process.pid)
+                }
+            } else {
+                print("\nPIDs for program '\(program)':")
+                print(String(repeating: "─", count: 50))
+                print("PID       USER              COMMAND")
+                print(String(repeating: "─", count: 50))
+
+                for process in processes.sorted(by: { $0.pid < $1.pid }) {
+                    print("\(process.pid)".padRight(width: 10) +
+                          "\(process.user)".padRight(width: 17) +
+                          (process.fullCommand ?? process.command))
+                }
+
+                print(String(repeating: "─", count: 50))
+                print("\nFound \(processes.count) process(es)")
+            }
+        }
+    }
+}
+
+// MARK: - Program Kill Command
+extension PortKiller {
+    struct ProgramKill: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Kill all processes for a custom program"
+        )
+
+        @Option(name: .shortAndLong, help: "Program name to kill")
+        var program: String
+
+        @Flag(name: .long, help: "Force kill without graceful termination")
+        var force: Bool = false
+
+        @Flag(name: .long, help: "Skip confirmation before killing")
+        var yes: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+            let processes = portManager.getProcessesByName(names: [program])
+
+            if processes.isEmpty {
+                print("No processes found for program '\(program)'")
+                return
+            }
+
+            if !yes {
+                print("\nThis will kill \(processes.count) process(es) for program '\(program)':")
+                print(String(repeating: "─", count: 50))
+                for process in processes.sorted(by: { $0.pid < $1.pid }) {
+                    print("  • PID \(process.pid): \(process.user) - \(process.fullCommand ?? process.command)")
+                }
+                print(String(repeating: "─", count: 50))
+                print("\nAdd --yes to confirm, or re-run with `--force` + `--yes`.")
+                return
+            }
+
+            try portManager.killAllProcesses(named: [program], force: force)
+            print("✅ All \(processes.count) process(es) for program '\(program)' have been terminated.")
+        }
+    }
+}
+
+// MARK: - Proxy Command
+extension PortKiller {
+    struct Proxy: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Create a SOCKS proxy tunnel through SSH"
+        )
+
+        @Option(name: .shortAndLong, help: "Local SOCKS proxy port")
+        var port: Int = 1080
+
+        @Option(name: .shortAndLong, help: "SSH user@host")
+        var ssh: String
+
+        @Option(name: .long, help: "Background process ID file")
+        var pidFile: String?
+
+        @Flag(name: .long, help: "Verbose output")
+        var verbose: Bool = false
+
+        func run() throws {
+            print("\n🌐 Creating SOCKS proxy...")
+            print("   Local port: \(port)")
+            print("   SSH target: \(ssh)")
+            print("")
+            print("Command to run:")
+            print("  ssh -D \(port) -N \(ssh)")
+            print("")
+            print("Then configure your browser/app to use:")
+            print("  SOCKS5 proxy: localhost:\(port)")
+            print("")
+            print("Press Ctrl+C to stop the tunnel.")
+
+            // Run the SSH command
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+            task.arguments = ["-D", String(port), "-N", ssh]
+
+            if verbose {
+                task.standardOutput = FileHandle.standardOutput
+                task.standardError = FileHandle.standardError
+            } else {
+                let outputPipe = Pipe()
+                task.standardOutput = outputPipe
+                task.standardError = outputPipe
+            }
+
+            if let pidFile = pidFile {
+                try "\(task.processIdentifier)".write(toFile: pidFile, atomically: true, encoding: .utf8)
+            }
+
+            do {
+                try task.run()
+                task.waitUntilExit()
+            } catch {
+                print("❌ Failed to start SSH tunnel: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
+// MARK: - Main Command
+@main
+struct PortKiller: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "A tiny CLI for viewing and clearing ports in use by running processes.",
+        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self],
+        defaultSubcommand: List.self
+    )
 }
 
 // MARK: - Extensions

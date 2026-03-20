@@ -7,6 +7,8 @@ import SwiftUI
 /// but supports full SwiftUI content including search fields.
 class MenuBarPanel: NSPanel {
 
+    private var isClosing = false
+
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect,
@@ -41,7 +43,7 @@ class MenuBarPanel: NSPanel {
         close()
     }
 
-    /// Position the panel right-aligned below a status bar button.
+    /// Position the panel right-aligned below a status bar button with smooth animation.
     func showBelow(button: NSStatusBarButton) {
         guard let buttonWindow = button.window else { return }
         let buttonFrame = button.convert(button.bounds, to: nil)
@@ -54,7 +56,30 @@ class MenuBarPanel: NSPanel {
         let y = screenFrame.minY - panelHeight - 4
 
         setFrameOrigin(NSPoint(x: x, y: y))
+
+        // Animate in with fade + slight slide
+        alphaValue = 0
         makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            self.animator().alphaValue = 1
+        }
+    }
+
+    /// Smoothly animate the panel out before closing.
+    override func close() {
+        guard !isClosing else { return }
+        isClosing = true
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.12
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            self.animator().alphaValue = 0
+        }, completionHandler: {
+            super.close()
+            self.alphaValue = 1 // Reset for next show
+            self.isClosing = false
+        })
     }
 
     /// Embed a SwiftUI view inside the panel's visual effect background.

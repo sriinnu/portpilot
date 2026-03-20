@@ -1,5 +1,4 @@
 import SwiftUI
-import PortManagerLib
 
 // MARK: - Configuration Panel
 struct ConfigurationPanel: View {
@@ -22,7 +21,9 @@ struct ConfigurationPanel: View {
                         if let port = port {
                             connectionSection(port: port)
                             portMappingSection(port: port)
+                            visualPortMapperSection(port: port)
                             optionsSection(port: port)
+                            proxySection(port: port)
                         } else {
                             noSelectionView
                         }
@@ -158,6 +159,53 @@ struct ConfigurationPanel: View {
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(.primary)
                 }
+
+                let processType = viewModel.processType(for: port)
+                ConfigField(label: "Class", icon: processType.icon, iconColor: classificationColor(processType)) {
+                    HStack(spacing: 4) {
+                        Text(processType.rawValue)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.primary)
+                        if let path = port.processPath {
+                            Text(path)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary.opacity(0.7))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+
+                if let ppid = port.parentPID, let parentName = viewModel.parentProcessName(for: port) {
+                    ConfigField(label: "Parent", icon: Theme.Icon.ppid, iconColor: Theme.ConfigIcon.ppid) {
+                        HStack(spacing: 4) {
+                            Text("\(ppid)")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundColor(.primary)
+                            Text("(\(parentName))")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                if let uptime = viewModel.processUptime(for: port) {
+                    ConfigField(label: "Uptime", icon: Theme.Icon.uptime, iconColor: Theme.ConfigIcon.uptime) {
+                        Text(uptime)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.primary)
+                    }
+                }
+
+                if let cwd = port.workingDirectory, !cwd.isEmpty {
+                    ConfigField(label: "CWD", icon: Theme.Icon.workingDirectory, iconColor: Theme.ConfigIcon.workingDirectory) {
+                        Text(cwd)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                }
             }
         }
     }
@@ -250,6 +298,114 @@ struct ConfigurationPanel: View {
             }
         }
     }
+
+    // MARK: - Proxy Section
+    private func proxySection(port: PortProcess) -> some View {
+        ConfigSection(title: "Quick Proxy") {
+            VStack(alignment: .leading, spacing: 10) {
+                // Show active proxy for this port if any
+                let activeProxy = viewModel.proxySessions.first { $0.listenPort == port.port || $0.targetPort == port.port }
+
+                if let proxy = activeProxy {
+                    // Active proxy info
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                        Text("Proxying :\(proxy.listenPort) \u{2192} \(proxy.targetHost):\(proxy.targetPort)")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Button(action: { viewModel.stopProxy(id: proxy.id) }) {
+                            Text("Stop")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Theme.Action.kill)
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.green.opacity(0.08))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                            )
+                    )
+
+                    if proxy.bytesForwarded > 0 {
+                        Text("Forwarded: \(ByteCountFormatter.string(fromByteCount: Int64(proxy.bytesForwarded), countStyle: .memory))")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    // Create proxy form
+                    ProxyCreateForm(sourcePort: port.port, viewModel: viewModel)
+                }
+            }
+        }
+    }
+
+    // MARK: - Visual Port Mapper Section
+
+    private func visualPortMapperSection(port: PortProcess) -> some View {
+        let type = viewModel.connectionType(for: port)
+        let mapping = viewModel.portMappingInfo(for: port)
+
+        return ConfigSection(title: "Port Flow") {
+            VStack(alignment: .leading, spacing: 8) {
+                // ASCII diagram
+                Text(asciiPortFlow(type: type, mapping: mapping, port: port))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .textBackgroundColor))
+                    )
+
+                // Container info for Docker
+                if type == .local {
+                    let containerInfo = viewModel.dockerInfo(for: port)
+                    if let info = containerInfo {
+                        DockerInfoRow(containerName: info.containerName, imageName: info.imageName, containerId: info.containerId)
+                    }
+                }
+            }
+        }
+    }
+
+    private func classificationColor(_ type: ProcessType) -> Color {
+        switch type {
+        case .system: return Theme.Classification.system
+        case .userApp: return Theme.Classification.userApp
+        case .developerTool: return Theme.Classification.developerTool
+        case .other: return Theme.Classification.other
+        }
+    }
+
+    private func asciiPortFlow(type: ConnectionType, mapping: PortMappingInfo, port: PortProcess) -> String {
+        switch type {
+        case .ssh, .kubernetes, .cloudflare:
+            let remoteHost = mapping.remoteHost ?? "*"
+            let remotePort = mapping.remotePort.map { String($0) } ?? "*"
+            return """
+            [\(remoteHost):\(remotePort)] --> [:\(port.port)] --> [\(port.protocolName.uppercased())]
+            """
+        case .database:
+            return """
+            [:\(port.port)] --> [\(port.protocolName.uppercased())] --> [\(port.command)]
+            """
+        case .local:
+            return """
+            [:\(port.port)] --> [\(port.protocolName.uppercased())]
+            """
+        }
+    }
 }
 
 // MARK: - Config Section
@@ -317,6 +473,191 @@ struct ConfigToggle: View {
                 .font(.system(size: 12))
                 .disabled(disabled)
                 .opacity(disabled ? 0.6 : 1)
+        }
+    }
+}
+
+// MARK: - Proxy Create Form
+struct ProxyCreateForm: View {
+    let sourcePort: Int
+    @ObservedObject var viewModel: PortViewModel
+
+    @State private var targetHost: String = "localhost"
+    @State private var targetPort: String = ""
+    @State private var listenPort: String = ""
+    @State private var proxyDirection: ProxyDirection = .fromPort
+
+    enum ProxyDirection: String, CaseIterable {
+        case fromPort = "Forward FROM this port"
+        case toPort = "Forward TO this port"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Direction picker
+            Picker("Direction", selection: $proxyDirection) {
+                ForEach(ProxyDirection.allCases, id: \.self) { dir in
+                    Text(dir.rawValue).tag(dir)
+                }
+            }
+            .pickerStyle(.segmented)
+            .font(.system(size: 11))
+
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Target Host")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    TextField("localhost", text: $targetHost)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .monospaced))
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(proxyDirection == .fromPort ? "Target Port" : "Listen Port")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    TextField("e.g. 9090", text: proxyDirection == .fromPort ? $targetPort : $listenPort)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(width: 80)
+                }
+            }
+
+            Button(action: startProxy) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.left.arrow.right.circle.fill")
+                        .font(.system(size: 12))
+                    Text("Start Proxy")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Theme.Section.ssh)
+                .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+            .disabled(!isValid)
+            .opacity(isValid ? 1.0 : 0.5)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.secondary.opacity(0.06))
+        )
+    }
+
+    private var isValid: Bool {
+        if proxyDirection == .fromPort {
+            return Int(targetPort) != nil && !targetHost.isEmpty
+        } else {
+            return Int(listenPort) != nil && !targetHost.isEmpty
+        }
+    }
+
+    private func startProxy() {
+        if proxyDirection == .fromPort {
+            guard let tPort = Int(targetPort) else { return }
+            viewModel.startProxy(listenPort: sourcePort, targetHost: targetHost, targetPort: tPort)
+        } else {
+            guard let lPort = Int(listenPort) else { return }
+            viewModel.startProxy(listenPort: lPort, targetHost: targetHost, targetPort: sourcePort)
+        }
+    }
+}
+
+// MARK: - Docker Info Row
+
+struct DockerInfoRow: View {
+    let containerName: String
+    let imageName: String
+    let containerId: String
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: { withAnimation { isExpanded.toggle() } }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "docker")
+                        .font(.system(size: 12))
+                        .foregroundColor(.blue)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(containerName)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.primary)
+                        Text(imageName)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Container ID:")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text(containerId.prefix(12).description)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button(action: stopContainer) {
+                            Label("Stop", systemImage: "stop.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: restartContainer) {
+                            Label("Restart", systemImage: "arrow.clockwise")
+                                .font(.system(size: 10))
+                                .foregroundColor(.blue)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.leading, 20)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.blue.opacity(0.05))
+        )
+    }
+
+    private func stopContainer() {
+        let id = containerId
+        Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
+            process.arguments = ["stop", id]
+            try? process.run()
+            process.waitUntilExit()
+        }
+    }
+
+    private func restartContainer() {
+        let id = containerId
+        Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
+            process.arguments = ["restart", id]
+            try? process.run()
+            process.waitUntilExit()
         }
     }
 }
