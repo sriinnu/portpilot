@@ -35,6 +35,7 @@ struct LogEntry: Identifiable, Equatable {
 // MARK: - Logs Panel
 struct LogsPanel: View {
     @ObservedObject var viewModel: PortViewModel
+    @ObservedObject private var appSettings = AppSettings.shared
     var selectedPort: PortProcess? = nil
 
     @State private var isExpanded = true
@@ -60,7 +61,7 @@ struct LogsPanel: View {
                 } else {
                     ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 2) {
+                            LazyVStack(alignment: .leading, spacing: 4) {
                                 ForEach(displayedLogs) { entry in
                                     LogEntryRow(entry: entry)
                                         .id(entry.id)
@@ -98,9 +99,13 @@ struct LogsPanel: View {
                     .font(.system(size: 13, weight: .semibold))
 
                 if !viewModel.logs.isEmpty {
-                    Text("(\(viewModel.logs.count))")
-                        .font(.system(size: 11))
+                    Text("\(viewModel.logs.count)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Theme.Surface.chromeTint)
+                        .cornerRadius(Theme.Size.cornerRadiusSmall)
                 }
 
                 Spacer()
@@ -137,7 +142,8 @@ struct LogsPanel: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 8)
+            .background(Theme.Surface.headerTint)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -181,8 +187,8 @@ struct LogEntryRow: View {
             Text(entry.message)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(entry.level.color.opacity(0.9))
-                .lineLimit(2)
+                .lineLimit(3)
         }
-        .padding(.vertical, 1)
+        .padding(.vertical, 2)
     }
 }

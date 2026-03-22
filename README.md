@@ -84,6 +84,19 @@ portpilot proxy --port 1080 --host user@server  # SOCKS proxy
 
 ## Installation
 
+### Download from GitHub Releases
+For end users, the easiest path is the Releases page:
+
+- Download `PortPilot-macOS-app.zip`
+- Unzip it
+- Move `PortPilot.app` to `/Applications`
+
+The release currently attaches:
+
+- `PortPilot-macOS-app.zip`
+- `portpilot-macos-cli`
+- `SHA256SUMS.txt`
+
 ### macOS (App + CLI)
 ```bash
 git clone https://github.com/sriinnu/portpilot.git

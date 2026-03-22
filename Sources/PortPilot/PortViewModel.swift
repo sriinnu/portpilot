@@ -67,6 +67,44 @@ enum FilterCategory: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Source Filter
+enum PortSourceFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case database = "Database"
+    case orbstack = "OrbStack"
+    case tunnels = "Tunnels"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .all: return "square.grid.2x2"
+        case .database: return Theme.Icon.database
+        case .orbstack: return Theme.Icon.orbstack
+        case .tunnels: return Theme.Icon.tunnels
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .all: return Theme.Badge.accentBackground
+        case .database: return Theme.Section.database
+        case .orbstack: return Theme.Section.orbstack
+        case .tunnels: return Theme.Section.ssh
+        }
+    }
+
+    /// I keep the pill label compact so the source switcher reads like tabs.
+    var shortLabel: String {
+        switch self {
+        case .all: return "All"
+        case .database: return "DB"
+        case .orbstack: return "OrbStack"
+        case .tunnels: return "Tunnels"
+        }
+    }
+}
+
 // MARK: - Port Mapping Info
 struct PortMappingInfo {
     let localPort: Int
@@ -81,6 +119,14 @@ struct DockerInfo {
     let containerName: String
     let imageName: String
     let status: String
+}
+
+/// I carry one immutable refresh result from background discovery back to the UI.
+private struct PortRefreshSnapshot: Sendable {
+    let processes: [PortProcess]
+    let parentProcessNames: [Int: String]
+    let totalPorts: Int
+    let totalSockets: Int
 }
 
 // MARK: - Port View Model
@@ -119,6 +165,9 @@ class PortViewModel: ObservableObject {
     @Published var selectedCategory: FilterCategory = .all {
         didSet { applyFilters() }
     }
+    @Published var selectedSourceFilter: PortSourceFilter = .all {
+        didSet { applyFilters() }
+    }
     @Published var hideSystemProcesses: Bool = false {
         didSet { applyFilters() }
     }
@@ -128,6 +177,7 @@ class PortViewModel: ObservableObject {
     private let portManager = PortManager()
     private var allPortsCache: [PortProcess] = []
     private var parentProcessNameCache: [Int: String] = [:]
+    private var latestRefreshID = UUID()
 
     @Published private(set) var favorites: Set<Int> = []
     @Published private(set) var connectionNames: [String: String] = [:]
@@ -157,6 +207,16 @@ class PortViewModel: ObservableObject {
             .dev: allPortsCache.filter { categorizePort($0) == .dev }.count,
             .system: allPortsCache.filter { categorizePort($0) == .system }.count,
             .favorites: allPortsCache.filter { favorites.contains($0.port) }.count
+        ]
+    }
+
+    /// I expose source counts so the UI can surface dedicated source tabs without extra work.
+    var sourceCounts: [PortSourceFilter: Int] {
+        [
+            .all: allPortsCache.count,
+            .database: allPortsCache.filter { matchesSourceFilter(.database, for: $0) }.count,
+            .orbstack: allPortsCache.filter { matchesSourceFilter(.orbstack, for: $0) }.count,
+            .tunnels: allPortsCache.filter { matchesSourceFilter(.tunnels, for: $0) }.count
         ]
     }
 
@@ -443,6 +503,36 @@ class PortViewModel: ObservableObject {
         return ProcessClassifier.shared.classify(pid: port.pid)
     }
 
+    /// I centralize source matching so the main window and menu bar stay consistent.
+    func matchesSourceFilter(_ filter: PortSourceFilter, for port: PortProcess) -> Bool {
+        switch filter {
+        case .all:
+            return true
+        case .database:
+            return connectionType(for: port) == .database || categorizePort(port) == .database
+        case .orbstack:
+            return isOrbStackPort(port)
+        case .tunnels:
+            let type = connectionType(for: port)
+            return type == .ssh || type == .kubernetes || type == .cloudflare
+        }
+    }
+
+    /// I detect OrbStack ports from process metadata without introducing more shell work.
+    func isOrbStackPort(_ port: PortProcess) -> Bool {
+        let searchableText = [
+            port.command,
+            port.fullCommand ?? "",
+            port.processPath ?? "",
+            port.workingDirectory ?? "",
+            port.socketPath ?? ""
+        ]
+        .joined(separator: " ")
+        .lowercased()
+
+        return searchableText.contains("orbstack")
+    }
+
     // MARK: - Refresh
 
     func refreshPorts() {
@@ -450,53 +540,82 @@ class PortViewModel: ObservableObject {
         errorMessage = nil
         successMessage = nil
 
+        let startPort = portRangeStart.isEmpty ? nil : Int(portRangeStart)
+        let endPort = portRangeEnd.isEmpty ? nil : Int(portRangeEnd)
+        let refreshID = UUID()
+        latestRefreshID = refreshID
+
+        let snapshotTask = Task.detached(priority: .userInitiated) {
+            try Self.loadRefreshSnapshot(
+                startPort: startPort,
+                endPort: endPort
+            )
+        }
+
         Task {
             do {
-                let startPort = portRangeStart.isEmpty ? nil : Int(portRangeStart)
-                let endPort = portRangeEnd.isEmpty ? nil : Int(portRangeEnd)
+                let snapshot = try await snapshotTask.value
+                guard latestRefreshID == refreshID else { return }
 
-                var processes = try portManager.getListeningProcesses(
-                    startPort: startPort,
-                    endPort: endPort,
-                    protocolFilter: nil
+                dockerInfoCache.removeAll()
+                parentProcessNameCache = snapshot.parentProcessNames
+                allPortsCache = snapshot.processes.sorted {
+                    // I keep network ports ahead of sockets so the main list stays stable.
+                    if $0.isUnixSocket != $1.isUnixSocket { return !$0.isUnixSocket }
+                    if !$0.isUnixSocket { return $0.port < $1.port }
+                    return $0.command < $1.command
+                }
+                ports = allPortsCache
+                lastRefresh = Date()
+                applyFilters()
+                isLoading = false
+                addLog(
+                    source: "system",
+                    message: "Refreshed: \(snapshot.totalPorts) ports, \(snapshot.totalSockets) sockets",
+                    level: .info
                 )
-
-                // Also discover Unix socket processes (local apps/daemons)
-                let socketProcesses = portManager.getUnixSocketProcesses()
-                // Only keep non-system socket processes (user apps, dev tools)
-                let appSocketProcesses = socketProcesses.filter {
-                    let type = ProcessClassifier.shared.classify(pid: $0.pid)
-                    return type != .system
-                }
-                processes.append(contentsOf: appSocketProcesses)
-
-                ProcessClassifier.shared.clearCache()
-
-                let totalPorts = processes.filter { !$0.isUnixSocket }.count
-                let totalSockets = appSocketProcesses.count
-
-                await MainActor.run {
-                    self.dockerInfoCache.removeAll()
-                    self.allPortsCache = processes.sorted {
-                        // Sort: network ports first (by port), then sockets (by command)
-                        if $0.isUnixSocket != $1.isUnixSocket { return !$0.isUnixSocket }
-                        if !$0.isUnixSocket { return $0.port < $1.port }
-                        return $0.command < $1.command
-                    }
-                    self.ports = self.allPortsCache
-                    self.lastRefresh = Date()
-                    self.applyFilters()
-                    self.isLoading = false
-                    self.addLog(source: "system", message: "Refreshed: \(totalPorts) ports, \(totalSockets) sockets", level: .info)
-                }
             } catch {
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                    self.isLoading = false
-                    self.addLog(source: "system", message: "Refresh failed: \(error.localizedDescription)", level: .error)
-                }
+                guard latestRefreshID == refreshID else { return }
+
+                errorMessage = error.localizedDescription
+                isLoading = false
+                addLog(
+                    source: "system",
+                    message: "Refresh failed: \(error.localizedDescription)",
+                    level: .error
+                )
             }
         }
+    }
+
+    /// I keep shell and process discovery off the main actor and return one UI-ready snapshot.
+    nonisolated private static func loadRefreshSnapshot(startPort: Int?, endPort: Int?) throws -> PortRefreshSnapshot {
+        let portManager = PortManager()
+        ProcessClassifier.shared.clearCache()
+
+        var processes = try portManager.getListeningProcesses(
+            startPort: startPort,
+            endPort: endPort,
+            protocolFilter: nil
+        )
+
+        // I only surface user-relevant Unix sockets in the app UI.
+        let socketProcesses = portManager.getUnixSocketProcesses()
+        let appSocketProcesses = socketProcesses.filter {
+            ProcessClassifier.shared.classify(pid: $0.pid) != .system
+        }
+        processes.append(contentsOf: appSocketProcesses)
+
+        let parentProcessNames = portManager.getParentProcessNames(
+            forPIDs: processes.compactMap(\.parentPID)
+        )
+
+        return PortRefreshSnapshot(
+            processes: processes,
+            parentProcessNames: parentProcessNames,
+            totalPorts: processes.filter { !$0.isUnixSocket }.count,
+            totalSockets: appSocketProcesses.count
+        )
     }
 
     // MARK: - Connections
@@ -532,6 +651,10 @@ class PortViewModel: ObservableObject {
 
         if selectedProtocol != .all {
             result = result.filter { $0.protocolName.lowercased() == selectedProtocol.rawValue.lowercased() }
+        }
+
+        if selectedSourceFilter != .all {
+            result = result.filter { matchesSourceFilter(selectedSourceFilter, for: $0) }
         }
 
         if selectedCategory == .favorites {

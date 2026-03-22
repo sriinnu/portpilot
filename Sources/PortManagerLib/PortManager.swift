@@ -1,7 +1,7 @@
 import Foundation
 
 // MARK: - Port Process Model
-public struct PortProcess: Codable, Hashable, Identifiable {
+public struct PortProcess: Codable, Hashable, Identifiable, Sendable {
     public let port: Int
     public let protocolName: String
     public let pid: Int
@@ -39,7 +39,7 @@ public struct PortProcess: Codable, Hashable, Identifiable {
 }
 
 // MARK: - Port Connection Model
-public struct PortConnection: Codable, Hashable {
+public struct PortConnection: Codable, Hashable, Sendable {
     public let localAddress: String
     public let remoteAddress: String
     public let state: String
@@ -608,12 +608,12 @@ public final class PortManager {
 
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        // I merge stderr into stdout so one reader can drain the child process continuously.
+        process.standardError = pipe
 
         try? process.run()
-        process.waitUntilExit()
-
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         return String(data: data, encoding: .utf8) ?? ""
     }
 
@@ -630,12 +630,36 @@ public final class PortManager {
 
     // MARK: - Get Parent Process Name
 
+    /// I resolve one parent process name by delegating to the batched lookup path.
     public func getParentProcessName(forPID pid: Int) -> String? {
-        guard let output = try? runCommand("/bin/ps", arguments: ["-p", String(pid), "-o", "comm="]) else {
-            return nil
+        getParentProcessNames(forPIDs: [pid])[pid]
+    }
+
+    /// I resolve parent process names in one `ps` call so refresh stays off the hot path.
+    public func getParentProcessNames(forPIDs pids: [Int]) -> [Int: String] {
+        let uniquePIDs = Array(Set(pids)).sorted()
+        guard !uniquePIDs.isEmpty else { return [:] }
+
+        let pidList = uniquePIDs.map(String.init).joined(separator: ",")
+        guard let output = try? runCommand("/bin/ps", arguments: ["-p", pidList, "-o", "pid=,comm="]) else {
+            return [:]
         }
-        let name = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? nil : name
+
+        var namesByPID: [Int: String] = [:]
+        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+            guard parts.count == 2, let pid = Int(parts[0]) else { continue }
+
+            let name = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+
+            namesByPID[pid] = name
+        }
+
+        return namesByPID
     }
 
     // MARK: - Get Processes by Name
@@ -921,12 +945,12 @@ public final class PortManager {
 
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        // I merge stderr into stdout so large `lsof` output cannot deadlock on an unread pipe.
+        process.standardError = pipe
 
         try process.run()
-        process.waitUntilExit()
-
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         return String(data: data, encoding: .utf8) ?? ""
     }
 }

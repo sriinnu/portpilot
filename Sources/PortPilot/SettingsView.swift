@@ -1,46 +1,137 @@
 import SwiftUI
+import AppKit
+
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case general = "General"
+    case appearance = "Appearance"
+    case menuBar = "Menu Bar"
+    case notifications = "Notifications"
+    case reserved = "Reserved"
+    case programs = "Programs"
+    case about = "About"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .general:
+            return "gear"
+        case .appearance:
+            return "paintbrush"
+        case .menuBar:
+            return "menubar.rectangle"
+        case .notifications:
+            return "bell"
+        case .reserved:
+            return "lock.shield"
+        case .programs:
+            return "app.fill"
+        case .about:
+            return "info.circle"
+        }
+    }
+}
 
 struct SettingsView: View {
     @EnvironmentObject var viewModel: PortViewModel
+    @State private var selection: SettingsPane = .general
 
     var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem {
-                    Label("General", systemImage: "gear")
-                }
-
-            AppearanceSettingsView()
-                .tabItem {
-                    Label("Appearance", systemImage: "paintbrush")
-                }
-
-            MenuBarSettingsView()
-                .tabItem {
-                    Label("Menu Bar", systemImage: "menubar.rectangle")
-                }
-
-            NotificationsSettingsView()
-                .tabItem {
-                    Label("Notifications", systemImage: "bell")
-                }
-
-            ReservedPortsSettingsView()
-                .tabItem {
-                    Label("Reserved", systemImage: "lock.shield")
-                }
-
-            CustomProgramsSettingsView()
-                .tabItem {
-                    Label("Programs", systemImage: "app.fill")
-                }
-
-            AboutSettingsView()
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
-                }
+        HStack(spacing: 0) {
+            settingsSidebar
+            Divider()
+            settingsDetail(for: selection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(width: 480, height: 420)
+        .frame(width: 780, height: 560)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private func settingsDetail(for pane: SettingsPane) -> some View {
+        switch pane {
+        case .general:
+            GeneralSettingsView()
+        case .appearance:
+            AppearanceSettingsView()
+        case .menuBar:
+            MenuBarSettingsView()
+        case .notifications:
+            NotificationsSettingsView()
+        case .reserved:
+            ReservedPortsSettingsView()
+        case .programs:
+            CustomProgramsSettingsView()
+        case .about:
+            AboutSettingsView()
+        }
+    }
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Settings")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+
+            VStack(spacing: 6) {
+                ForEach(SettingsPane.allCases) { pane in
+                    Button {
+                        selection = pane
+                    } label: {
+                        SettingsSidebarRow(
+                            pane: pane,
+                            isSelected: selection == pane
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+
+            Spacer(minLength: 0)
+        }
+        .frame(
+            minWidth: 220,
+            idealWidth: 220,
+            maxWidth: 220,
+            minHeight: 0,
+            idealHeight: nil,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+}
+
+private struct SettingsSidebarRow: View {
+    let pane: SettingsPane
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: pane.icon)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 18)
+
+            Text(pane.rawValue)
+                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.88))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
     }
 }
 
@@ -86,7 +177,7 @@ struct AppearanceSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Picker("Theme", selection: $appSettings.appearanceMode) {
+                Picker("Appearance Mode", selection: $appSettings.appearanceMode) {
                     ForEach(AppearanceMode.allCases) { mode in
                         HStack(spacing: 8) {
                             Image(systemName: iconForMode(mode))
@@ -118,6 +209,58 @@ struct AppearanceSettingsView: View {
                 .padding(.vertical, 4)
             } header: {
                 Text("Preview")
+            }
+
+            Section {
+                Picker("Color Theme", selection: $appSettings.visualTheme) {
+                    ForEach(VisualTheme.allCases) { theme in
+                        Text(theme.rawValue).tag(theme)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                HStack(spacing: 14) {
+                    ForEach(VisualTheme.allCases) { theme in
+                        ThemePreviewCard(
+                            theme: theme,
+                            isActive: appSettings.visualTheme == theme
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+            } header: {
+                Text("Color Theme")
+            } footer: {
+                Text("Classic keeps the current look. Graphite is calmer and cooler. Sunset is warmer and more expressive.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Section {
+                Picker("Icon Pack", selection: $appSettings.iconPack) {
+                    ForEach(IconPack.allCases) { pack in
+                        Text(pack.rawValue).tag(pack)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                HStack(spacing: 14) {
+                    ForEach(IconPack.allCases) { pack in
+                        IconPackPreviewCard(
+                            iconPack: pack,
+                            isActive: appSettings.iconPack == pack
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+            } header: {
+                Text("Icon Pack")
+            } footer: {
+                Text("Filled gives the app more weight. Minimal keeps the iconography lighter and cleaner.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -184,6 +327,136 @@ struct AppearancePreviewCard: View {
     }
 }
 
+// MARK: - Theme Preview Card
+struct ThemePreviewCard: View {
+    let theme: VisualTheme
+    let isActive: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(backgroundColor)
+                .frame(width: 132, height: 76)
+                .overlay(
+                    VStack(alignment: .leading, spacing: 6) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(accentColor)
+                            .frame(height: 10)
+                        HStack(spacing: 6) {
+                            Circle().fill(primaryColor).frame(width: 8, height: 8)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(secondaryColor.opacity(0.85))
+                                .frame(height: 8)
+                        }
+                        HStack(spacing: 6) {
+                            Circle().fill(secondaryColor).frame(width: 8, height: 8)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(primaryColor.opacity(0.85))
+                                .frame(height: 8)
+                        }
+                    }
+                    .padding(8)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(isActive ? accentColor : Color.primary.opacity(0.08), lineWidth: isActive ? 2 : 1)
+                )
+
+            Text(theme.rawValue)
+                .font(.system(size: 11, weight: isActive ? .semibold : .regular))
+                .foregroundColor(isActive ? .primary : .secondary)
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch theme {
+        case .classic:
+            return Color(white: 0.95)
+        case .graphite:
+            return Color(red: 0.93, green: 0.94, blue: 0.96)
+        case .sunset:
+            return Color(red: 0.98, green: 0.95, blue: 0.92)
+        }
+    }
+
+    private var accentColor: Color {
+        switch theme {
+        case .classic:
+            return Color(red: 0.20, green: 0.45, blue: 0.90)
+        case .graphite:
+            return Color(red: 0.26, green: 0.45, blue: 0.72)
+        case .sunset:
+            return Color(red: 0.86, green: 0.40, blue: 0.30)
+        }
+    }
+
+    private var primaryColor: Color {
+        switch theme {
+        case .classic:
+            return Color(red: 0.20, green: 0.68, blue: 0.30)
+        case .graphite:
+            return Color(red: 0.24, green: 0.64, blue: 0.48)
+        case .sunset:
+            return Color(red: 0.92, green: 0.56, blue: 0.24)
+        }
+    }
+
+    private var secondaryColor: Color {
+        switch theme {
+        case .classic:
+            return Color(red: 0.55, green: 0.30, blue: 0.75)
+        case .graphite:
+            return Color(red: 0.36, green: 0.42, blue: 0.70)
+        case .sunset:
+            return Color(red: 0.62, green: 0.34, blue: 0.66)
+        }
+    }
+}
+
+// MARK: - Icon Pack Preview Card
+struct IconPackPreviewCard: View {
+    let iconPack: IconPack
+    let isActive: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .frame(width: 132, height: 76)
+                .overlay(
+                    HStack(spacing: 12) {
+                        Image(systemName: symbol("network.badge.shield.half.filled", "network"))
+                        Image(systemName: symbol("cylinder.fill", "cylinder"))
+                        Image(systemName: symbol("shippingbox.fill", "shippingbox"))
+                    }
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(LinearGradient(
+                        colors: [Theme.Action.treeView, Theme.Section.kubernetes],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(isActive ? Theme.Action.treeView : Color.primary.opacity(0.08), lineWidth: isActive ? 2 : 1)
+                )
+
+            Text(iconPack.rawValue)
+                .font(.system(size: 11, weight: isActive ? .semibold : .regular))
+                .foregroundColor(isActive ? .primary : .secondary)
+        }
+    }
+
+    private func symbol(_ filled: String, _ minimal: String) -> String {
+        switch iconPack {
+        case .filled:
+            return filled
+        case .minimal:
+            return minimal
+        }
+    }
+}
+
 // MARK: - Menu Bar Settings
 struct MenuBarSettingsView: View {
     @ObservedObject private var appSettings = AppSettings.shared
@@ -225,7 +498,7 @@ struct MenuBarSettingsView: View {
             } header: {
                 Text("Menu Bar Popover")
             } footer: {
-                Text("How often to refresh the port list when the menu bar popover is open.")
+                Text("How often to refresh the port list when the menu bar popover is open. Appearance, color theme, and icon pack live in Settings > Appearance.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -429,7 +702,6 @@ struct ReservedPortsSettingsView: View {
 // MARK: - Custom Programs Settings
 struct CustomProgramsSettingsView: View {
     @ObservedObject private var appSettings = AppSettings.shared
-    @EnvironmentObject var viewModel: PortViewModel
 
     @State private var editingProgram: CustomProgram?
     @State private var isAddingNew: Bool = false
@@ -437,6 +709,7 @@ struct CustomProgramsSettingsView: View {
     @State private var newProcessNames: String = ""
     @State private var newIcon: String = "app.fill"
     @State private var newColorHex: String = "#007AFF"
+    @State private var runningCounts: [UUID: Int] = [:]
 
     private let availableIcons = [
         "app.fill", "desktopcomputer", "server.rack", "cylinder.fill",
@@ -485,10 +758,8 @@ struct CustomProgramsSettingsView: View {
 
                             Spacer()
 
-                            // Show running count
-                            let processes = viewModel.getProcessesByName(names: program.processNames)
-                            if !processes.isEmpty {
-                                Text("\(processes.count) running")
+                            if let count = runningCounts[program.id], count > 0 {
+                                Text("\(count) running")
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundColor(Theme.Status.connected)
                                     .padding(.horizontal, 6)
@@ -527,6 +798,9 @@ struct CustomProgramsSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+        .task(id: appSettings.customPrograms.map(\.id).map(\.uuidString).joined(separator: ",")) {
+            refreshRunningCounts()
+        }
         .sheet(item: $editingProgram) { program in
             CustomProgramEditorView(
                 program: program,
@@ -554,6 +828,23 @@ struct CustomProgramsSettingsView: View {
                     editingProgram = nil
                 }
             )
+        }
+    }
+
+    private func refreshRunningCounts() {
+        let programs = appSettings.customPrograms
+        Task.detached(priority: .utility) {
+            var counts: [UUID: Int] = [:]
+            let portManager = PortManager()
+
+            for program in programs {
+                counts[program.id] = portManager.getProcessesByName(names: program.processNames).count
+            }
+
+            let snapshot = counts
+            await MainActor.run {
+                runningCounts = snapshot
+            }
         }
     }
 }
@@ -667,6 +958,19 @@ struct CustomProgramEditorView: View {
 
 // MARK: - About Settings
 struct AboutSettingsView: View {
+    private var shortVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0"
+    }
+
+    private var buildVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? shortVersion
+    }
+
+    private var copyrightText: String {
+        Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String
+            ?? "Copyright © 2024–2026 Srinivas Pendela. All rights reserved."
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "globe.americas.fill")
@@ -683,12 +987,24 @@ struct AboutSettingsView: View {
                 .font(.title)
                 .fontWeight(.bold)
 
-            Text("Version 1.0.0")
+            Text("Version \(shortVersion)")
                 .foregroundColor(.secondary)
 
-            Text("Your port management companion")
+            Text("Designed and built by Srinivas Pendela")
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+            if buildVersion != shortVersion {
+                Text("Build \(buildVersion)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Text(copyrightText)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
 
             Spacer()
         }
