@@ -12,6 +12,23 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+// MARK: - Visual Theme
+enum VisualTheme: String, CaseIterable, Identifiable {
+    case classic = "Classic"
+    case graphite = "Graphite"
+    case sunset = "Sunset"
+
+    var id: String { rawValue }
+}
+
+// MARK: - Icon Pack
+enum IconPack: String, CaseIterable, Identifiable {
+    case filled = "Filled"
+    case minimal = "Minimal"
+
+    var id: String { rawValue }
+}
+
 // MARK: - Custom Program
 struct CustomProgram: Codable, Identifiable, Hashable {
     var id: UUID
@@ -69,6 +86,8 @@ class AppSettings: ObservableObject {
         static let confirmBeforeKill = "confirmBeforeKill"
         static let defaultForceKill = "defaultForceKill"
         static let appearanceMode = "AppearanceMode"
+        static let visualTheme = "VisualTheme"
+        static let iconPack = "IconPack"
         static let reservedPorts = "ReservedPorts"
         static let customPrograms = "CustomPrograms"
     }
@@ -85,6 +104,7 @@ class AppSettings: ObservableObject {
         didSet {
             defaults.set(showMenuBarIcon, forKey: Keys.showMenuBarIcon)
             NotificationCenter.default.post(name: .menuBarIconVisibilityChanged, object: showMenuBarIcon)
+            applyDockIconPolicy()
         }
     }
 
@@ -152,6 +172,20 @@ class AppSettings: ObservableObject {
         }
     }
 
+    @Published var visualTheme: VisualTheme {
+        didSet {
+            defaults.set(visualTheme.rawValue, forKey: Keys.visualTheme)
+            refreshVisibleChrome()
+        }
+    }
+
+    @Published var iconPack: IconPack {
+        didSet {
+            defaults.set(iconPack.rawValue, forKey: Keys.iconPack)
+            refreshVisibleChrome()
+        }
+    }
+
     @Published var reservedPorts: [Int] {
         didSet {
             defaults.set(reservedPorts, forKey: Keys.reservedPorts)
@@ -165,7 +199,7 @@ class AppSettings: ObservableObject {
     }
 
     private init() {
-        self.showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? true
+        self.showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? false
         self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
         self.launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
         self.showNotifications = defaults.object(forKey: Keys.showNotifications) as? Bool ?? true
@@ -178,6 +212,10 @@ class AppSettings: ObservableObject {
 
         let modeString = defaults.string(forKey: Keys.appearanceMode) ?? "System"
         self.appearanceMode = AppearanceMode(rawValue: modeString) ?? .system
+        let visualThemeString = defaults.string(forKey: Keys.visualTheme) ?? VisualTheme.classic.rawValue
+        self.visualTheme = VisualTheme(rawValue: visualThemeString) ?? .classic
+        let iconPackString = defaults.string(forKey: Keys.iconPack) ?? IconPack.filled.rawValue
+        self.iconPack = IconPack(rawValue: iconPackString) ?? .filled
 
         self.reservedPorts = defaults.array(forKey: Keys.reservedPorts) as? [Int] ?? []
 
@@ -190,20 +228,25 @@ class AppSettings: ObservableObject {
 
     func applyAppearance() {
         DispatchQueue.main.async {
+            let appearance: NSAppearance?
             switch self.appearanceMode {
             case .system:
-                NSApp.appearance = nil
+                appearance = nil
             case .light:
-                NSApp.appearance = NSAppearance(named: .aqua)
+                appearance = NSAppearance(named: .aqua)
             case .dark:
-                NSApp.appearance = NSAppearance(named: .darkAqua)
+                appearance = NSAppearance(named: .darkAqua)
             }
+
+            NSApp.appearance = appearance
+            self.refreshVisibleChrome(using: appearance)
         }
     }
 
     func applyDockIconPolicy() {
         DispatchQueue.main.async {
-            if self.showDockIcon {
+            // I only surface the Dock icon when the menu bar icon is hidden.
+            if self.showDockIcon && !self.showMenuBarIcon {
                 NSApp.setActivationPolicy(.regular)
             } else {
                 NSApp.setActivationPolicy(.accessory)
@@ -217,6 +260,19 @@ class AppSettings: ObservableObject {
         applyDockIconPolicy()
         if backgroundMonitoring {
             NotificationManager.shared.startWatching()
+        }
+    }
+
+    /// I refresh the visible chrome so theme and icon changes land immediately on existing windows.
+    private func refreshVisibleChrome(using appearance: NSAppearance? = NSApp.appearance) {
+        for window in NSApp.windows {
+            window.appearance = appearance
+            window.invalidateShadow()
+            window.contentView?.needsLayout = true
+            window.contentView?.needsDisplay = true
+            if let menuBarPanel = window as? MenuBarPanel {
+                menuBarPanel.refreshTheme()
+            }
         }
     }
 

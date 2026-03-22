@@ -4,10 +4,9 @@ import AppKit
 // MARK: - Content View
 struct ContentView: View {
     @EnvironmentObject var viewModel: PortViewModel
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var showConfirmation = false
     @State private var portToKill: Int?
-
-    private var appSettings: AppSettings { AppSettings.shared }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,7 +90,7 @@ struct ContentView: View {
         .overlay(alignment: .bottomTrailing) {
             if !viewModel.proxySessions.isEmpty {
                 HStack(spacing: 6) {
-                    Image(systemName: "arrow.left.arrow.right.circle.fill")
+                    Image(systemName: Theme.Icon.proxyActive)
                         .font(.system(size: 11))
                         .foregroundColor(Theme.Section.ssh)
                     Text("\(viewModel.proxySessions.count) active proxy")

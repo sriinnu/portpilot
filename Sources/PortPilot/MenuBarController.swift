@@ -163,7 +163,7 @@ class MenuBarController: NSObject, ObservableObject {
 
     private func openSponsors() {
         dismissPanel()
-        if let url = URL(string: "https://github.com/sponsors/nicklama") {
+        if let url = URL(string: "https://github.com/sponsors/sriinnu") {
             NSWorkspace.shared.open(url)
         }
     }

@@ -4,6 +4,7 @@ import SwiftUI
 struct ConfigurationPanel: View {
     let port: PortProcess?
     @ObservedObject var viewModel: PortViewModel
+    @ObservedObject private var appSettings = AppSettings.shared
 
     @State private var isExpanded = true
     @State private var connectionName = ""
@@ -71,19 +72,20 @@ struct ConfigurationPanel: View {
                             .fill(Theme.Status.connected)
                             .frame(width: Theme.Size.statusDotSmall, height: Theme.Size.statusDotSmall)
                         Text("Connected")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(Theme.Badge.connectedText)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
                     .background(Theme.Badge.connectedBackground)
-                    .cornerRadius(10)
+                    .cornerRadius(9)
                 }
 
                 Spacer()
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
+            .background(Theme.Surface.headerTint)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -415,7 +417,7 @@ struct ConfigSection<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)
@@ -434,7 +436,7 @@ struct ConfigField<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: 8) {
             if let icon = icon, let iconColor = iconColor {
                 Image(systemName: icon)
                     .font(.system(size: 11))
@@ -444,7 +446,7 @@ struct ConfigField<Content: View>: View {
             Text(label)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
-                .frame(width: 55, alignment: .trailing)
+                .frame(width: 64, alignment: .trailing)
             content
         }
     }
@@ -544,7 +546,7 @@ struct ProxyCreateForm: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.secondary.opacity(0.06))
+                .fill(Theme.Surface.headerTint.opacity(0.7))
         )
     }
 
@@ -635,7 +637,7 @@ struct DockerInfoRow: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.blue.opacity(0.05))
+                .fill(Theme.Surface.headerTint.opacity(0.65))
         )
     }
 

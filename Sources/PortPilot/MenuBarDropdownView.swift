@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let menuBarSelectionSpring = Animation.spring(response: 0.26, dampingFraction: 0.84, blendDuration: 0.1)
+
 // MARK: - Protocol Filter for Menu Bar
 enum MenuBarProtocolFilter: String, CaseIterable {
     case all = "All"
@@ -10,6 +12,7 @@ enum MenuBarProtocolFilter: String, CaseIterable {
 // MARK: - Menu Bar Dropdown View
 struct MenuBarDropdownView: View {
     @ObservedObject var viewModel: PortViewModel
+    @ObservedObject private var appSettings = AppSettings.shared
     let onOpenMainWindow: () -> Void
     let onQuit: () -> Void
     let onDismiss: () -> Void
@@ -20,6 +23,7 @@ struct MenuBarDropdownView: View {
     @State private var protocolFilter: MenuBarProtocolFilter = .all
     @State private var showTreeView = false
     @State private var hideSystemProcesses = false
+    @State private var sourceFilter: PortSourceFilter = .all
     @State private var connectionTypeFilter: ConnectionType? = nil
     @State private var activeTab: MenuBarTab = .ports
 
@@ -28,7 +32,7 @@ struct MenuBarDropdownView: View {
         case sockets = "Sockets"
     }
 
-    private var filteredPorts: [PortProcess] {
+    private var searchablePorts: [PortProcess] {
         var result = viewModel.ports
 
         if hideSystemProcesses {
@@ -41,10 +45,6 @@ struct MenuBarDropdownView: View {
             }
         }
 
-        if let typeFilter = connectionTypeFilter {
-            result = result.filter { viewModel.connectionType(for: $0) == typeFilter }
-        }
-
         if !searchText.isEmpty {
             let query = searchText.lowercased()
             result = result.filter {
@@ -52,6 +52,20 @@ struct MenuBarDropdownView: View {
                 String($0.port).contains(query) ||
                 String($0.pid).contains(query)
             }
+        }
+
+        return result
+    }
+
+    private var filteredPorts: [PortProcess] {
+        var result = searchablePorts
+
+        if sourceFilter != .all {
+            result = result.filter { viewModel.matchesSourceFilter(sourceFilter, for: $0) }
+        }
+
+        if let typeFilter = connectionTypeFilter {
+            result = result.filter { viewModel.connectionType(for: $0) == typeFilter }
         }
 
         return result
@@ -74,63 +88,97 @@ struct MenuBarDropdownView: View {
         Dictionary(grouping: filteredPorts) { viewModel.connectionType(for: $0) }
     }
 
+    private var sourceCounts: [PortSourceFilter: Int] {
+        [
+            .all: searchablePorts.count,
+            .database: searchablePorts.filter { viewModel.matchesSourceFilter(.database, for: $0) }.count,
+            .orbstack: searchablePorts.filter { viewModel.matchesSourceFilter(.orbstack, for: $0) }.count,
+            .tunnels: searchablePorts.filter { viewModel.matchesSourceFilter(.tunnels, for: $0) }.count
+        ]
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Search bar + count badge
             MenuBarSearchHeader(
-                searchText: $searchText,
-                portCount: viewModel.ports.count
+                searchText: $searchText
             )
 
             // Tab switcher: Ports | Sockets
-            HStack(spacing: 0) {
+            HStack(spacing: 4) {
                 ForEach(MenuBarTab.allCases, id: \.self) { tab in
                     let count = tab == .ports ? networkPorts.count : socketProcesses.count
-                    Button(action: { withAnimation(.easeInOut(duration: 0.15)) { activeTab = tab } }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: tab == .ports ? "network" : "point.3.connected.trianglepath.dotted")
-                                .font(.system(size: 10))
+                    Button(action: {
+                        withAnimation(menuBarSelectionSpring) {
+                            activeTab = tab
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: tab == .ports ? Theme.Icon.portsTab : Theme.Icon.socketsTab)
+                                .font(.system(size: 12, weight: .semibold))
                             Text(tab.rawValue)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 13, weight: .semibold))
                             Text("\(count)")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundColor(activeTab == tab ? .white.opacity(0.7) : .secondary.opacity(0.6))
                         }
                         .foregroundColor(activeTab == tab ? .white : .secondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 8)
                         .background(
                             activeTab == tab
                                 ? Theme.Badge.accentBackground
                                 : Color.clear
                         )
-                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(
+                                    activeTab == tab ? Color.white.opacity(0.14) : Color.clear,
+                                    lineWidth: 1
+                                )
+                        )
+                        .cornerRadius(10)
+                        .animation(menuBarSelectionSpring, value: activeTab)
                     }
                     .buttonStyle(.plain)
                 }
             }
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Theme.Surface.headerTint)
+            )
             .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-            .background(Color(nsColor: .quaternaryLabelColor).opacity(0.3))
+            .padding(.vertical, 6)
 
             // Filter pills (only for Ports tab)
             if activeTab == .ports {
                 MenuBarFilterBar(
                     protocolFilter: $protocolFilter,
+                    sourceFilter: $sourceFilter,
                     connectionTypeFilter: $connectionTypeFilter,
                     hideSystemProcesses: $hideSystemProcesses,
+                    sourceCounts: sourceCounts,
                     typeCounts: groupedFilteredPorts.mapValues { $0.count }
                 )
             }
 
-            Divider().padding(.vertical, 2)
+            Divider()
+                .padding(.top, 5)
+                .padding(.bottom, 7)
 
             // Content based on tab
             Group {
                 if activeTab == .ports {
                     // Port sections
                     if networkPorts.isEmpty {
-                        MenuBarEmptyState(hasSearch: !searchText.isEmpty || protocolFilter != .all)
+                        MenuBarEmptyState(
+                            hasSearch: !searchText.isEmpty
+                                || protocolFilter != .all
+                                || sourceFilter != .all
+                                || connectionTypeFilter != nil
+                                || hideSystemProcesses
+                        )
                     } else if showTreeView {
                         ScrollView {
                             VStack(spacing: 2) {
@@ -177,7 +225,7 @@ struct MenuBarDropdownView: View {
                     // Sockets tab - show Unix socket processes with PIDs
                     if socketProcesses.isEmpty {
                         VStack(spacing: 8) {
-                            Image(systemName: "point.3.connected.trianglepath.dotted")
+                            Image(systemName: Theme.Icon.socketsTab)
                                 .font(.system(size: 24))
                                 .foregroundColor(.secondary)
                             Text("No App Sockets")
@@ -206,38 +254,43 @@ struct MenuBarDropdownView: View {
             }
             .frame(minHeight: 120, maxHeight: 280)
 
-            Divider().padding(.vertical, 2)
+            VStack(spacing: 10) {
+                // I keep command-style actions grouped so the bottom of the popover reads as one system.
+                MenuBarQuickActions(
+                    onRefresh: { viewModel.refreshPorts() },
+                    onToggleTreeView: { showTreeView.toggle() },
+                    isTreeView: showTreeView,
+                    onKillAll: {
+                        let allPorts = Set(viewModel.ports)
+                        viewModel.killSelectedPorts(allPorts)
+                    },
+                    hasActivePorts: !viewModel.ports.isEmpty
+                )
 
-            // Quick actions
-            MenuBarQuickActions(
-                onRefresh: { viewModel.refreshPorts() },
-                onToggleTreeView: { showTreeView.toggle() },
-                isTreeView: showTreeView,
-                onKillAll: {
-                    let allPorts = Set(viewModel.ports)
-                    viewModel.killSelectedPorts(allPorts)
-                },
-                hasActivePorts: !viewModel.ports.isEmpty
-            )
+                MenuBarBottomActions(
+                    onOpenMainWindow: {
+                        onDismiss()
+                        onOpenMainWindow()
+                    },
+                    onSettings: {
+                        onDismiss()
+                        onOpenSettings()
+                    },
+                    onQuit: onQuit
+                )
 
-            Divider().padding(.vertical, 2)
-
-            // Bottom actions
-            MenuBarBottomActions(
-                onOpenMainWindow: {
-                    onDismiss()
-                    onOpenMainWindow()
-                },
-                onSponsors: {
-                    onDismiss()
-                    onSponsors()
-                },
-                onSettings: {
-                    onDismiss()
-                    onOpenSettings()
-                },
-                onQuit: onQuit
-            )
+                MenuBarFooterLink(
+                    label: "Sponsor PortPilot",
+                    icon: Theme.Icon.sponsors,
+                    action: {
+                        onDismiss()
+                        onSponsors()
+                    }
+                )
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
         }
         .frame(width: 320)
     }
@@ -246,142 +299,86 @@ struct MenuBarDropdownView: View {
 // MARK: - Filter Bar
 struct MenuBarFilterBar: View {
     @Binding var protocolFilter: MenuBarProtocolFilter
+    @Binding var sourceFilter: PortSourceFilter
     @Binding var connectionTypeFilter: ConnectionType?
     @Binding var hideSystemProcesses: Bool
+    let sourceCounts: [PortSourceFilter: Int]
     let typeCounts: [ConnectionType: Int]
 
     var body: some View {
-        VStack(spacing: 4) {
-            // Row 1: Protocol + Hide System
+        VStack(alignment: .leading, spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 5) {
-                    ForEach(MenuBarProtocolFilter.allCases, id: \.self) { filter in
-                        Button(action: { protocolFilter = protocolFilter == filter ? .all : filter }) {
-                            Text(filter.rawValue)
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(protocolFilter == filter ? .white : .secondary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(
-                                    protocolFilter == filter
-                                        ? Theme.Badge.accentBackground
-                                        : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
-                                )
-                                .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 1, height: 14)
-
-                    // Connection type pills
-                    ForEach(ConnectionType.allCases) { type in
-                        let count = typeCounts[type] ?? 0
-                        Button(action: {
-                            connectionTypeFilter = connectionTypeFilter == type ? nil : type
-                        }) {
-                            HStack(spacing: 3) {
-                                Image(systemName: type.icon)
-                                    .font(.system(size: 8))
-                                if count > 0 {
-                                    Text("\(count)")
-                                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                HStack(spacing: 6) {
+                    ForEach(PortSourceFilter.allCases) { source in
+                        MenuBarSourceFilterChip(
+                            label: source.rawValue,
+                            count: sourceCounts[source] ?? 0,
+                            icon: source.icon,
+                            tint: source.color,
+                            isSelected: sourceFilter == source,
+                            action: {
+                                withAnimation(menuBarSelectionSpring) {
+                                    sourceFilter = source
                                 }
                             }
-                            .foregroundColor(connectionTypeFilter == type ? .white : type.color)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(
-                                connectionTypeFilter == type
-                                    ? type.color
-                                    : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
-                            )
-                            .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                        .help(type.rawValue)
-                    }
-
-                    Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 1, height: 14)
-
-                    // Hide system toggle
-                    Button(action: { hideSystemProcesses.toggle() }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: hideSystemProcesses ? "eye.slash" : "eye")
-                                .font(.system(size: 8))
-                            Text("Sys")
-                                .font(.system(size: 9, weight: .bold))
-                        }
-                        .foregroundColor(hideSystemProcesses ? .white : .secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            hideSystemProcesses
-                                ? Theme.Section.ssh
-                                : Color(nsColor: .quaternaryLabelColor).opacity(0.5)
                         )
-                        .cornerRadius(8)
                     }
-                    .buttonStyle(.plain)
-                    .help(hideSystemProcesses ? "Show system processes" : "Hide system processes")
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 1)
+            }
+
+            HStack(spacing: 6) {
+                ForEach(MenuBarProtocolFilter.allCases, id: \.self) { filter in
+                    MenuBarProtocolFilterChip(
+                        label: filter.rawValue,
+                        isSelected: protocolFilter == filter,
+                        action: {
+                            withAnimation(menuBarSelectionSpring) {
+                                protocolFilter = filter
+                            }
+                        }
+                    )
+                }
             }
         }
-        .padding(.vertical, 5)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
     }
 }
 
 // MARK: - Search Header
 struct MenuBarSearchHeader: View {
     @Binding var searchText: String
-    let portCount: Int
 
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(spacing: 0) {
-                Image(systemName: "network.badge.shield.half.filled")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Theme.Action.treeView, Theme.Section.kubernetes],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            }
-
-            HStack(spacing: 6) {
-                Image(systemName: Theme.Icon.search)
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 12))
-                TextField("Search ports...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                if !searchText.isEmpty {
-                    Button(action: { searchText = "" }) {
-                        Image(systemName: Theme.Icon.clearSearch)
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
+        HStack(spacing: 6) {
+            Image(systemName: Theme.Icon.search)
+                .foregroundColor(.secondary)
+                .font(.system(size: 12))
+            TextField("Search ports...", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: Theme.Icon.clearSearch)
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
-            .cornerRadius(Theme.Size.cornerRadius)
-
-            Text("\(portCount)")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(Theme.Badge.accentText)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Theme.Badge.accentBackground)
-                .cornerRadius(Theme.Size.cornerRadiusSmall)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Theme.Surface.headerTint)
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Size.cornerRadius, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
+        )
+        .cornerRadius(Theme.Size.cornerRadius)
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
     }
 }
 
@@ -418,9 +415,6 @@ struct MenuBarPortSection: View {
                     Text(title)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.secondary)
-                    Text("(\(ports.count))")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary.opacity(0.7))
                     Spacer()
                     Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
                         .font(.system(size: 9, weight: .medium))
@@ -486,9 +480,6 @@ struct MenuBarNamespaceSubSection: View {
                     Text(namespace)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.secondary)
-                    Text("(\(ports.count))")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary.opacity(0.6))
                     Spacer()
                     Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
                         .font(.system(size: 8, weight: .medium))
@@ -537,9 +528,6 @@ struct MenuBarTreeSection: View {
                     Text(processName)
                         .font(.system(size: 11, weight: .semibold))
                         .lineLimit(1)
-                    Text("(\(ports.count))")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary.opacity(0.7))
                     Spacer()
                     Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
                         .font(.system(size: 9, weight: .medium))
@@ -600,7 +588,7 @@ struct MenuBarDropdownPortRow: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
-                        .background(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
+                        .background(Theme.Surface.headerTint)
                         .cornerRadius(3)
 
                     if !indent {
@@ -701,7 +689,7 @@ struct MenuBarQuickActions: View {
     let hasActivePorts: Bool
 
     var body: some View {
-        VStack(spacing: 2) {
+        MenuBarActionSection {
             MenuBarActionButton(
                 label: "Refresh",
                 shortcut: "R",
@@ -710,6 +698,8 @@ struct MenuBarQuickActions: View {
                 labelColor: .primary,
                 action: onRefresh
             )
+
+            MenuBarActionDivider()
 
             MenuBarActionButton(
                 label: isTreeView ? "List View" : "Tree View",
@@ -721,6 +711,8 @@ struct MenuBarQuickActions: View {
             )
 
             if hasActivePorts {
+                MenuBarActionDivider()
+
                 MenuBarActionButton(
                     label: "Kill All",
                     shortcut: "K",
@@ -731,20 +723,17 @@ struct MenuBarQuickActions: View {
                 )
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
     }
 }
 
 // MARK: - Bottom Actions
 struct MenuBarBottomActions: View {
     let onOpenMainWindow: () -> Void
-    let onSponsors: () -> Void
     let onSettings: () -> Void
     let onQuit: () -> Void
 
     var body: some View {
-        VStack(spacing: 2) {
+        MenuBarActionSection {
             MenuBarActionButton(
                 label: "Open PortPilot",
                 shortcut: "O",
@@ -754,14 +743,7 @@ struct MenuBarBottomActions: View {
                 action: onOpenMainWindow
             )
 
-            MenuBarActionButton(
-                label: "Sponsors",
-                shortcut: "S",
-                icon: Theme.Icon.sponsors,
-                iconColor: Theme.Action.sponsors,
-                labelColor: Theme.Action.sponsors,
-                action: onSponsors
-            )
+            MenuBarActionDivider()
 
             MenuBarActionButton(
                 label: "Settings",
@@ -781,8 +763,114 @@ struct MenuBarBottomActions: View {
                 action: onQuit
             )
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+    }
+}
+
+struct MenuBarSourceFilterChip: View {
+    let label: String
+    let count: Int
+    let icon: String
+    let tint: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(isSelected ? .white : tint)
+                Text(label)
+                    .font(.system(size: 11, weight: .semibold))
+                if isSelected || label == "All" {
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(isSelected ? Color.white.opacity(0.8) : .secondary.opacity(0.72))
+                }
+            }
+            .foregroundColor(isSelected ? .white : .primary)
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background(isSelected ? Theme.Badge.accentBackground : Theme.Surface.groupedFill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isSelected ? Color.white.opacity(0.14) : Theme.Surface.groupedStroke, lineWidth: 1)
+            )
+            .cornerRadius(10)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct MenuBarProtocolFilterChip: View {
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(isSelected ? .white : .secondary)
+                .padding(.horizontal, 9)
+                .frame(height: 26)
+                .background(isSelected ? Theme.Badge.accentBackground : Theme.Surface.groupedFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(isSelected ? Color.white.opacity(0.14) : Theme.Surface.groupedStroke, lineWidth: 1)
+                )
+                .cornerRadius(9)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct MenuBarUtilityChip: View {
+    let label: String
+    let icon: String
+    let tint: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundColor(isSelected ? .white : tint)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(isSelected ? tint : Theme.Surface.groupedFill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(isSelected ? Color.white.opacity(0.14) : Theme.Surface.groupedStroke, lineWidth: 1)
+            )
+            .cornerRadius(9)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct MenuBarClearChip: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: Theme.Icon.clearSearch)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .frame(width: 28, height: 28)
+                .background(Theme.Surface.groupedFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(Theme.Surface.groupedStroke, lineWidth: 1)
+                )
+                .cornerRadius(9)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -803,7 +891,7 @@ struct MenuBarActionButton: View {
                 Image(systemName: icon)
                     .font(.system(size: Theme.Size.actionIconSize))
                     .foregroundColor(iconColor)
-                    .frame(width: 16)
+                    .frame(width: 18)
                 Text(label)
                     .font(.system(size: 13))
                     .foregroundColor(labelColor)
@@ -812,15 +900,72 @@ struct MenuBarActionButton: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(isHovered ? Theme.Surface.hover : .clear)
-            .cornerRadius(Theme.Size.cornerRadiusSmall)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 34)
+            .padding(.horizontal, 12)
+            .background(isHovered ? Theme.Surface.rowHover : .clear)
+            .cornerRadius(10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+        }
+    }
+}
+
+struct MenuBarActionSection<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Theme.Surface.groupedFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Theme.Surface.groupedStroke, lineWidth: 1)
+        )
+    }
+}
+
+struct MenuBarActionDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.leading, 42)
+            .padding(.trailing, 10)
+    }
+}
+
+struct MenuBarFooterLink: View {
+    let label: String
+    let icon: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundColor(isHovered ? Theme.Action.sponsors : .secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 6)
+            .padding(.top, 2)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
         }
     }
 }
@@ -868,7 +1013,7 @@ struct MenuBarSocketRow: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
-                        .background(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
+                        .background(Theme.Surface.headerTint)
                         .cornerRadius(3)
                 }
 

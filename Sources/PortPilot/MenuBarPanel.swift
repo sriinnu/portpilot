@@ -30,10 +30,11 @@ class MenuBarPanel: NSPanel {
         visualEffect.state = .active
         visualEffect.blendingMode = .behindWindow
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 10
+        visualEffect.layer?.cornerRadius = 12
         visualEffect.layer?.masksToBounds = true
 
         contentView = visualEffect
+        refreshTheme()
     }
 
     override var canBecomeKey: Bool { true }
@@ -56,6 +57,7 @@ class MenuBarPanel: NSPanel {
         let y = screenFrame.minY - panelHeight - 4
 
         setFrameOrigin(NSPoint(x: x, y: y))
+        refreshTheme()
 
         // Animate in with fade + slight slide
         alphaValue = 0
@@ -86,6 +88,7 @@ class MenuBarPanel: NSPanel {
     func setSwiftUIContent<Content: View>(_ view: Content) {
         let hostingView = NSHostingView(rootView: view)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
+        hostingView.appearance = NSApp.appearance
 
         guard let visualEffect = contentView as? NSVisualEffectView else { return }
 
@@ -99,5 +102,21 @@ class MenuBarPanel: NSPanel {
             hostingView.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
         ])
+        refreshTheme()
+    }
+
+    /// I resync the panel chrome so appearance and theme changes feel immediate.
+    func refreshTheme() {
+        syncAppearance()
+    }
+
+    private func syncAppearance() {
+        appearance = NSApp.appearance
+        guard let visualEffect = contentView as? NSVisualEffectView else { return }
+        visualEffect.appearance = NSApp.appearance
+        let effectiveAppearance = appearance ?? NSApp.effectiveAppearance
+        visualEffect.layer?.backgroundColor = Theme.Surface.panelFill(for: effectiveAppearance).cgColor
+        visualEffect.layer?.borderWidth = 1
+        visualEffect.layer?.borderColor = Theme.Surface.panelBorder(for: effectiveAppearance).cgColor
     }
 }

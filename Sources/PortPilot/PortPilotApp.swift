@@ -114,14 +114,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(sharedViewModel)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 450),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 780, height: 560),
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "PortPilot Settings"
+        window.setContentSize(NSSize(width: 780, height: 560))
+        window.contentMinSize = NSSize(width: 780, height: 560)
+        window.toolbarStyle = .preference
         window.contentView = NSHostingView(rootView: settingsView)
         window.center()
+        window.setFrameAutosaveName("PortPilotSettingsWindow")
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()

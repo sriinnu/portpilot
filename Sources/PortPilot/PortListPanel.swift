@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Port List Panel
 struct PortListPanel: View {
     @ObservedObject var viewModel: PortViewModel
+    @ObservedObject private var appSettings = AppSettings.shared
     @Binding var selectedPort: PortProcess?
     let onKill: (Int) -> Void
     let onAdd: () -> Void
@@ -55,6 +56,8 @@ struct PortListPanel: View {
 
 // MARK: - Column Headers
 struct PortListHeader: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+
     var body: some View {
         HStack {
             Text("Port")
@@ -67,7 +70,7 @@ struct PortListHeader: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Theme.Surface.windowBackground.opacity(0.5))
+        .background(Theme.Surface.headerTint)
     }
 }
 
@@ -107,7 +110,7 @@ struct PortListRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             // Favorite button
             Button(action: onToggleFavorite) {
                 Image(systemName: isFavorite ? "star.fill" : "star")
@@ -116,6 +119,7 @@ struct PortListRow: View {
             }
             .buttonStyle(.plain)
             .help(isFavorite ? "Remove from favorites" : "Add to favorites")
+            .opacity(isFavorite || isHovered || isSelected ? 1 : 0.24)
 
             // Type indicator
             Image(systemName: typeIcon)
@@ -125,13 +129,13 @@ struct PortListRow: View {
 
             // Process type badge
             Text(processType.rawValue)
-                .font(.system(size: 8, weight: .bold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(processTypeColor(processType))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
                 .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(processTypeColor(processType))
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(processTypeColor(processType).opacity(0.14))
                 )
 
             // Port info
@@ -149,7 +153,7 @@ struct PortListRow: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
-                        .background(Color(nsColor: .quaternaryLabelColor).opacity(0.5))
+                        .background(Theme.Surface.headerTint)
                         .cornerRadius(3)
                 }
                 Text(tunnelName ?? port.socketPath ?? port.fullCommand ?? port.command)
@@ -177,18 +181,11 @@ struct PortListRow: View {
                 .buttonStyle(.plain)
                 .help("Kill process")
 
-                Button(action: onKill) {
-                    Image(systemName: Theme.Icon.trash)
-                        .font(.system(size: 12))
-                        .foregroundColor(Theme.Action.kill)
-                }
-                .buttonStyle(.plain)
-                .help("Remove")
             }
             .opacity(isHovered || isSelected ? 1 : 0.3)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
         .background(
             isSelected
                 ? Theme.Surface.selected
@@ -264,14 +261,15 @@ struct PortListFooter: View {
                 HStack(spacing: 4) {
                     Image(systemName: Theme.Icon.importFile)
                         .font(.system(size: 11))
-                        .foregroundColor(Theme.Action.importAction)
+                        .foregroundColor(.secondary)
                     Text("Import")
                         .font(.system(size: 12))
-                        .foregroundColor(Theme.Action.importAction)
+                        .foregroundColor(.secondary)
                 }
             }
             .buttonStyle(.plain)
             .help("Import configuration (coming soon)")
+            .opacity(0.72)
 
             Spacer()
         }
