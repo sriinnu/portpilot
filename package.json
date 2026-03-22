@@ -51,6 +51,17 @@
   "bugs": {
     "url": "https://github.com/sriinnu/portpilot/issues"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "Package.swift",
+    "Package.resolved",
+    "Sources/PortKillerCLI",
+    "Sources/PortManagerLib"
+  ],
   "engines": {
     "node": ">=18.0.0"
   },
