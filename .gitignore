@@ -8,5 +8,6 @@ DerivedData/
 .claude/
 .mcp.json
 .port.local.env
+.port.local.env.example
 RELEASE.local.md
 dist/
