@@ -1,7 +1,12 @@
 .build/
+.tmp/
 .swiftpm/
 *.xcuserdata
 xcuserdata/
 DerivedData/
 .DS_Store
 .claude/
+.mcp.json
+.port.local.env
+RELEASE.local.md
+dist/

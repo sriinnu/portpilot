@@ -8,6 +8,8 @@
     "build:cli": "swift build -c release",
     "build:debug": "xcodebuild -project PortPilot.xcodeproj -scheme PortPilot -configuration Debug -derivedDataPath .build/xcode build",
     "build:all": "npm run build && npm run build:cli",
+    "sparkle:keygen": "bash scripts/generate_sparkle_key.sh",
+    "release:signed:app": "bash scripts/release_signed_macos.sh",
     "install:app": "cp -R .build/xcode/Build/Products/Release/PortPilot.app /Applications/ && echo '✓ PortPilot.app installed to /Applications'",
     "install:cli": "mkdir -p /usr/local/bin 2>/dev/null; cp .build/release/portpilot /usr/local/bin/portpilot && echo '✓ portpilot CLI installed to /usr/local/bin' || echo '⚠ CLI install needs: sudo cp .build/release/portpilot /usr/local/bin/'",
     "postinstall": "echo '⚠ PortPilot requires Swift 5.9+ to build. Run: npm run release'",
