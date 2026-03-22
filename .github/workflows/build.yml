@@ -22,13 +22,13 @@ jobs:
         run: swift build -c release
 
       - name: Build macOS app
-        run: xcodebuild -project PortPilot.xcodeproj -scheme PortPilot -configuration Release -derivedDataPath .build/xcode build
+        run: xcodebuild -project PortPilot.xcodeproj -target PortPilot -configuration Release SYMROOT=.build/xcode build
 
       - name: Package macOS artifacts
         run: |
           mkdir -p artifacts
           cp .build/release/portpilot artifacts/portpilot-macos-cli
-          ditto -c -k --sequesterRsrc --keepParent .build/xcode/Build/Products/Release/PortPilot.app artifacts/PortPilot-macOS-app.zip
+          ditto -c -k --sequesterRsrc --keepParent .build/xcode/Release/PortPilot.app artifacts/PortPilot-macOS-app.zip
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
