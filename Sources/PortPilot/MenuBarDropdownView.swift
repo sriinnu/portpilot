@@ -117,9 +117,9 @@ struct MenuBarDropdownView: View {
                             Image(systemName: tab == .ports ? Theme.Icon.portsTab : Theme.Icon.socketsTab)
                                 .font(.system(size: 12, weight: .semibold))
                             Text(tab.rawValue)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .semibold))
                             Text("\(count)")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .font(appSettings.appMonoFont(size: appSettings.fontSize - 1, weight: .bold))
                                 .foregroundColor(activeTab == tab ? .white.opacity(0.7) : .secondary.opacity(0.6))
                         }
                         .foregroundColor(activeTab == tab ? .white : .secondary)
@@ -131,24 +131,24 @@ struct MenuBarDropdownView: View {
                                 : Color.clear
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .strokeBorder(
                                     activeTab == tab ? Color.white.opacity(0.14) : Color.clear,
                                     lineWidth: 1
                                 )
                         )
-                        .cornerRadius(10)
+                        .cornerRadius(12)
                         .animation(menuBarSelectionSpring, value: activeTab)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(4)
+            .padding(5)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Theme.Surface.headerTint)
             )
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 14)
             .padding(.vertical, 6)
 
             // Filter pills (only for Ports tab)
@@ -229,9 +229,9 @@ struct MenuBarDropdownView: View {
                                 .font(.system(size: 24))
                                 .foregroundColor(.secondary)
                             Text("No App Sockets")
-                                .font(.system(size: 13, weight: .medium))
+                                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
                             Text("Local app daemons with Unix sockets appear here")
-                                .font(.system(size: 11))
+                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
                                 .foregroundColor(.secondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -288,11 +288,11 @@ struct MenuBarDropdownView: View {
                     }
                 )
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 14)
         }
-        .frame(width: 320)
+        .frame(width: 380)
     }
 }
 
@@ -350,6 +350,7 @@ struct MenuBarFilterBar: View {
 // MARK: - Search Header
 struct MenuBarSearchHeader: View {
     @Binding var searchText: String
+    @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
         HStack(spacing: 6) {
@@ -358,7 +359,7 @@ struct MenuBarSearchHeader: View {
                 .font(.system(size: 12))
             TextField("Search ports...", text: $searchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(appSettings.appFont(size: appSettings.fontSize + 1))
             if !searchText.isEmpty {
                 Button(action: { searchText = "" }) {
                     Image(systemName: Theme.Icon.clearSearch)
@@ -368,16 +369,18 @@ struct MenuBarSearchHeader: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Theme.Surface.headerTint)
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Size.cornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Theme.Surface.headerTint)
         )
-        .cornerRadius(Theme.Size.cornerRadius)
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+        )
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
         .padding(.bottom, 6)
     }
 }
@@ -396,6 +399,7 @@ struct MenuBarPortSection: View {
     var isLocalSection: Bool = true
     var statusColor: Color = Theme.Status.connected
 
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var isExpanded = true
 
     private var namespaceGroups: [(namespace: String, ports: [PortProcess])]? {
@@ -413,7 +417,7 @@ struct MenuBarPortSection: View {
                         .font(.system(size: Theme.Size.sectionIconSize, weight: .medium))
                         .foregroundColor(iconColor)
                     Text(title)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
                         .foregroundColor(.secondary)
                     Spacer()
                     Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
@@ -468,6 +472,7 @@ struct MenuBarNamespaceSubSection: View {
     var isLocal: Bool = true
     var statusColor: Color = Theme.Status.connected
 
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var isExpanded = true
 
     var body: some View {
@@ -478,7 +483,7 @@ struct MenuBarNamespaceSubSection: View {
                         .font(.system(size: 10))
                         .foregroundColor(Theme.Section.kubernetes.opacity(0.7))
                     Text(namespace)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(appSettings.appFont(size: appSettings.fontSize - 2, weight: .medium))
                         .foregroundColor(.secondary)
                     Spacer()
                     Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
@@ -516,6 +521,7 @@ struct MenuBarTreeSection: View {
     let onKill: (Int) -> Void
     let onCopy: (PortProcess) -> Void
 
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var isExpanded = true
 
     var body: some View {
@@ -526,7 +532,7 @@ struct MenuBarTreeSection: View {
                         .font(.system(size: 11))
                         .foregroundColor(Theme.Action.treeView)
                     Text(processName)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
                         .lineLimit(1)
                     Spacer()
                     Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
@@ -563,6 +569,7 @@ struct MenuBarDropdownPortRow: View {
     var isLocal: Bool = true
     var statusColor: Color = Theme.Status.connected
 
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
 
     var body: some View {
@@ -575,25 +582,53 @@ struct MenuBarDropdownPortRow: View {
                 HStack(spacing: 4) {
                     if port.isUnixSocket {
                         Text("PID \(port.pid)")
-                            .font(.system(size: 12, design: .monospaced))
-                            .fontWeight(.medium)
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize, weight: .medium))
                     } else {
                         Text(":\(port.port)")
-                            .font(.system(size: 12, design: .monospaced))
-                            .fontWeight(.medium)
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize, weight: .medium))
                     }
 
                     Text(port.protocolName.uppercased())
-                        .font(.system(size: 9, weight: .medium))
+                        .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(Theme.Surface.headerTint)
                         .cornerRadius(3)
 
+                    // CPU badge — always visible, heat-map pill for active, muted for idle
+                    if let cpu = port.cpuUsage {
+                        if cpu > 0.1 {
+                            Text(String(format: "%.1f%%", cpu))
+                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(cpuHeatColor(cpu)))
+                                .shadow(color: cpuHeatColor(cpu).opacity(0.35), radius: 3, y: 1)
+                        } else {
+                            Text("0%")
+                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                                .foregroundColor(.secondary.opacity(0.5))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
+                        }
+                    }
+
+                    // Memory badge
+                    if let mem = port.memoryMB {
+                        Text(formatMemory(mem))
+                            .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Capsule().strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1))
+                    }
+
                     if !indent {
                         Text(tunnelName ?? port.command)
-                            .font(.system(size: 12))
+                            .font(appSettings.appFont(size: appSettings.fontSize))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                     }
@@ -601,12 +636,12 @@ struct MenuBarDropdownPortRow: View {
 
                 if let detail = tunnelDetail {
                     Text(detail)
-                        .font(.system(size: 10))
+                        .font(appSettings.appFont(size: appSettings.fontSize - 2))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 } else if let socketPath = port.socketPath {
                     Text(socketPath)
-                        .font(.system(size: 10))
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -619,7 +654,7 @@ struct MenuBarDropdownPortRow: View {
                 // Always-visible red "Stop" pill for tunnel rows
                 Button(action: onKill) {
                     Text("Stop")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .semibold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
@@ -645,25 +680,60 @@ struct MenuBarDropdownPortRow: View {
                 .transition(.opacity)
             } else {
                 Text("PID \(port.pid)")
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
                     .foregroundColor(.secondary.opacity(0.7))
             }
         }
-        .padding(.leading, indent ? 24 : 12)
-        .padding(.trailing, 12)
-        .padding(.vertical, 7)
-        .background(isHovered ? Theme.Surface.hover : .clear)
-        .cornerRadius(Theme.Size.cornerRadiusSmall)
+        .padding(.leading, indent ? 26 : 14)
+        .padding(.trailing, 14)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isHovered ? Theme.Surface.hover : .clear)
+                .shadow(color: isHovered ? Color.black.opacity(0.07) : .clear, radius: 6, y: 2)
+        )
         .contentShape(Rectangle())
+        .scaleEffect(isHovered ? 1.008 : 1.0)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+            withAnimation(.easeInOut(duration: 0.18)) { isHovered = hovering }
         }
+    }
+
+    private func formatMemory(_ mb: Double) -> String {
+        if mb >= 1024 { return String(format: "%.1fG", mb / 1024.0) }
+        if mb >= 10 { return String(format: "%.0fM", mb) }
+        return String(format: "%.1fM", mb)
+    }
+
+    /// Smooth heat-map: 0% cool teal → 25% blue → 50% amber → 75% orange → 100% red
+    private func cpuHeatColor(_ usage: Double) -> Color {
+        let t = min(max(usage / 100.0, 0), 1)
+        let r: Double, g: Double, b: Double
+        if t < 0.25 {
+            // Teal → Blue
+            let p = t / 0.25
+            r = 0.18 + p * 0.12;  g = 0.62 - p * 0.14;  b = 0.70 - p * 0.02
+        } else if t < 0.50 {
+            // Blue → Amber
+            let p = (t - 0.25) / 0.25
+            r = 0.30 + p * 0.58;  g = 0.48 + p * 0.14;  b = 0.68 - p * 0.52
+        } else if t < 0.75 {
+            // Amber → Orange
+            let p = (t - 0.50) / 0.25
+            r = 0.88 + p * 0.07;  g = 0.62 - p * 0.22;  b = 0.16 - p * 0.04
+        } else {
+            // Orange → Red
+            let p = (t - 0.75) / 0.25
+            r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
+        }
+        return Color(red: r, green: g, blue: b)
     }
 }
 
 // MARK: - Empty State
 struct MenuBarEmptyState: View {
     let hasSearch: Bool
+    @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
         VStack(spacing: 8) {
@@ -671,9 +741,9 @@ struct MenuBarEmptyState: View {
                 .font(.system(size: 24))
                 .foregroundColor(hasSearch ? .secondary : Theme.Status.connected)
             Text(hasSearch ? "No matching ports" : "No Active Ports")
-                .font(.system(size: 13, weight: .medium))
+                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
             Text(hasSearch ? "Try a different search or filter" : "All ports are available")
-                .font(.system(size: 11))
+                .font(appSettings.appFont(size: appSettings.fontSize - 1))
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -773,6 +843,7 @@ struct MenuBarSourceFilterChip: View {
     let tint: Color
     let isSelected: Bool
     let action: () -> Void
+    @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
         Button(action: action) {
@@ -781,10 +852,10 @@ struct MenuBarSourceFilterChip: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(isSelected ? .white : tint)
                 Text(label)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
                 if isSelected || label == "All" {
                     Text("\(count)")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .bold))
                         .foregroundColor(isSelected ? Color.white.opacity(0.8) : .secondary.opacity(0.72))
                 }
             }
@@ -806,17 +877,18 @@ struct MenuBarProtocolFilterChip: View {
     let label: String
     let isSelected: Bool
     let action: () -> Void
+    @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 11, weight: .semibold))
+                .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
                 .foregroundColor(isSelected ? .white : .secondary)
                 .padding(.horizontal, 9)
                 .frame(height: 26)
                 .background(isSelected ? Theme.Badge.accentBackground : Theme.Surface.groupedFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(isSelected ? Color.white.opacity(0.14) : Theme.Surface.groupedStroke, lineWidth: 1)
                 )
                 .cornerRadius(9)
@@ -831,6 +903,7 @@ struct MenuBarUtilityChip: View {
     let tint: Color
     let isSelected: Bool
     let action: () -> Void
+    @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
         Button(action: action) {
@@ -838,14 +911,14 @@ struct MenuBarUtilityChip: View {
                 Image(systemName: icon)
                     .font(.system(size: 10, weight: .semibold))
                 Text(label)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
             }
             .foregroundColor(isSelected ? .white : tint)
             .padding(.horizontal, 10)
             .frame(height: 28)
             .background(isSelected ? tint : Theme.Surface.groupedFill)
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(isSelected ? Color.white.opacity(0.14) : Theme.Surface.groupedStroke, lineWidth: 1)
             )
             .cornerRadius(9)
@@ -865,7 +938,7 @@ struct MenuBarClearChip: View {
                 .frame(width: 28, height: 28)
                 .background(Theme.Surface.groupedFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(Theme.Surface.groupedStroke, lineWidth: 1)
                 )
                 .cornerRadius(9)
@@ -883,6 +956,7 @@ struct MenuBarActionButton: View {
     var labelColor: Color = .primary
     let action: () -> Void
 
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
 
     var body: some View {
@@ -893,11 +967,11 @@ struct MenuBarActionButton: View {
                     .foregroundColor(iconColor)
                     .frame(width: 18)
                 Text(label)
-                    .font(.system(size: 13))
+                    .font(appSettings.appFont(size: appSettings.fontSize + 1))
                     .foregroundColor(labelColor)
                 Spacer()
                 Text("\u{2318}\(shortcut)")
-                    .font(.system(size: 11))
+                    .font(appSettings.appFont(size: appSettings.fontSize - 1))
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -921,14 +995,14 @@ struct MenuBarActionSection<Content: View>: View {
         VStack(spacing: 0) {
             content
         }
-        .padding(4)
+        .padding(5)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Theme.Surface.groupedFill)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Theme.Surface.groupedStroke, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Theme.Surface.groupedStroke, lineWidth: 0.5)
         )
     }
 }
@@ -946,6 +1020,7 @@ struct MenuBarFooterLink: View {
     let icon: String
     let action: () -> Void
 
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
 
     var body: some View {
@@ -954,7 +1029,7 @@ struct MenuBarFooterLink: View {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .medium))
             }
             .foregroundColor(isHovered ? Theme.Action.sponsors : .secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -977,6 +1052,7 @@ struct MenuBarSocketRow: View {
     let onKill: () -> Void
     let onCopy: () -> Void
 
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
 
     private var typeColor: Color {
@@ -997,11 +1073,11 @@ struct MenuBarSocketRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(process.command)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(appSettings.appFont(size: appSettings.fontSize, weight: .medium))
                         .lineLimit(1)
 
                     Text("PID \(process.pid)")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(appSettings.appMonoFont(size: 9, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -1009,23 +1085,42 @@ struct MenuBarSocketRow: View {
                         .cornerRadius(4)
 
                     Text(processType.rawValue)
-                        .font(.system(size: 8, weight: .bold))
+                        .font(appSettings.appFont(size: max(appSettings.fontSize - 4, 7), weight: .bold))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(Theme.Surface.headerTint)
                         .cornerRadius(3)
+
+                    if let cpu = process.cpuUsage {
+                        if cpu > 0.1 {
+                            Text(String(format: "%.1f%%", cpu))
+                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(socketCpuHeatColor(cpu)))
+                                .shadow(color: socketCpuHeatColor(cpu).opacity(0.35), radius: 3, y: 1)
+                        } else {
+                            Text("0%")
+                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                                .foregroundColor(.secondary.opacity(0.5))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
+                        }
+                    }
                 }
 
                 if let socketPath = process.socketPath {
                     Text(socketPath)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 } else if let fullCmd = process.fullCommand {
                     Text(fullCmd)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -1058,5 +1153,24 @@ struct MenuBarSocketRow: View {
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
         }
+    }
+
+    private func socketCpuHeatColor(_ usage: Double) -> Color {
+        let t = min(max(usage / 100.0, 0), 1)
+        let r: Double, g: Double, b: Double
+        if t < 0.25 {
+            let p = t / 0.25
+            r = 0.18 + p * 0.12;  g = 0.62 - p * 0.14;  b = 0.70 - p * 0.02
+        } else if t < 0.50 {
+            let p = (t - 0.25) / 0.25
+            r = 0.30 + p * 0.58;  g = 0.48 + p * 0.14;  b = 0.68 - p * 0.52
+        } else if t < 0.75 {
+            let p = (t - 0.50) / 0.25
+            r = 0.88 + p * 0.07;  g = 0.62 - p * 0.22;  b = 0.16 - p * 0.04
+        } else {
+            let p = (t - 0.75) / 0.25
+            r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
+        }
+        return Color(red: r, green: g, blue: b)
     }
 }

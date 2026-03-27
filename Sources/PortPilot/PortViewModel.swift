@@ -568,6 +568,10 @@ class PortViewModel: ObservableObject {
                 ports = allPortsCache
                 lastRefresh = Date()
                 applyFilters()
+                // Clear stale selection if the selected port no longer exists
+                if let sel = selectedPort, !filteredPorts.contains(where: { $0.id == sel.id }) {
+                    selectedPort = nil
+                }
                 isLoading = false
                 addLog(
                     source: "system",
@@ -854,7 +858,7 @@ class PortViewModel: ObservableObject {
     func processUptime(for port: PortProcess) -> String? {
         guard let startTime = port.startTime else { return nil }
         let interval = Date().timeIntervalSince(startTime)
-        guard interval > 0 else { return nil }
+        guard interval >= 0 else { return nil }
 
         let secondsInMinute: Double = 60
         let secondsInHour: Double = 3600
@@ -863,13 +867,16 @@ class PortViewModel: ObservableObject {
         let days = Int(interval / secondsInDay)
         let hours = Int((interval.truncatingRemainder(dividingBy: secondsInDay)) / secondsInHour)
         let minutes = Int((interval.truncatingRemainder(dividingBy: secondsInHour)) / secondsInMinute)
+        let seconds = Int(interval.truncatingRemainder(dividingBy: secondsInMinute))
 
         if days > 0 {
             return "\(days)d \(hours)h"
         } else if hours > 0 {
             return "\(hours)h \(minutes)m"
-        } else {
+        } else if minutes > 0 {
             return "\(minutes)m"
+        } else {
+            return "\(seconds)s"
         }
     }
 

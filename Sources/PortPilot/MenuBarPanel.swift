@@ -2,9 +2,6 @@ import AppKit
 import SwiftUI
 
 // MARK: - Menu Bar Panel
-/// Custom NSPanel that acts as a native-feeling menu bar dropdown.
-/// Uses borderless + nonactivatingPanel style so it behaves like a system menu
-/// but supports full SwiftUI content including search fields.
 class MenuBarPanel: NSPanel {
 
     private var isClosing = false
@@ -24,13 +21,13 @@ class MenuBarPanel: NSPanel {
         isMovableByWindowBackground = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        // Setup visual effect background
         let visualEffect = NSVisualEffectView(frame: contentRect)
-        visualEffect.material = .menu
+        visualEffect.material = .hudWindow
         visualEffect.state = .active
         visualEffect.blendingMode = .behindWindow
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 12
+        visualEffect.layer?.cornerRadius = 16
+        visualEffect.layer?.cornerCurve = .continuous
         visualEffect.layer?.masksToBounds = true
 
         contentView = visualEffect
@@ -44,7 +41,6 @@ class MenuBarPanel: NSPanel {
         close()
     }
 
-    /// Position the panel right-aligned below a status bar button with smooth animation.
     func showBelow(button: NSStatusBarButton) {
         guard let buttonWindow = button.window else { return }
         let buttonFrame = button.convert(button.bounds, to: nil)
@@ -59,40 +55,35 @@ class MenuBarPanel: NSPanel {
         setFrameOrigin(NSPoint(x: x, y: y))
         refreshTheme()
 
-        // Animate in with fade + slight slide
         alphaValue = 0
         makeKeyAndOrderFront(nil)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
             self.animator().alphaValue = 1
         }
     }
 
-    /// Smoothly animate the panel out before closing.
     override func close() {
         guard !isClosing else { return }
         isClosing = true
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.12
+            context.duration = 0.1
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             self.animator().alphaValue = 0
         }, completionHandler: {
             super.close()
-            self.alphaValue = 1 // Reset for next show
+            self.alphaValue = 1
             self.isClosing = false
         })
     }
 
-    /// Embed a SwiftUI view inside the panel's visual effect background.
     func setSwiftUIContent<Content: View>(_ view: Content) {
         let hostingView = NSHostingView(rootView: view)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.appearance = NSApp.appearance
 
         guard let visualEffect = contentView as? NSVisualEffectView else { return }
-
-        // Remove previous hosting views
         visualEffect.subviews.forEach { $0.removeFromSuperview() }
 
         visualEffect.addSubview(hostingView)
@@ -105,7 +96,6 @@ class MenuBarPanel: NSPanel {
         refreshTheme()
     }
 
-    /// I resync the panel chrome so appearance and theme changes feel immediate.
     func refreshTheme() {
         syncAppearance()
     }
@@ -116,7 +106,8 @@ class MenuBarPanel: NSPanel {
         visualEffect.appearance = NSApp.appearance
         let effectiveAppearance = appearance ?? NSApp.effectiveAppearance
         visualEffect.layer?.backgroundColor = Theme.Surface.panelFill(for: effectiveAppearance).cgColor
-        visualEffect.layer?.borderWidth = 1
-        visualEffect.layer?.borderColor = Theme.Surface.panelBorder(for: effectiveAppearance).cgColor
+        visualEffect.layer?.borderWidth = 0.5
+        visualEffect.layer?.borderColor = Theme.Surface.panelBorder(for: effectiveAppearance)
+            .withAlphaComponent(0.3).cgColor
     }
 }

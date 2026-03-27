@@ -45,6 +45,7 @@ struct SettingsView: View {
         }
         .frame(width: 780, height: 560)
         .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     @ViewBuilder
@@ -124,12 +125,12 @@ private struct SettingsSidebarRow: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, lineWidth: 0.5)
         )
         .contentShape(Rectangle())
     }
@@ -217,22 +218,82 @@ struct AppearanceSettingsView: View {
                         Text(theme.rawValue).tag(theme)
                     }
                 }
-                .pickerStyle(.segmented)
 
-                HStack(spacing: 14) {
-                    ForEach(VisualTheme.allCases) { theme in
+                // Top row: 3 themes
+                HStack(spacing: 10) {
+                    ForEach(Array(VisualTheme.allCases.prefix(3)), id: \.self) { theme in
                         ThemePreviewCard(
                             theme: theme,
                             isActive: appSettings.visualTheme == theme
                         )
+                        .onTapGesture { appSettings.visualTheme = theme }
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
+
+                // Bottom row: 2 themes
+                HStack(spacing: 10) {
+                    ForEach(Array(VisualTheme.allCases.suffix(2)), id: \.self) { theme in
+                        ThemePreviewCard(
+                            theme: theme,
+                            isActive: appSettings.visualTheme == theme
+                        )
+                        .onTapGesture { appSettings.visualTheme = theme }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
+
+                // Apply recommended fonts button
+                HStack {
+                    Button {
+                        let theme = appSettings.visualTheme
+                        var applied: [String] = []
+                        var missing: [String] = []
+
+                        if fontManager.isFamilyAvailable(theme.recommendedFont) {
+                            appSettings.selectedFont = theme.recommendedFont
+                            applied.append(theme.recommendedFont)
+                        } else {
+                            missing.append(theme.recommendedFont)
+                        }
+                        if fontManager.isFamilyAvailable(theme.recommendedMonoFont) {
+                            appSettings.selectedMonoFont = theme.recommendedMonoFont
+                            applied.append(theme.recommendedMonoFont)
+                        } else {
+                            missing.append(theme.recommendedMonoFont)
+                        }
+
+                        if !missing.isEmpty {
+                            fontApplyMessage = "Not installed: \(missing.joined(separator: ", "))"
+                        } else {
+                            fontApplyMessage = "Applied: \(applied.joined(separator: " + "))"
+                        }
+                        // Clear message after 3 seconds
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            fontApplyMessage = nil
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "textformat")
+                            Text("Apply \(appSettings.visualTheme.rawValue) recommended fonts")
+                                .font(.system(size: 11))
+                        }
+                    }
+                    .help("Sets UI font to \(appSettings.visualTheme.recommendedFont) and mono font to \(appSettings.visualTheme.recommendedMonoFont)")
+
+                    if let message = fontApplyMessage {
+                        Text(message)
+                            .font(.system(size: 10))
+                            .foregroundColor(message.hasPrefix("Not") ? .orange : .green)
+                            .transition(.opacity)
+                    }
+                }
             } header: {
                 Text("Color Theme")
             } footer: {
-                Text("Classic keeps the current look. Graphite is calmer and cooler. Sunset is warmer and more expressive.")
+                Text("Each theme comes with a recommended font pairing. Click the button above to apply it.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -262,10 +323,135 @@ struct AppearanceSettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+
+            // MARK: - Font Settings
+            Section {
+                Picker("UI Font", selection: $appSettings.selectedFont) {
+                    ForEach(fontManager.availableFamilies, id: \.self) { family in
+                        Text(family)
+                            .font(family == "System Default"
+                                  ? .system(size: 13)
+                                  : .custom(family, size: 13))
+                            .tag(family)
+                    }
+                }
+                .onAppear {
+                    if !fontManager.availableFamilies.contains(appSettings.selectedFont) {
+                        appSettings.selectedFont = "System Default"
+                    }
+                }
+
+                Picker("Monospaced Font", selection: $appSettings.selectedMonoFont) {
+                    ForEach(fontManager.monospacedFamilies, id: \.self) { family in
+                        Text(family)
+                            .font(family == "System Monospaced"
+                                  ? .system(size: 13, design: .monospaced)
+                                  : .custom(family, size: 13))
+                            .tag(family)
+                    }
+                }
+                .onAppear {
+                    if !fontManager.monospacedFamilies.contains(appSettings.selectedMonoFont) {
+                        appSettings.selectedMonoFont = "System Monospaced"
+                    }
+                }
+
+                HStack {
+                    Text("Font Size")
+                    Spacer()
+                    Slider(value: $appSettings.fontSize, in: 9...18, step: 1)
+                        .frame(width: 160)
+                    Text("\(Int(appSettings.fontSize))px")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .frame(width: 32, alignment: .trailing)
+                }
+            } header: {
+                Text("Fonts")
+            }
+
+            Section {
+                // Live font preview
+                FontPreviewCard(
+                    uiFont: appSettings.selectedFont,
+                    monoFont: appSettings.selectedMonoFont,
+                    size: CGFloat(appSettings.fontSize)
+                )
+                .padding(.vertical, 4)
+            } header: {
+                Text("Preview")
+            }
+
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Project Fonts")
+                            .font(.system(size: 12, weight: .medium))
+                        Text(fontManager.projectFontsURL.path)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer()
+                    Button("Open") {
+                        fontManager.revealFontsFolder()
+                    }
+                }
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("User Fonts")
+                            .font(.system(size: 12, weight: .medium))
+                        Text(fontManager.appSupportFontsURL.path)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer()
+                    Button("Open") {
+                        fontManager.revealAppSupportFontsFolder()
+                    }
+                }
+
+                HStack {
+                    Spacer()
+                    Button {
+                        fontManager.reload()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Reload Fonts")
+                        }
+                    }
+                }
+
+                if !fontManager.customFontFamilies.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Loaded custom fonts:")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                        ForEach(fontManager.customFontFamilies, id: \.self) { family in
+                            Text("• \(family)")
+                                .font(.custom(family, size: 12))
+                        }
+                    }
+                }
+            } header: {
+                Text("Custom Fonts")
+            } footer: {
+                Text("Drop .ttf or .otf files into either folder and click Reload. The project Fonts/ folder lives next to your Sources/ directory.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .formStyle(.grouped)
         .padding()
     }
+
+    @ObservedObject private var fontManager = FontManager.shared
+    @State private var fontApplyMessage: String?
 
     private func iconForMode(_ mode: AppearanceMode) -> String {
         switch mode {
@@ -362,9 +548,14 @@ struct ThemePreviewCard: View {
                         .stroke(isActive ? accentColor : Color.primary.opacity(0.08), lineWidth: isActive ? 2 : 1)
                 )
 
-            Text(theme.rawValue)
-                .font(.system(size: 11, weight: isActive ? .semibold : .regular))
-                .foregroundColor(isActive ? .primary : .secondary)
+            VStack(spacing: 2) {
+                Text(theme.rawValue)
+                    .font(.system(size: 11, weight: isActive ? .semibold : .regular))
+                    .foregroundColor(isActive ? .primary : .secondary)
+                Text(theme.subtitle)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -376,6 +567,11 @@ struct ThemePreviewCard: View {
             return Color(red: 0.93, green: 0.94, blue: 0.96)
         case .sunset:
             return Color(red: 0.98, green: 0.95, blue: 0.92)
+        case .oceanic:
+            return Color(red: 0.90, green: 0.95, blue: 0.98)
+        case .noir:
+            // Slightly lighter in context so the card is visible against dark mode backgrounds
+            return Color(white: 0.18)
         }
     }
 
@@ -387,6 +583,10 @@ struct ThemePreviewCard: View {
             return Color(red: 0.26, green: 0.45, blue: 0.72)
         case .sunset:
             return Color(red: 0.86, green: 0.40, blue: 0.30)
+        case .oceanic:
+            return Color(red: 0.12, green: 0.46, blue: 0.72)
+        case .noir:
+            return Color(white: 0.90)
         }
     }
 
@@ -398,6 +598,10 @@ struct ThemePreviewCard: View {
             return Color(red: 0.24, green: 0.64, blue: 0.48)
         case .sunset:
             return Color(red: 0.92, green: 0.56, blue: 0.24)
+        case .oceanic:
+            return Color(red: 0.12, green: 0.62, blue: 0.52)
+        case .noir:
+            return Color(white: 0.75)
         }
     }
 
@@ -409,6 +613,10 @@ struct ThemePreviewCard: View {
             return Color(red: 0.36, green: 0.42, blue: 0.70)
         case .sunset:
             return Color(red: 0.62, green: 0.34, blue: 0.66)
+        case .oceanic:
+            return Color(red: 0.36, green: 0.32, blue: 0.68)
+        case .noir:
+            return Color(white: 0.50)
         }
     }
 }
@@ -454,6 +662,72 @@ struct IconPackPreviewCard: View {
         case .minimal:
             return minimal
         }
+    }
+}
+
+// MARK: - Font Preview Card
+struct FontPreviewCard: View {
+    let uiFont: String
+    let monoFont: String
+    let size: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(Color(nsColor: .controlBackgroundColor))
+            .frame(maxWidth: .infinity)
+            .frame(height: 90)
+            .overlay(
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Circle().fill(Theme.Status.connected).frame(width: 6, height: 6)
+                        Text(":3000")
+                            .font(monoFont == "System Monospaced"
+                                  ? .system(size: size, weight: .semibold, design: .monospaced)
+                                  : .custom(monoFont, size: size).weight(.semibold))
+                        Text("TCP")
+                            .font(.system(size: size - 3, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.12))
+                            .cornerRadius(3)
+                        Text("node")
+                            .font(uiFont == "System Default"
+                                  ? .system(size: size)
+                                  : .custom(uiFont, size: size))
+                            .foregroundColor(.secondary)
+                    }
+                    HStack(spacing: 8) {
+                        Circle().fill(Theme.Status.warning).frame(width: 6, height: 6)
+                        Text(":5432")
+                            .font(monoFont == "System Monospaced"
+                                  ? .system(size: size, weight: .semibold, design: .monospaced)
+                                  : .custom(monoFont, size: size).weight(.semibold))
+                        Text("TCP")
+                            .font(.system(size: size - 3, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.12))
+                            .cornerRadius(3)
+                        Text("postgres")
+                            .font(uiFont == "System Default"
+                                  ? .system(size: size)
+                                  : .custom(uiFont, size: size))
+                            .foregroundColor(.secondary)
+                    }
+                    Text("The quick brown fox jumps over the lazy dog")
+                        .font(uiFont == "System Default"
+                              ? .system(size: size - 1)
+                              : .custom(uiFont, size: size - 1))
+                        .foregroundColor(.secondary)
+                }
+                .padding(12)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
     }
 }
 

@@ -45,14 +45,14 @@ extension PortKiller {
             }
 
             print("\n🔍 Listening Processes:")
-            print(String(repeating: "─", count: 80))
+            print(String(repeating: "─", count: 98))
             print(headerRow())
-            print(String(repeating: "─", count: 80))
+            print(String(repeating: "─", count: 98))
 
             for process in processes.sorted(by: { $0.port < $1.port }) {
                 print(row(process))
             }
-            print(String(repeating: "─", count: 80))
+            print(String(repeating: "─", count: 98))
             print("\nFound \(processes.count) process(es)")
         }
 
@@ -60,17 +60,27 @@ extension PortKiller {
             let port = "PORT".padRight(width: 8)
             let proto = "PROTO".padRight(width: 6)
             let pid = "PID".padRight(width: 8)
-            let user = "USER".padRight(width: 18)
-            return "\(port) \(proto) \(pid) \(user) COMMAND"
+            let cpu = "CPU%".padRight(width: 8)
+            let mem = "MEM".padRight(width: 8)
+            let user = "USER".padRight(width: 16)
+            return "\(port) \(proto) \(pid) \(cpu) \(mem) \(user) COMMAND"
         }
 
         private func row(_ process: PortProcess) -> String {
             let port = "\(process.port)".padRight(width: 8)
             let proto = process.protocolName.uppercased().padRight(width: 6)
             let pid = "\(process.pid)".padRight(width: 8)
-            let user = process.user.padRight(width: 18)
-            let command = process.command.truncated(to: 28)
-            return "\(port) \(proto) \(pid) \(user) \(command)"
+            let cpu = (process.cpuUsage.map { String(format: "%.1f", $0) } ?? "-").padRight(width: 8)
+            let mem = (process.memoryMB.map { formatMem($0) } ?? "-").padRight(width: 8)
+            let user = process.user.padRight(width: 16)
+            let command = process.command.truncated(to: 26)
+            return "\(port) \(proto) \(pid) \(cpu) \(mem) \(user) \(command)"
+        }
+
+        private func formatMem(_ mb: Double) -> String {
+            if mb >= 1024 { return String(format: "%.1fG", mb / 1024.0) }
+            if mb >= 10 { return String(format: "%.0fM", mb) }
+            return String(format: "%.1fM", mb)
         }
 
         private func outputJSON(_ processes: [PortProcess]) throws {
@@ -597,7 +607,7 @@ extension String {
     }
 
     func truncated(to length: Int) -> String {
-        guard self.count > length else {
+        guard self.count > length, length >= 4 else {
             return self
         }
         return String(self.prefix(length - 3)) + "..."

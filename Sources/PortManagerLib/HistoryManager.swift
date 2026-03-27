@@ -165,6 +165,7 @@ public final class HistoryManager: ObservableObject {
     private let portUsageKey = "portKiller.portUsage"
     private let maxHistorySize = 500
     private let maxPortUsageSize = 1000
+    private let lock = NSLock()
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -173,6 +174,8 @@ public final class HistoryManager: ObservableObject {
     // MARK: - Port Usage History
 
     public func recordPortUsage(port: Int, process: PortProcess) {
+        lock.lock()
+        defer { lock.unlock() }
         var usage = getAllPortUsage()
 
         // Check if we already have an entry for this port+pid combination
@@ -276,6 +279,8 @@ public final class HistoryManager: ObservableObject {
     // MARK: - CRUD Operations
 
     public func addEntry(from process: PortProcess, wasForceKilled: Bool = false, startTime: Date? = nil) {
+        lock.lock()
+        defer { lock.unlock() }
         var history = getAllHistory()
         let entry = HistoryEntry(from: process, wasForceKilled: wasForceKilled, startTime: startTime)
         history.insert(entry, at: 0)
@@ -368,8 +373,8 @@ public final class HistoryManager: ObservableObject {
     public func getHistoryStats() -> HistoryStats {
         let history = getAllHistory()
 
-        var totalKills = history.count
-        var forceKills = history.filter { $0.wasForceKilled }.count
+        let totalKills = history.count
+        let forceKills = history.filter { $0.wasForceKilled }.count
 
         var portsKilled = Set<Int>()
         var commandsKilled = Set<String>()

@@ -31,10 +31,13 @@ public final class ProcessClassifier {
     /// Get the executable path for a PID using proc_pidpath
     public func getProcessPath(pid: Int) -> String? {
         #if os(macOS)
-        let pathBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(MAXPATHLEN))
+        let bufferSize = Int(MAXPATHLEN)
+        let pathBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { pathBuffer.deallocate() }
-        let pathLength = proc_pidpath(Int32(pid), pathBuffer, UInt32(MAXPATHLEN))
-        guard pathLength > 0 else { return nil }
+        let pathLength = proc_pidpath(Int32(pid), pathBuffer, UInt32(bufferSize))
+        // pathLength <= 0 means failure; >= bufferSize means truncated
+        guard pathLength > 0, pathLength < bufferSize else { return nil }
+        pathBuffer[Int(pathLength)] = 0 // Ensure null termination
         return String(cString: pathBuffer)
         #else
         // Linux: read /proc/pid/exe

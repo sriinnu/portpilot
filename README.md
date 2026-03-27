@@ -36,6 +36,7 @@ Unlike basic `lsof` wrappers, PortPilot:
 ### Menu Bar App
 - **Ports tab** — live port list grouped by connection type (Local, Database, SSH, K8s, Cloudflare)
 - **Sockets tab** — Unix socket processes with PID, classification badge, and socket path
+- **CPU usage** — real-time per-process CPU % with color-coded badges (green/yellow/orange/red)
 - **Filter pills** — TCP / UDP / Unix protocol filters, connection type icons with counts, hide system toggle
 - **Process classification** — each process labeled as System, App, or Developer using `proc_pidpath`
 - **Tunnel detection** — SSH, Kubernetes, Cloudflare with smart name extraction
@@ -46,11 +47,28 @@ Unlike basic `lsof` wrappers, PortPilot:
 Open via menu bar → "Open PortPilot"
 
 - **Port list** with filter pills (TCP/UDP/Unix, Web/Database/Dev/System/Favorites)
-- **Configuration panel** — connection details, process class, PID, uptime, CWD, port mapping
+- **CPU usage** — inline CPU % badge per process, color-coded by load
+- **Configuration panel** — connection details, process class, PID, uptime, CPU, CWD, port mapping
 - **Quick Proxy** — start/stop TCP proxy for any port from the config panel
 - **Port flow visualization** — ASCII diagram showing traffic path
 - **Logs panel** — activity log with per-port filtering
 - **Favorites, history, custom programs, reserved ports**
+
+### Appearance & Fonts
+Fully customizable look and feel from Settings → Appearance:
+
+- **5 color themes** — Classic, Graphite, Sunset, Oceanic, Noir — each with a recommended font pairing
+- **Custom fonts** — pick any system font for UI and monospaced text, or drop `.ttf`/`.otf` files into the `Fonts/` folder
+- **Font size** — adjustable from 9px to 18px, applied consistently across all views
+- **Custom fonts folder** — `Fonts/` in the project root (next to `Sources/`), or `~/Library/Application Support/PortPilot/Fonts/`
+
+| Theme | Character | Recommended Fonts |
+|-------|-----------|-------------------|
+| Classic | Vibrant and balanced | System Default + System Monospaced |
+| Graphite | Calm and professional | SF Pro + SF Mono |
+| Sunset | Warm and expressive | Avenir Next + Menlo |
+| Oceanic | Deep and focused | SF Pro Rounded + SF Mono |
+| Noir | Sharp and minimal | Helvetica Neue + Fira Code |
 
 ### Native TCP Proxy
 Built on Apple's Network.framework (NWListener + NWConnection):
@@ -71,15 +89,22 @@ Uses `proc_pidpath` to resolve executable paths and classify by heuristic:
 
 ### CLI Tool (Cross-Platform)
 ```bash
-portpilot list                          # All listening ports
+portpilot list                          # All listening ports (with CPU%)
 portpilot list --start 3000 --end 9999  # Port range
-portpilot list --proto tcp --json       # JSON output
+portpilot list --proto tcp --json       # JSON output (includes cpuUsage)
 portpilot kill 5173 --force             # Kill by port
 portpilot kill :8080                    # Colon prefix syntax
 portpilot pid 8080                      # Get PID for port
 portpilot pids 3000 3001 3002           # Multiple PIDs
 portpilot interactive                   # TUI mode
 portpilot proxy --port 1080 --host user@server  # SOCKS proxy
+```
+
+CLI table output now includes a CPU% column:
+```
+PORT     PROTO  PID      CPU%     USER               COMMAND
+3000     TCP    21082    0.0      user               node
+5432     TCP    63341    9.4      user               OrbStack
 ```
 
 ## Installation
@@ -192,19 +217,21 @@ Sources/
 │   ├── ConfigurationPanel.swift      # Config + proxy controls
 │   ├── MainWindowToolbar.swift       # Toolbar with filter pills
 │   ├── LogsPanel.swift               # Activity logs
-│   ├── Theme.swift                   # Colors, icons, sizes
-│   ├── SettingsView.swift            # Preferences
-│   └── AppSettings.swift             # UserDefaults
+│   ├── Theme.swift                   # 5 color themes (Classic, Graphite, Sunset, Oceanic, Noir)
+│   ├── FontManager.swift             # Custom font loading from Fonts/ folder
+│   ├── SettingsView.swift            # Preferences (appearance, fonts, themes)
+│   └── AppSettings.swift             # UserDefaults + font/theme settings
 ├── PortManagerLib/             # Shared library
-│   ├── PortManager.swift             # Port + socket discovery
+│   ├── PortManager.swift             # Port + socket + CPU discovery
 │   ├── ProcessClassifier.swift       # proc_pidpath classification
 │   ├── TCPProxyManager.swift         # Network.framework TCP proxy
 │   ├── PortWatcher.swift             # Port monitoring
 │   ├── FavoritesManager.swift        # Favorites
-│   └── HistoryManager.swift          # Kill history
-└── PortKillerCLI/              # CLI
-    ├── CLI.swift                     # Argument parsing
-    └── InteractiveMode.swift         # TUI mode
+│   └── HistoryManager.swift          # Kill history (thread-safe)
+├── PortKillerCLI/              # CLI
+│   ├── CLI.swift                     # Argument parsing
+│   └── InteractiveMode.swift         # TUI mode
+└── Fonts/                      # Drop .ttf/.otf here for custom fonts
 ```
 
 ## Tech Stack
@@ -212,8 +239,9 @@ Sources/
 - **Swift 5.9** + **SwiftUI** — native macOS UI
 - **AppKit** — menu bar, NSWindow management
 - **Network.framework** — TCP proxy (NWListener + NWConnection)
-- **proc_pidpath** — process classification via executable path
-- **Thread safety** — NSLock on all shared caches
+- **CoreText** — runtime font registration from custom font files
+- **proc_pidpath** — process classification via executable path (with bounds-checked buffer)
+- **Thread safety** — NSLock on shared caches; process execution with 10s timeout
 
 ## License
 

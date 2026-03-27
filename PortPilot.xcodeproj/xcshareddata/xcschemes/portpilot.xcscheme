@@ -15,9 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "4D26D46F9213594A6115E704"
-               BuildableName = "PortPilot.app"
-               BlueprintName = "PortPilot"
+               BlueprintIdentifier = "34DCD69A3EDEF82D08FEDB61"
+               BuildableName = "portpilot"
+               BlueprintName = "portpilot"
                ReferencedContainer = "container:PortPilot.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -32,9 +32,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "4D26D46F9213594A6115E704"
-            BuildableName = "PortPilot.app"
-            BlueprintName = "PortPilot"
+            BlueprintIdentifier = "34DCD69A3EDEF82D08FEDB61"
+            BuildableName = "portpilot"
+            BlueprintName = "portpilot"
             ReferencedContainer = "container:PortPilot.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
@@ -55,9 +55,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "4D26D46F9213594A6115E704"
-            BuildableName = "PortPilot.app"
-            BlueprintName = "PortPilot"
+            BlueprintIdentifier = "34DCD69A3EDEF82D08FEDB61"
+            BuildableName = "portpilot"
+            BlueprintName = "portpilot"
             ReferencedContainer = "container:PortPilot.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -74,9 +74,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "4D26D46F9213594A6115E704"
-            BuildableName = "PortPilot.app"
-            BlueprintName = "PortPilot"
+            BlueprintIdentifier = "34DCD69A3EDEF82D08FEDB61"
+            BuildableName = "portpilot"
+            BlueprintName = "portpilot"
             ReferencedContainer = "container:PortPilot.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

@@ -1,29 +1,34 @@
 import Foundation
 
 // MARK: - Port Process Model
-public struct PortProcess: Codable, Hashable, Identifiable, Sendable {
+public struct PortProcess: Codable, Identifiable, Sendable {
+    // Identity fields (immutable — define equality and hashing)
     public let port: Int
     public let protocolName: String
     public let pid: Int
     public let user: String
     public let command: String
+
+    // Enrichment fields (mutable — populated after initial discovery, excluded from hashing)
     public var fullCommand: String?
     public var parentPID: Int?
     public var startTime: Date?
     public var workingDirectory: String?
     public var processPath: String?
     public var socketPath: String?
+    public var cpuUsage: Double?
+    public var memoryMB: Double?
 
     /// Unique ID: combines protocol+port for network, protocol+pid for sockets
     public var id: String {
         if protocolName == "unix" { return "unix-\(pid)" }
-        return "\(protocolName)-\(port)"
+        return "\(protocolName)-\(port)-\(pid)"
     }
 
     /// Whether this is a Unix socket process (no network port)
     public var isUnixSocket: Bool { protocolName == "unix" }
 
-    public init(port: Int, protocolName: String, pid: Int, user: String, command: String, fullCommand: String? = nil, parentPID: Int? = nil, startTime: Date? = nil, workingDirectory: String? = nil, processPath: String? = nil, socketPath: String? = nil) {
+    public init(port: Int, protocolName: String, pid: Int, user: String, command: String, fullCommand: String? = nil, parentPID: Int? = nil, startTime: Date? = nil, workingDirectory: String? = nil, processPath: String? = nil, socketPath: String? = nil, cpuUsage: Double? = nil, memoryMB: Double? = nil) {
         self.port = port
         self.protocolName = protocolName
         self.pid = pid
@@ -35,6 +40,21 @@ public struct PortProcess: Codable, Hashable, Identifiable, Sendable {
         self.workingDirectory = workingDirectory
         self.processPath = processPath
         self.socketPath = socketPath
+        self.cpuUsage = cpuUsage
+        self.memoryMB = memoryMB
+    }
+}
+
+// Hashable and Equatable based only on identity fields — enrichment fields are excluded
+extension PortProcess: Hashable, Equatable {
+    public static func == (lhs: PortProcess, rhs: PortProcess) -> Bool {
+        lhs.port == rhs.port && lhs.protocolName == rhs.protocolName && lhs.pid == rhs.pid
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(port)
+        hasher.combine(protocolName)
+        hasher.combine(pid)
     }
 }
 
@@ -197,7 +217,8 @@ public final class PortManager {
 
     private func parseMacOSOutput(_ output: String) -> [PortProcess] {
         var processes: [PortProcess] = []
-        var seen = Set<Int>()
+        // Dedup by (protocol, port, pid) to allow multiple PIDs on the same port (SO_REUSEPORT)
+        var seen = Set<String>()
 
         for line in output.components(separatedBy: "\n").dropFirst() {
             guard !line.isEmpty else { continue }
@@ -215,8 +236,9 @@ public final class PortManager {
 
             let proto = line.contains("TCP") ? "tcp" : "udp"
 
-            guard !seen.contains(port) else { continue }
-            seen.insert(port)
+            let key = "\(proto)-\(port)-\(pid)"
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
 
             processes.append(PortProcess(
                 port: port,
@@ -232,48 +254,59 @@ public final class PortManager {
 
     private func parseLinuxOutput(_ output: String) -> [PortProcess] {
         var processes: [PortProcess] = []
-        var seen = Set<Int>()
+        var seen = Set<String>()
 
-        // ss -tlnp output format:
+        // ss -tlnp output format (column-based):
         // State    Recv-Q   Send-Q   Local Address:Port   Peer Address:Port   Process
         // LISTEN   0        511      127.0.0.1:631        0.0.0.0:*          users:(("cupsd",pid=449,fd=4))
 
         for line in output.components(separatedBy: "\n") {
             guard line.contains("LISTEN") else { continue }
 
-            // Extract port from Local Address:Port
-            let portMatch = line.range(of: #":(\d+)"#, options: .regularExpression)
-            guard let portRange = portMatch else { continue }
-            let portString = String(line[portRange]).dropFirst()
+            // Split into columns — ss uses whitespace-delimited columns
+            let columns = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            // Expected: [State, Recv-Q, Send-Q, LocalAddr:Port, PeerAddr:Port, Process...]
+            guard columns.count >= 5 else { continue }
+
+            // Extract port from Local Address:Port (column index 3)
+            let localAddr = columns[3]
+            guard let lastColon = localAddr.lastIndex(of: ":") else { continue }
+            let portString = String(localAddr[localAddr.index(after: lastColon)...])
             guard let port = Int(portString) else { continue }
 
-            // Extract PID and command from process info
+            // Extract PID and command from process info column(s)
             // Format: users:(("command",pid=123,fd=x))
-            let processMatch = line.range(of: #"\(\"([^\"]+)\",pid=(\d+)"#, options: .regularExpression)
+            let processInfo = columns.dropFirst(5).joined(separator: " ")
             var command = "unknown"
             var pid = 0
 
-            if let procRange = processMatch {
-                let procString = String(line[procRange])
-                let components = procString.components(separatedBy: ",")
-                if components.count >= 1 {
-                    command = components[0].replacingOccurrences(of: "(\"", with: "")
-                }
-                if components.count >= 2 {
-                    let pidStr = components[1].replacingOccurrences(of: "pid=", with: "")
-                    pid = Int(pidStr) ?? 0
-                }
+            if let cmdRange = processInfo.range(of: #"\(\"([^\"]+)\""#, options: .regularExpression) {
+                command = String(processInfo[cmdRange])
+                    .replacingOccurrences(of: "(\"", with: "")
+                    .replacingOccurrences(of: "\"", with: "")
+            }
+            if let pidRange = processInfo.range(of: #"pid=(\d+)"#, options: .regularExpression) {
+                let pidStr = String(processInfo[pidRange]).replacingOccurrences(of: "pid=", with: "")
+                pid = Int(pidStr) ?? 0
             }
 
-            // Extract user
+            // User: resolve from /proc/{pid}/status if available, else fall back to uid lookup
             var user = "unknown"
-            let userParts = line.split(separator: " ")
-            if let userStr = userParts.first(where: { !$0.contains(":") && Int($0) == nil && !$0.contains("LISTEN") }) {
-                user = String(userStr)
+            if pid > 0 {
+                if let statusOutput = try? runCommand("/bin/cat", arguments: ["/proc/\(pid)/status"]),
+                   let uidLine = statusOutput.components(separatedBy: "\n").first(where: { $0.hasPrefix("Uid:") }) {
+                    let uidParts = uidLine.split(separator: "\t", omittingEmptySubsequences: true)
+                    if uidParts.count >= 2, let uid = Int(uidParts[1]) {
+                        if let passwdLine = try? runCommand("/usr/bin/id", arguments: ["-nu", String(uid)]) {
+                            user = passwdLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    }
+                }
             }
 
-            guard !seen.contains(port) else { continue }
-            seen.insert(port)
+            let key = "tcp-\(port)-\(pid)"
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
 
             processes.append(PortProcess(
                 port: port,
@@ -367,8 +400,10 @@ public final class PortManager {
         }
 
         // lstart format: "Wed Mar 19 15:30:00 2025" — parse into Date
+        // ps lstart outputs in the system's local timezone
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.timeZone = TimeZone.current
         dateFormatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
 
         var pidToInfo: [Int: (args: String, ppid: Int?, lstart: Date?, cwd: String?)] = [:]
@@ -401,15 +436,17 @@ public final class PortManager {
             if tokens.count >= 6 {
                 let lstartStr = tokens[1...5].joined(separator: " ")
                 lstart = dateFormatter.date(from: lstartStr)
-                cwd = tokens[6]
-                args = tokens.dropFirst(7).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-            } else if tokens.count >= 7 {
+            }
+            if tokens.count >= 7 {
                 cwd = tokens[6]
                 args = tokens.dropFirst(7).joined(separator: " ").trimmingCharacters(in: .whitespaces)
             }
 
             pidToInfo[pid] = (args: args ?? "", ppid: ppid, lstart: lstart, cwd: cwd)
         }
+
+        // Fetch CPU + memory separately to avoid fragile multi-field parsing
+        let stats = fetchProcessStats(pids: pids)
 
         // Get process paths for classification
         var pidToPath: [Int: String] = [:]
@@ -428,9 +465,31 @@ public final class PortManager {
                 updated.startTime = info.lstart
                 updated.workingDirectory = info.cwd
             }
+            updated.cpuUsage = stats.cpu[process.pid]
+            updated.memoryMB = stats.memMB[process.pid]
             updated.processPath = pidToPath[process.pid]
             return updated
         }
+    }
+
+    /// Fetches CPU usage and memory (RSS in KB) for a comma-separated list of PIDs.
+    private func fetchProcessStats(pids: String) -> (cpu: [Int: Double], memMB: [Int: Double]) {
+        guard let output = try? runCommand("/bin/ps", arguments: ["-p", pids, "-o", "pid=,%cpu=,rss="]) else {
+            return ([:], [:])
+        }
+        var cpuMap: [Int: Double] = [:]
+        var memMap: [Int: Double] = [:]
+        for line in output.components(separatedBy: "\n") {
+            let parts = line.trimmingCharacters(in: .whitespaces)
+                .split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count >= 3,
+                  let pid = Int(parts[0]),
+                  let cpu = Double(parts[1]),
+                  let rssKB = Double(parts[2]) else { continue }
+            cpuMap[pid] = cpu
+            memMap[pid] = rssKB / 1024.0 // Convert KB to MB
+        }
+        return (cpuMap, memMap)
     }
 
     private func fetchFullCommandsLinux(for processes: [PortProcess]) -> [PortProcess] {
@@ -450,9 +509,14 @@ public final class PortManager {
             pidToArgs[pid] = String(parts[1...].joined(separator: " ").trimmingCharacters(in: .whitespaces))
         }
 
+        // Fetch CPU + memory separately
+        let stats = fetchProcessStats(pids: pids)
+
         return processes.map { process in
             var updated = process
             updated.fullCommand = pidToArgs[process.pid]
+            updated.cpuUsage = stats.cpu[process.pid]
+            updated.memoryMB = stats.memMB[process.pid]
             return updated
         }
     }
@@ -461,21 +525,26 @@ public final class PortManager {
         // On Windows, use wmic to get command line
         guard !processes.isEmpty else { return processes }
 
+        var pidToCmd: [Int: String] = [:]
         for process in processes {
             guard let output = try? runCommand("wmic", arguments: ["process", "where", "ProcessId=\(process.pid)", "get", "CommandLine", "/format:csv"]) else {
                 continue
             }
 
-            // Parse wmic output
             let lines = output.components(separatedBy: "\n").filter { !$0.contains("Node") && !$0.isEmpty }
-            if let lastLine = lines.last, lastLine.contains("CommandLine") == false {
-                var updated = process
-                updated.fullCommand = lastLine.trimmingCharacters(in: .whitespaces)
-                return processes
+            if let lastLine = lines.last, !lastLine.contains("CommandLine") {
+                let cmd = lastLine.trimmingCharacters(in: .whitespaces)
+                if !cmd.isEmpty {
+                    pidToCmd[process.pid] = cmd
+                }
             }
         }
 
-        return processes
+        return processes.map { process in
+            var updated = process
+            updated.fullCommand = pidToCmd[process.pid]
+            return updated
+        }
     }
 
     // MARK: - Get Connections
@@ -601,7 +670,7 @@ public final class PortManager {
         return true
     }
 
-    private func runCommandQuiet(_ path: String, arguments: [String]) -> String {
+    private func runCommandQuiet(_ path: String, arguments: [String], timeout: TimeInterval = 10) -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
@@ -613,6 +682,15 @@ public final class PortManager {
 
         try? process.run()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+
+        if process.isRunning {
+            let deadline = DispatchTime.now() + timeout
+            DispatchQueue.global().asyncAfter(deadline: deadline) {
+                if process.isRunning {
+                    process.terminate()
+                }
+            }
+        }
         process.waitUntilExit()
         return String(data: data, encoding: .utf8) ?? ""
     }
@@ -748,6 +826,7 @@ public final class PortManager {
 
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.timeZone = TimeZone.current
         dateFormatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
 
         let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
@@ -761,31 +840,37 @@ public final class PortManager {
             guard let pidVal = Int(pidStr), pidVal == pid else { continue }
 
             let rest = String(trimmed[trimmed.index(after: firstSpaceIdx)...])
-            let tokens = rest.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
 
+            // ps format: ppid user lstart(5 words) cwd args...
+            // Use omittingEmptySubsequences: true for reliable indexing
+            let cleanTokens = rest.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             var ppid: Int?
+            var user = "unknown"
             var lstart: Date?
             var cwd: String?
             var args: String?
 
-            if tokens.count >= 1 {
-                ppid = Int(tokens[0])
+            if cleanTokens.count >= 1 {
+                ppid = Int(cleanTokens[0])
             }
-            if tokens.count >= 6 {
-                let lstartStr = tokens[1...5].joined(separator: " ")
+            if cleanTokens.count >= 2 {
+                user = cleanTokens[1]
+            }
+            // cleanTokens[2..<7] = lstart (5 words)
+            if cleanTokens.count >= 7 {
+                let lstartStr = cleanTokens[2...6].joined(separator: " ")
                 lstart = dateFormatter.date(from: lstartStr)
-                cwd = tokens[6]
-                args = tokens.dropFirst(7).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-            } else if tokens.count >= 7 {
-                cwd = tokens[6]
-                args = tokens.dropFirst(7).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            }
+            if cleanTokens.count >= 8 {
+                cwd = cleanTokens[7]
+                args = cleanTokens.dropFirst(8).joined(separator: " ").trimmingCharacters(in: .whitespaces)
             }
 
             return PortProcess(
                 port: 0,
                 protocolName: "process",
                 pid: pid,
-                user: tokens.count >= 2 ? tokens[1] : "unknown",
+                user: user,
                 command: args?.split(separator: "/").last.map(String.init) ?? name,
                 fullCommand: args,
                 parentPID: ppid,
@@ -938,7 +1023,7 @@ public final class PortManager {
 
     // MARK: - Shell Command Runner
 
-    private func runCommand(_ path: String, arguments: [String]) throws -> String {
+    private func runCommand(_ path: String, arguments: [String], timeout: TimeInterval = 10) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
@@ -949,7 +1034,19 @@ public final class PortManager {
         process.standardError = pipe
 
         try process.run()
+
+        // Read data with timeout to prevent hanging on stuck processes
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+
+        if process.isRunning {
+            // Give it the timeout window, then force-terminate
+            let deadline = DispatchTime.now() + timeout
+            DispatchQueue.global().asyncAfter(deadline: deadline) {
+                if process.isRunning {
+                    process.terminate()
+                }
+            }
+        }
         process.waitUntilExit()
         return String(data: data, encoding: .utf8) ?? ""
     }

@@ -17,8 +17,43 @@ enum VisualTheme: String, CaseIterable, Identifiable {
     case classic = "Classic"
     case graphite = "Graphite"
     case sunset = "Sunset"
+    case oceanic = "Oceanic"
+    case noir = "Noir"
 
     var id: String { rawValue }
+
+    /// Recommended UI font for this theme
+    var recommendedFont: String {
+        switch self {
+        case .classic: return "System Default"
+        case .graphite: return "SF Pro"
+        case .sunset: return "Avenir Next"
+        case .oceanic: return "SF Pro Rounded"
+        case .noir: return "Helvetica Neue"
+        }
+    }
+
+    /// Recommended monospaced font for this theme
+    var recommendedMonoFont: String {
+        switch self {
+        case .classic: return "System Monospaced"
+        case .graphite: return "SF Mono"
+        case .sunset: return "Menlo"
+        case .oceanic: return "SF Mono"
+        case .noir: return "Fira Code"
+        }
+    }
+
+    /// Short description of the theme's character
+    var subtitle: String {
+        switch self {
+        case .classic: return "Vibrant and balanced"
+        case .graphite: return "Calm and professional"
+        case .sunset: return "Warm and expressive"
+        case .oceanic: return "Deep and focused"
+        case .noir: return "Sharp and minimal"
+        }
+    }
 }
 
 // MARK: - Icon Pack
@@ -90,6 +125,9 @@ class AppSettings: ObservableObject {
         static let iconPack = "IconPack"
         static let reservedPorts = "ReservedPorts"
         static let customPrograms = "CustomPrograms"
+        static let selectedFont = "SelectedFont"
+        static let selectedMonoFont = "SelectedMonoFont"
+        static let fontSize = "FontSize"
     }
 
     // Published properties
@@ -186,6 +224,27 @@ class AppSettings: ObservableObject {
         }
     }
 
+    @Published var selectedFont: String {
+        didSet {
+            defaults.set(selectedFont, forKey: Keys.selectedFont)
+            refreshVisibleChrome()
+        }
+    }
+
+    @Published var selectedMonoFont: String {
+        didSet {
+            defaults.set(selectedMonoFont, forKey: Keys.selectedMonoFont)
+            refreshVisibleChrome()
+        }
+    }
+
+    @Published var fontSize: Double {
+        didSet {
+            defaults.set(fontSize, forKey: Keys.fontSize)
+            refreshVisibleChrome()
+        }
+    }
+
     @Published var reservedPorts: [Int] {
         didSet {
             defaults.set(reservedPorts, forKey: Keys.reservedPorts)
@@ -216,6 +275,10 @@ class AppSettings: ObservableObject {
         self.visualTheme = VisualTheme(rawValue: visualThemeString) ?? .classic
         let iconPackString = defaults.string(forKey: Keys.iconPack) ?? IconPack.filled.rawValue
         self.iconPack = IconPack(rawValue: iconPackString) ?? .filled
+
+        self.selectedFont = defaults.string(forKey: Keys.selectedFont) ?? "System Default"
+        self.selectedMonoFont = defaults.string(forKey: Keys.selectedMonoFont) ?? "System Monospaced"
+        self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? 12.0
 
         self.reservedPorts = defaults.array(forKey: Keys.reservedPorts) as? [Int] ?? []
 
@@ -256,6 +319,8 @@ class AppSettings: ObservableObject {
 
     /// Call on app launch to apply saved settings
     func applyAllOnLaunch() {
+        // Initialize FontManager first so custom fonts are available before appearance applies
+        _ = FontManager.shared
         applyAppearance()
         applyDockIconPolicy()
         if backgroundMonitoring {

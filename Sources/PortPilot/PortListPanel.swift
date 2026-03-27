@@ -36,7 +36,8 @@ struct PortListPanel: View {
                                 typeIcon: viewModel.connectionType(for: port).icon,
                                 tunnelName: viewModel.tunnelName(for: port),
                                 parentProcessName: viewModel.parentProcessName(for: port),
-                                processUptime: viewModel.processUptime(for: port)
+                                processUptime: viewModel.processUptime(for: port),
+                                cpuUsage: port.cpuUsage
                             )
                             Divider().padding(.leading, 12)
                         }
@@ -61,11 +62,11 @@ struct PortListHeader: View {
     var body: some View {
         HStack {
             Text("Port")
-                .font(.system(size: 11, weight: .semibold))
+                .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
                 .foregroundColor(.secondary)
             Spacer()
             Text("Actions")
-                .font(.system(size: 11, weight: .semibold))
+                .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
                 .foregroundColor(.secondary)
         }
         .padding(.horizontal, 12)
@@ -88,7 +89,9 @@ struct PortListRow: View {
     var tunnelName: String? = nil
     var parentProcessName: String? = nil
     var processUptime: String? = nil
+    var cpuUsage: Double? = nil
 
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
 
     private var infoTooltip: String {
@@ -96,6 +99,12 @@ struct PortListRow: View {
         lines.append("PID: \(port.pid)")
         if let ppid = port.parentPID {
             lines.append("PPID: \(ppid)" + (parentProcessName.map { " (\($0))" } ?? ""))
+        }
+        if let cpu = cpuUsage {
+            lines.append("CPU: \(String(format: "%.1f", cpu))%")
+        }
+        if let mem = port.memoryMB {
+            lines.append("Memory: \(formatMemory(mem))")
         }
         if let uptime = processUptime {
             lines.append("Uptime: \(uptime)")
@@ -129,7 +138,7 @@ struct PortListRow: View {
 
             // Process type badge
             Text(processType.rawValue)
-                .font(.system(size: 9, weight: .semibold))
+                .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .semibold))
                 .foregroundColor(processTypeColor(processType))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -143,21 +152,51 @@ struct PortListRow: View {
                 HStack(spacing: 4) {
                     if port.isUnixSocket {
                         Text("PID \(port.pid)")
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize + 1, weight: .semibold))
                     } else {
                         Text(":\(port.port)")
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize + 1, weight: .semibold))
                     }
                     Text(port.protocolName.uppercased())
-                        .font(.system(size: 9, weight: .medium))
+                        .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(Theme.Surface.headerTint)
                         .cornerRadius(3)
+
+                    // CPU badge — always visible
+                    if let cpu = cpuUsage {
+                        if cpu > 0.1 {
+                            Text(String(format: "%.1f%%", cpu))
+                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(cpuHeatColor(cpu)))
+                                .shadow(color: cpuHeatColor(cpu).opacity(0.35), radius: 3, y: 1)
+                        } else {
+                            Text("0%")
+                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                                .foregroundColor(.secondary.opacity(0.5))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
+                        }
+                    }
+
+                    // Memory badge
+                    if let mem = port.memoryMB {
+                        Text(formatMemory(mem))
+                            .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Capsule().strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1))
+                    }
                 }
                 Text(tunnelName ?? port.socketPath ?? port.fullCommand ?? port.command)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 1))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
@@ -187,14 +226,17 @@ struct PortListRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background(
-            isSelected
-                ? Theme.Surface.selected
-                : (isHovered ? Theme.Surface.hover : .clear)
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected
+                    ? Theme.Surface.selected
+                    : (isHovered ? Theme.Surface.hover : .clear))
+                .shadow(color: isHovered && !isSelected ? Color.black.opacity(0.06) : .clear, radius: 3, y: 1)
         )
         .contentShape(Rectangle())
+        .scaleEffect(isHovered && !isSelected ? 1.005 : 1.0)
         .onTapGesture { onSelect() }
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+            withAnimation(.easeInOut(duration: 0.18)) { isHovered = hovering }
         }
     }
 
@@ -206,12 +248,39 @@ struct PortListRow: View {
         case .other: return Theme.Classification.other
         }
     }
+
+    private func formatMemory(_ mb: Double) -> String {
+        if mb >= 1024 { return String(format: "%.1fG", mb / 1024.0) }
+        if mb >= 10 { return String(format: "%.0fM", mb) }
+        return String(format: "%.1fM", mb)
+    }
+
+    /// Smooth heat-map: 0% teal → 25% blue → 50% amber → 75% orange → 100% red
+    private func cpuHeatColor(_ usage: Double) -> Color {
+        let t = min(max(usage / 100.0, 0), 1)
+        let r: Double, g: Double, b: Double
+        if t < 0.25 {
+            let p = t / 0.25
+            r = 0.18 + p * 0.12;  g = 0.62 - p * 0.14;  b = 0.70 - p * 0.02
+        } else if t < 0.50 {
+            let p = (t - 0.25) / 0.25
+            r = 0.30 + p * 0.58;  g = 0.48 + p * 0.14;  b = 0.68 - p * 0.52
+        } else if t < 0.75 {
+            let p = (t - 0.50) / 0.25
+            r = 0.88 + p * 0.07;  g = 0.62 - p * 0.22;  b = 0.16 - p * 0.04
+        } else {
+            let p = (t - 0.75) / 0.25
+            r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
+        }
+        return Color(red: r, green: g, blue: b)
+    }
 }
 
 // MARK: - Empty State
 struct PortListEmptyState: View {
     let hasFilters: Bool
     let onClearFilters: () -> Void
+    @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
         VStack(spacing: 12) {
@@ -219,12 +288,12 @@ struct PortListEmptyState: View {
                 .font(.system(size: 28))
                 .foregroundColor(.secondary.opacity(0.5))
             Text(hasFilters ? "No matching ports" : "No ports found")
-                .font(.system(size: 13, weight: .medium))
+                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
                 .foregroundColor(.secondary)
             if hasFilters {
                 Button("Clear Filters") { onClearFilters() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(appSettings.appFont(size: appSettings.fontSize))
                     .foregroundColor(.accentColor)
             }
         }
@@ -235,6 +304,7 @@ struct PortListEmptyState: View {
 // MARK: - Footer
 struct PortListFooter: View {
     let onAdd: () -> Void
+    @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
         HStack(spacing: 8) {
@@ -250,7 +320,7 @@ struct PortListFooter: View {
                             .foregroundColor(.white)
                     }
                     Text("Add")
-                        .font(.system(size: 12))
+                        .font(appSettings.appFont(size: appSettings.fontSize))
                         .foregroundColor(Theme.Action.add)
                 }
             }
@@ -263,7 +333,7 @@ struct PortListFooter: View {
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Text("Import")
-                        .font(.system(size: 12))
+                        .font(appSettings.appFont(size: appSettings.fontSize))
                         .foregroundColor(.secondary)
                 }
             }

@@ -16,6 +16,7 @@
 		36BBA1CD6F505249CD1D6184 /* TCPProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27629EA5FE623F463B619EAB /* TCPProxyManager.swift */; };
 		3CC8F08BC715035E95B24F96 /* InteractiveMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588D0EFE0FBD4393233E704D /* InteractiveMode.swift */; };
 		45B63A44A1DCA31EF12C887F /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = A31E063060BCD5F12FF17B27 /* ArgumentParser */; };
+		4C9F138BAFE6A335A6E54185 /* FontManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4A615345FB63E8E282D8766 /* FontManager.swift */; };
 		53FADF13C4BE66641E932DA1 /* PortViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */; };
 		559D9C8BC5304235283C5518 /* LogsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774B16A739CCA03682C7791E /* LogsPanel.swift */; };
 		5D7BACC7B281C23E9110B48B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F425A17AF5886E28CEAECA52 /* ContentView.swift */; };
@@ -66,6 +67,7 @@
 		950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesManager.swift; sourceTree = "<group>"; };
 		97954318FFAD19EBB7495DBF /* PortForwardSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortForwardSheet.swift; sourceTree = "<group>"; };
 		9AFDD18AB717D8523F24B00D /* PortHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortHistoryView.swift; sourceTree = "<group>"; };
+		A4A615345FB63E8E282D8766 /* FontManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontManager.swift; sourceTree = "<group>"; };
 		AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanel.swift; sourceTree = "<group>"; };
 		B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortManager.swift; sourceTree = "<group>"; };
 		C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarDropdownView.swift; sourceTree = "<group>"; };
@@ -101,6 +103,7 @@
 				3F7925D712801392988B9C16 /* Assets.xcassets */,
 				2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */,
 				F425A17AF5886E28CEAECA52 /* ContentView.swift */,
+				A4A615345FB63E8E282D8766 /* FontManager.swift */,
 				8309BC095CFA83DD1EC0B7FB /* Info.plist */,
 				774B16A739CCA03682C7791E /* LogsPanel.swift */,
 				8A861967EF449E3C64C56EE0 /* MainWindowToolbar.swift */,
@@ -282,6 +285,7 @@
 				0AE5E0C4D87AADF5DAFEB5D2 /* ConfigurationPanel.swift in Sources */,
 				5D7BACC7B281C23E9110B48B /* ContentView.swift in Sources */,
 				02424985B3D3D0153B71C2E8 /* FavoritesManager.swift in Sources */,
+				4C9F138BAFE6A335A6E54185 /* FontManager.swift in Sources */,
 				E1A03A464A6EAB4D026ED740 /* HistoryManager.swift in Sources */,
 				559D9C8BC5304235283C5518 /* LogsPanel.swift in Sources */,
 				9343794A1F217DEC030C0BD7 /* MainWindowToolbar.swift in Sources */,
