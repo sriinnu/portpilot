@@ -1,13 +1,30 @@
+# Build artifacts
 .build/
 .tmp/
 .swiftpm/
+DerivedData/
+dist/
+
+# Xcode
 *.xcuserdata
 xcuserdata/
-DerivedData/
+
+# macOS
 .DS_Store
+
+# Node
+node_modules/
+pnpm-lock.yaml
+
+# Environment / local config
 .claude/
 .mcp.json
 .port.local.env
 .port.local.env.example
 RELEASE.local.md
-dist/
+
+# Editor
+*.swp
+*~
+.vscode/
+.idea/
