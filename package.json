@@ -1,23 +1,27 @@
 {
   "name": "@sriinnu/portpilot",
-  "version": "2.1.0",
-  "description": "Port management from your menu bar — monitor ports, discover daemons, proxy traffic, kill processes. macOS app + cross-platform CLI.",
+  "version": "3.0.0",
+  "description": "Port management from your menu bar — monitor ports, discover daemons, proxy traffic, kill processes. macOS app + cross-platform CLI + rich terminal UI.",
   "scripts": {
     "prebuild": "which xcodegen > /dev/null 2>&1 && xcodegen generate || echo 'xcodegen not found, using existing project'",
     "build": "xcodebuild -project PortPilot.xcodeproj -scheme PortPilot -configuration Release -derivedDataPath .build/xcode build | tail -5",
-    "build:cli": "swift build -c release",
+    "build:cli": "swift build -c release --product portpilot",
+    "build:tui": "swift build -c release --product portpilot-tui",
     "build:debug": "xcodebuild -project PortPilot.xcodeproj -scheme PortPilot -configuration Debug -derivedDataPath .build/xcode build",
-    "build:all": "npm run build && npm run build:cli",
+    "build:all": "npm run build; npm run build:cli && npm run build:tui",
+    "build:all:linux": "npm run build:cli && npm run build:tui",
+    "setup:linux": "npm run build:all:linux && echo '📦 Installing...' && sudo cp .build/release/portpilot /usr/local/bin/portpilot && sudo cp .build/release/portpilot-tui /usr/local/bin/portpilot-tui && echo '✓ Installed: portpilot + portpilot-tui to /usr/local/bin' && echo '  Run: portpilot list  or  portpilot tui'",
     "release:tag": "bash scripts/create_release.sh",
     "sparkle:keygen": "bash scripts/generate_sparkle_key.sh",
     "release:signed:app": "bash scripts/release_signed_macos.sh",
     "install:app": "cp -R .build/xcode/Build/Products/Release/PortPilot.app /Applications/ && echo '✓ PortPilot.app installed to /Applications'",
     "install:cli": "mkdir -p /usr/local/bin 2>/dev/null; cp .build/release/portpilot /usr/local/bin/portpilot && echo '✓ portpilot CLI installed to /usr/local/bin' || echo '⚠ CLI install needs: sudo cp .build/release/portpilot /usr/local/bin/'",
+    "install:tui": "mkdir -p /usr/local/bin 2>/dev/null; cp .build/release/portpilot-tui /usr/local/bin/portpilot-tui && echo '✓ portpilot-tui installed to /usr/local/bin' || echo '⚠ TUI install needs: sudo cp .build/release/portpilot-tui /usr/local/bin/'",
     "postinstall": "echo '⚠ PortPilot requires Swift 5.9+ to build. Run: npm run release'",
-    "release": "npm run build:all && npm run install:app && npm run install:cli && node -e \"const version=require('./package.json').version; console.log('✓ PortPilot v' + version + ' released!')\"",
+    "release": "npm run build:all && npm run install:app && npm run install:cli && npm run install:tui && node -e \"const version=require('./package.json').version; console.log('✓ PortPilot v' + version + ' released!')\"",
     "update": "git pull && npm run release",
     "open": "open /Applications/PortPilot.app || open .build/xcode/Build/Products/Release/PortPilot.app",
-    "uninstall": "pkill -f PortPilot.app 2>/dev/null; rm -rf /Applications/PortPilot.app && rm -f /usr/local/bin/portpilot && echo '✓ PortPilot removed'",
+    "uninstall": "pkill -f PortPilot.app 2>/dev/null; rm -rf /Applications/PortPilot.app && rm -f /usr/local/bin/portpilot && rm -f /usr/local/bin/portpilot-tui && echo '✓ PortPilot removed'",
     "reinstall": "npm run uninstall && npm run release",
     "clean": "rm -rf .build && echo '✓ Build artifacts cleaned'",
     "dev": "npm run build:debug && open .build/xcode/Build/Products/Debug/PortPilot.app"
@@ -40,7 +44,12 @@
     "ssh",
     "kubernetes",
     "docker",
-    "developer-tools"
+    "developer-tools",
+    "tui",
+    "terminal-ui",
+    "cross-platform",
+    "linux",
+    "wsl"
   ],
   "author": "Srinivas Pendela",
   "license": "MIT",
@@ -61,7 +70,9 @@
     "Package.swift",
     "Package.resolved",
     "Sources/PortKillerCLI",
-    "Sources/PortManagerLib"
+    "Sources/PortManagerLib",
+    "Sources/TerminalTUI",
+    "Sources/PortPilotTUI"
   ],
   "engines": {
     "node": ">=18.0.0"
@@ -70,5 +81,9 @@
     "darwin",
     "linux",
     "win32"
-  ]
+  ],
+  "dependencies": {
+    "cli": "^1.0.1",
+    "swift": "^2.8.0"
+  }
 }

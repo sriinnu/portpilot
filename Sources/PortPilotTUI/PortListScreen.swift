@@ -1,0 +1,636 @@
+// PortListScreen.swift — Main port list view for PortPilot TUI
+//
+// Displays all listening ports in a scrollable table with search, kill,
+// and detail view navigation. This is the primary screen users interact with.
+
+import Foundation
+import TerminalTUI
+import PortManagerLib
+
+// MARK: - Shared Formatting
+
+/// Format memory in human-readable units (MB/GB) — shared across screens
+func formatMemory(_ mb: Double) -> String {
+    if mb >= 1024 { return String(format: "%.1fG", mb / 1024.0) }
+    if mb >= 10   { return String(format: "%.0fM", mb) }
+    return String(format: "%.1fM", mb)
+}
+
+// MARK: - Port List Screen
+
+struct PortListScreen: TUIScreen {
+
+    // MARK: - State
+
+    private let portManager = PortManager()
+    private var processes: [PortProcess] = []
+    private var filtered: [PortProcess] = []
+    private var selectedIndex: Int = 0
+    private var scrollOffset: Int = 0
+
+    // Search state
+    private var isSearching: Bool = false
+    private var searchQuery: String = ""
+    private var searchBuffer: String = ""
+
+    // Kill confirmation state
+    private var confirmingKill: Bool = false
+
+    // Status message (shown temporarily after actions)
+    private var statusMessage: String?
+    private var statusStyle: String = ANSI.fg(.green)
+
+    // Tab state
+    private var activeTab: Tab = .ports
+
+    enum Tab: String, CaseIterable {
+        case ports   = "Ports"
+        case sockets = "Sockets"
+    }
+
+    // MARK: - Init
+
+    init() {
+        refresh()
+    }
+
+    // MARK: - Data
+
+    /// Reload process list from the system
+    private mutating func refresh() {
+        do {
+            switch activeTab {
+            case .ports:
+                processes = try portManager.getListeningProcesses()
+            case .sockets:
+                processes = portManager.getUnixSocketProcesses()
+            }
+            applyFilter()
+            clampSelection()
+            statusMessage = nil
+        } catch {
+            processes = []
+            filtered = []
+            showStatus("Error: \(error.localizedDescription)", style: ANSI.fg(.red))
+        }
+    }
+
+    /// Apply the current search filter
+    private mutating func applyFilter() {
+        if searchQuery.isEmpty {
+            filtered = processes
+        } else {
+            let query = searchQuery.lowercased()
+            filtered = processes.filter { proc in
+                proc.command.lowercased().contains(query)
+                    || "\(proc.port)".contains(query)
+                    || proc.user.lowercased().contains(query)
+                    || "\(proc.pid)".contains(query)
+            }
+        }
+    }
+
+    /// Keep selectedIndex within bounds
+    private mutating func clampSelection() {
+        if filtered.isEmpty {
+            selectedIndex = 0
+        } else {
+            selectedIndex = min(selectedIndex, filtered.count - 1)
+        }
+    }
+
+    /// Set a temporary status message
+    private mutating func showStatus(_ message: String, style: String = ANSI.fg(.green)) {
+        statusMessage = message
+        statusStyle = style
+    }
+
+    // MARK: - Rendering
+
+    mutating func render(into screen: inout Screen) {
+        let w = screen.width
+        let h = screen.height
+        guard h >= 4 else { return }  // Need minimum height for header + 1 row
+
+        renderHeader(into: &screen, width: w)
+        renderTable(into: &screen, width: w, height: h)
+        renderStatusBar(into: &screen, width: w, height: h)
+    }
+
+    /// Render the app header with title and tabs
+    private func renderHeader(into screen: inout Screen, width: Int) {
+        let title = " PortPilot TUI "
+        let platform = platformLabel()
+        let titleRow = fitString(
+            centerString(title, width: width - platform.count - 2) + platform + " ",
+            width: width
+        )
+        screen.put(row: 0, col: 0, text: titleRow, style: ANSI.bold + ANSI.bg(.blue) + ANSI.fg(.brightWhite))
+
+        // Tab bar
+        var col = 1
+        for tab in Tab.allCases {
+            let isActive = tab == activeTab
+            let tabText = " \(tab.rawValue) "
+            let style = isActive
+                ? ANSI.bold + ANSI.fg(.brightCyan) + ANSI.underline
+                : ANSI.fg(.white)
+            screen.put(row: 1, col: col, text: tabText, style: style)
+            col += tabText.count + 1
+        }
+
+        screen.horizontalLine(row: 2, col: 0, length: width, char: "─", style: ANSI.dim)
+    }
+
+    /// Render the port table
+    private mutating func renderTable(into screen: inout Screen, width: Int, height: Int) {
+        let tableOrigin = Point(row: 3, col: 0)
+        let tableHeight = max(height - 5, 3)  // header(3) + statusbar(1) + msg(1)
+        let tableSize = TerminalTUI.Size(width: width, height: tableHeight)
+
+        let columns = tableColumns()
+
+        // Adjust scroll offset to keep selection visible
+        let visibleRows = max(tableHeight - 2, 1)
+        adjustScroll(visibleRows: visibleRows)
+
+        let table = Table(
+            columns: columns,
+            rowCount: filtered.count,
+            selectedRow: filtered.isEmpty ? nil : selectedIndex,
+            scrollOffset: scrollOffset,
+            selectedStyle: ANSI.bg(.cyan) + ANSI.fg(.black),
+            cellProvider: { [filtered] row, col in
+                Self.cellContent(for: filtered[row], column: col)
+            }
+        )
+
+        table.render(into: &screen, at: tableOrigin, size: tableSize)
+
+        // Empty state
+        if filtered.isEmpty {
+            let emptyMsg = searchQuery.isEmpty
+                ? "No listening processes found."
+                : "No matches for \"\(searchQuery)\""
+            screen.put(
+                row: tableOrigin.row + 3,
+                col: max(0, (width - emptyMsg.count) / 2),
+                text: emptyMsg,
+                style: ANSI.dim + ANSI.italic
+            )
+        }
+    }
+
+    /// Render the bottom status bar and message line
+    private func renderStatusBar(into screen: inout Screen, width: Int, height: Int) {
+        guard height >= 3 else { return }
+        let barRow = height - 2
+        let msgRow = height - 1
+
+        // Status bar with keybindings
+        let items: [StatusBar.Item]
+        if isSearching {
+            items = [
+                StatusBar.Item(key: "Enter", label: "Apply"),
+                StatusBar.Item(key: "Esc", label: "Cancel"),
+            ]
+        } else if confirmingKill {
+            items = [
+                StatusBar.Item(key: "y", label: "Confirm Kill"),
+                StatusBar.Item(key: "n/Esc", label: "Cancel"),
+            ]
+        } else {
+            items = [
+                StatusBar.Item(key: "↑↓/jk", label: "Navigate"),
+                StatusBar.Item(key: "Enter", label: "Kill"),
+                StatusBar.Item(key: "/", label: "Search"),
+                StatusBar.Item(key: "Tab", label: "Switch Tab"),
+                StatusBar.Item(key: "i", label: "Info"),
+                StatusBar.Item(key: "r", label: "Refresh"),
+                StatusBar.Item(key: "q", label: "Quit"),
+            ]
+        }
+
+        let bar = StatusBar(items: items)
+        bar.render(into: &screen, at: Point(row: barRow, col: 0), size: TerminalTUI.Size(width: width, height: 1))
+
+        // Message line (search prompt, kill confirmation, status, or filter info)
+        if isSearching {
+            let prompt = "Search: \(searchBuffer)_"
+            screen.put(row: msgRow, col: 0, text: fitString(prompt, width: width), style: ANSI.bold + ANSI.fg(.yellow))
+        } else if confirmingKill, !filtered.isEmpty, selectedIndex < filtered.count {
+            let proc = filtered[selectedIndex]
+            let msg = "Kill \(proc.command) on port \(proc.port) (pid \(proc.pid))? [y/n]"
+            screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: ANSI.bold + ANSI.fg(.red))
+        } else if let msg = statusMessage {
+            screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: statusStyle)
+        } else if !searchQuery.isEmpty {
+            let filterMsg = "Filter: \"\(searchQuery)\"  (/ to clear)"
+            screen.put(row: msgRow, col: 0, text: fitString(filterMsg, width: width), style: ANSI.dim)
+        } else if !filtered.isEmpty, selectedIndex < filtered.count {
+            // Show selected process's project root on the message line
+            let proc = filtered[selectedIndex]
+            let projectName = Self.projectLabel(for: proc)
+            let prefix = "\(filtered.count) proc(s) "
+            if projectName.isEmpty {
+                screen.put(row: msgRow, col: 0, text: fitString("\(prefix)\(platformLabel())", width: width), style: ANSI.dim)
+            } else {
+                screen.put(row: msgRow, col: 0, text: fitString(prefix, width: prefix.count), style: ANSI.dim)
+                screen.put(row: msgRow, col: prefix.count, text: fitString(projectName, width: width - prefix.count), style: ANSI.fg(.brightCyan))
+            }
+        } else {
+            let countMsg = "\(filtered.count) process(es) on \(platformLabel())"
+            screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: width), style: ANSI.dim)
+        }
+    }
+
+    // MARK: - Key Handling
+
+    mutating func handleKey(_ key: KeyEvent) -> ScreenAction {
+        // Kill confirmation mode
+        if confirmingKill {
+            return handleConfirmKill(key)
+        }
+
+        // Search mode intercepts all keys
+        if isSearching {
+            return handleSearchKey(key)
+        }
+
+        switch key {
+        case .char("q"), .char("Q"):
+            return .quit
+
+        case .arrow(.up), .char("k"):
+            moveSelection(by: -1)
+
+        case .arrow(.down), .char("j"):
+            moveSelection(by: 1)
+
+        case .pageUp:
+            moveSelection(by: -10)
+
+        case .pageDown:
+            moveSelection(by: 10)
+
+        case .home:
+            selectedIndex = 0
+
+        case .end:
+            selectedIndex = max(0, filtered.count - 1)
+
+        case .enter:
+            // Enter starts kill confirmation — does NOT kill immediately
+            if !filtered.isEmpty, selectedIndex < filtered.count {
+                confirmingKill = true
+            }
+
+        case .char("/"):
+            startSearch()
+
+        case .char("i"), .char("I"):
+            return showDetail()
+
+        case .tab:
+            switchTab()
+
+        case .char("r"), .char("R"), .ctrlR:
+            refresh()
+            showStatus("Refreshed", style: ANSI.fg(.green))
+
+        case .ctrlC:
+            return .quit
+
+        default:
+            break
+        }
+
+        return .continue
+    }
+
+    mutating func onResize(width: Int, height: Int) {
+        scrollOffset = 0
+    }
+
+    // MARK: - Navigation
+
+    private mutating func moveSelection(by delta: Int) {
+        guard !filtered.isEmpty else { return }
+        selectedIndex = max(0, min(filtered.count - 1, selectedIndex + delta))
+    }
+
+    private mutating func adjustScroll(visibleRows: Int) {
+        guard visibleRows > 0 else { return }
+        if selectedIndex < scrollOffset {
+            scrollOffset = selectedIndex
+        } else if selectedIndex >= scrollOffset + visibleRows {
+            scrollOffset = selectedIndex - visibleRows + 1
+        }
+    }
+
+    // MARK: - Search
+
+    private mutating func startSearch() {
+        if !searchQuery.isEmpty {
+            // Clear existing search
+            searchQuery = ""
+            applyFilter()
+            clampSelection()
+        } else {
+            isSearching = true
+            searchBuffer = ""
+        }
+    }
+
+    private mutating func handleSearchKey(_ key: KeyEvent) -> ScreenAction {
+        switch key {
+        case .enter:
+            searchQuery = searchBuffer
+            isSearching = false
+            applyFilter()
+            clampSelection()
+
+        case .escape:
+            isSearching = false
+            searchBuffer = ""
+
+        case .backspace:
+            if !searchBuffer.isEmpty {
+                searchBuffer.removeLast()
+            }
+
+        case .char(let ch):
+            searchBuffer.append(ch)
+
+        case .ctrlC:
+            isSearching = false
+            searchBuffer = ""
+
+        default:
+            break
+        }
+        return .continue
+    }
+
+    // MARK: - Kill Confirmation
+
+    private mutating func handleConfirmKill(_ key: KeyEvent) -> ScreenAction {
+        switch key {
+        case .char("y"), .char("Y"):
+            confirmingKill = false
+            killSelected()
+        case .char("n"), .char("N"), .escape:
+            confirmingKill = false
+            showStatus("Kill cancelled", style: ANSI.dim)
+        default:
+            break  // Ignore other keys during confirmation
+        }
+        return .continue
+    }
+
+    private mutating func killSelected() {
+        guard !filtered.isEmpty, selectedIndex < filtered.count else { return }
+        let process = filtered[selectedIndex]
+
+        do {
+            if process.isUnixSocket {
+                // Unix sockets have port=0; kill by PID directly
+                try killByPID(process.pid, force: false)
+            } else {
+                try portManager.killProcessOnPort(process.port, force: false)
+            }
+            let label = process.isUnixSocket ? "pid \(process.pid)" : "port \(process.port)"
+            showStatus("Killed \(process.command) on \(label)", style: ANSI.fg(.green))
+            refresh()
+        } catch {
+            showStatus("Kill failed: \(error.localizedDescription)", style: ANSI.fg(.red))
+        }
+    }
+
+    /// Kill a process by PID directly (used for unix socket processes)
+    private func killByPID(_ pid: Int, force: Bool) throws {
+        let signal = force ? "KILL" : "TERM"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/kill")
+        process.arguments = ["-s", signal, "\(pid)"]
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    // MARK: - Navigation Actions
+
+    private mutating func showDetail() -> ScreenAction {
+        guard !filtered.isEmpty, selectedIndex < filtered.count else { return .continue }
+        let process = filtered[selectedIndex]
+        let detailScreen = PortDetailScreen(process: process, portManager: portManager)
+        return .push(detailScreen)
+    }
+
+    private mutating func switchTab() {
+        let allTabs = Tab.allCases
+        if let idx = allTabs.firstIndex(of: activeTab) {
+            activeTab = allTabs[(idx + 1) % allTabs.count]
+        }
+        selectedIndex = 0
+        scrollOffset = 0
+        refresh()
+    }
+
+    // MARK: - Table Configuration
+
+    /// Column definitions for the port table
+    private func tableColumns() -> [TableColumn] {
+        if activeTab == .sockets {
+            return [
+                TableColumn(title: "PID", width: 8),
+                TableColumn(title: "USER", width: 12),
+                TableColumn(title: "COMMAND", width: 16),
+                TableColumn(title: "SOCKET PATH", width: 40),
+            ]
+        }
+        return [
+            TableColumn(title: "PORT", width: 6),
+            TableColumn(title: "PID", width: 7),
+            TableColumn(title: "CPU%", width: 6, alignment: .right),
+            TableColumn(title: "MEM", width: 6, alignment: .right),
+            TableColumn(title: "COMMAND", width: 15),
+            TableColumn(title: "PROJECT/SOURCE", width: 30),
+        ]
+    }
+
+    /// Provide cell content for a given process and column
+    private static func cellContent(for process: PortProcess, column: Int) -> (text: String, style: String) {
+        if process.isUnixSocket {
+            // Sockets tab: PID, USER, COMMAND, SOCKET PATH
+            switch column {
+            case 0: return ("\(process.pid)", ANSI.fg(.brightMagenta))
+            case 1: return (process.user, ANSI.fg(.brightBlue))
+            case 2: return (process.command, ANSI.fg(.brightWhite))
+            case 3: return (process.socketPath ?? "-", ANSI.dim)
+            default: return ("", "")
+            }
+        }
+
+        // Ports tab: PORT, PID, CPU%, MEM, COMMAND, PROJECT/SOURCE
+        switch column {
+        case 0: return ("\(process.port)", ANSI.fg(.brightYellow))
+        case 1: return ("\(process.pid)", ANSI.fg(.brightMagenta))
+        case 2: return (process.cpuUsage.map { String(format: "%.1f", $0) } ?? "-", cpuStyle(process.cpuUsage))
+        case 3: return (process.memoryMB.map { formatMemory($0) } ?? "-", ANSI.fg(.white))
+        case 4: return (process.command, ANSI.fg(.brightWhite))
+        case 5:
+            let label = sourceLabel(for: process)
+            let style = label.hasPrefix("🐳") ? ANSI.fg(.brightCyan) : ANSI.fg(.cyan)
+            return (label, style)
+        default: return ("", "")
+        }
+    }
+
+    /// Build a short, useful source label: Docker container name, project dir, or category
+    private static func sourceLabel(for process: PortProcess) -> String {
+        let cmd = process.command.lowercased()
+
+        // Check if this is a Docker/container process
+        let dockerNames = ["docker", "dockerd", "containerd", "docker-proxy", "com.docker"]
+        if dockerNames.contains(where: { cmd.contains($0) }) {
+            // Try to get container name from the full command
+            if let full = process.fullCommand, let name = extractDockerContainer(full) {
+                return "🐳 \(name)"
+            }
+            return "🐳 docker"
+        }
+
+        // Check if process runs inside a container (Linux /proc/pid/cgroup)
+        if let cgroup = try? String(contentsOfFile: "/proc/\(process.pid)/cgroup", encoding: .utf8),
+           cgroup.contains("docker") || cgroup.contains("containerd") || cgroup.contains("/lxc/") {
+            if let name = extractContainerID(cgroup) {
+                return "🐳 \(name)"
+            }
+            return "🐳 container"
+        }
+
+        // Project directory
+        let project = projectLabel(for: process)
+        if !project.isEmpty { return project }
+
+        // Fallback to category
+        return categoryLabel(for: process.port)
+    }
+
+    /// Extract container name from docker-proxy command line
+    /// e.g. "docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 5432 -container-ip 172.17.0.2 -container-port 5432"
+    private static func extractDockerContainer(_ fullCommand: String) -> String? {
+        // Look for known container-related flags
+        let parts = fullCommand.split(separator: " ").map(String.init)
+        // docker-proxy has -container-port but not a name; try to extract host-port
+        if let portIdx = parts.firstIndex(of: "-host-port"), portIdx + 1 < parts.count {
+            return "port:\(parts[portIdx + 1])"
+        }
+        return nil
+    }
+
+    /// Extract short container ID from /proc/pid/cgroup content
+    private static func extractContainerID(_ cgroup: String) -> String? {
+        // Lines like: 0::/docker/abc123def456...
+        for line in cgroup.split(separator: "\n") {
+            if let range = line.range(of: "docker/") {
+                let id = String(line[range.upperBound...]).prefix(12)
+                if !id.isEmpty { return String(id) }
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Formatting Helpers
+
+    /// Color CPU usage based on load (green < 10%, yellow < 50%, red >= 50%)
+    private static func cpuStyle(_ cpu: Double?) -> String {
+        guard let cpu else { return ANSI.dim }
+        if cpu >= 50 { return ANSI.fg(.brightRed) }
+        if cpu >= 10 { return ANSI.fg(.brightYellow) }
+        return ANSI.fg(.green)
+    }
+
+    /// Human-readable port category
+    private static func categoryLabel(for port: Int) -> String {
+        switch port {
+        case 80, 443, 8080, 8443, 3000, 3001, 5000, 5173, 4200, 9090: return "Web"
+        case 3306, 5432, 27017, 6379, 9200, 5984, 8529, 1433, 1521:   return "DB"
+        case 22:       return "SSH"
+        case 53:       return "DNS"
+        case 1...1023: return "Sys"
+        default:       return "Dev"
+        }
+    }
+
+    /// Style color per category
+    private static func categoryStyle(for port: Int) -> String {
+        switch categoryLabel(for: port) {
+        case "Web": return ANSI.fg(.brightCyan)
+        case "DB":  return ANSI.fg(.brightGreen)
+        case "SSH": return ANSI.fg(.brightYellow)
+        case "Sys": return ANSI.fg(.brightRed)
+        default:    return ANSI.fg(.white)
+        }
+    }
+
+    /// Extract a short project/origin label from a process's paths.
+    /// e.g. "/mnt/c/sriinnu/personal/wooosh/client" → "wooosh/client"
+    private static func projectLabel(for process: PortProcess) -> String {
+        // Prefer working directory (where the process was launched from)
+        if let cwd = process.workingDirectory, !cwd.isEmpty {
+            return shortPath(cwd)
+        }
+        // Fall back to executable path
+        if let path = process.processPath, !path.isEmpty {
+            return shortPath(path)
+        }
+        // Fall back to full command (first arg is usually the binary path)
+        if let full = process.fullCommand, !full.isEmpty {
+            let firstArg = full.split(separator: " ").first.map(String.init) ?? full
+            if firstArg.contains("/") { return shortPath(firstArg) }
+            return firstArg
+        }
+        return ""
+    }
+
+    /// Shorten an absolute path to the last 2 meaningful components.
+    /// Skips common prefixes like /mnt/c/Users, /home/user, /usr/lib, etc.
+    private static func shortPath(_ path: String) -> String {
+        let components = path.split(separator: "/").map(String.init)
+        guard components.count >= 2 else { return path }
+
+        // Skip system paths — show full short for them
+        let systemPrefixes = ["usr", "bin", "sbin", "lib", "etc", "var", "System", "Library"]
+        if let first = components.first, systemPrefixes.contains(first) {
+            return components.suffix(2).joined(separator: "/")
+        }
+
+        // For user project paths, find the "interesting" part:
+        // Skip mnt/c/Users/X, home/X, Users/X to get to the project
+        var startIdx = 0
+        for (i, comp) in components.enumerated() {
+            if ["home", "mnt", "Users", "c"].contains(comp) { continue }
+            // Skip the username component right after home/Users
+            if i > 0, ["home", "Users"].contains(components[i - 1]) { continue }
+            startIdx = i
+            break
+        }
+
+        let meaningful = Array(components[startIdx...])
+        if meaningful.count <= 3 {
+            return meaningful.joined(separator: "/")
+        }
+        return meaningful.suffix(3).joined(separator: "/")
+    }
+
+    /// Current platform as a display label
+    private func platformLabel() -> String {
+        switch Platform.current {
+        case .macOS:   return "macOS"
+        case .linux:   return "Linux"
+        case .wsl:     return "WSL"
+        case .windows: return "Windows"
+        }
+    }
+}

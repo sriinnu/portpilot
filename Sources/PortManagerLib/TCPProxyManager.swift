@@ -1,4 +1,6 @@
 import Foundation
+
+#if canImport(Network)
 import Network
 
 /// Represents an active proxy session
@@ -304,3 +306,5 @@ public enum ProxyError: LocalizedError {
         }
     }
 }
+
+#endif // canImport(Network)

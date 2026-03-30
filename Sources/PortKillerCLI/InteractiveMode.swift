@@ -130,21 +130,21 @@ final class InteractiveMode {
 
     private func getTerminalSize() -> (lines: Int, columns: Int)? {
         var size = winsize()
-        guard ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 else { return nil }
+        guard ioctl(STDOUT_FILENO, UInt(TIOCGWINSZ), &size) == 0 else { return nil }
         return (Int(size.ws_row), Int(size.ws_col))
     }
 
     private func disableEcho() {
         var flags = termios()
         tcgetattr(STDIN_FILENO, &flags)
-        flags.c_lflag &= ~UInt(ECHO)
+        flags.c_lflag &= ~tcflag_t(ECHO)
         tcsetattr(STDIN_FILENO, TCSANOW, &flags)
     }
 
     private func enableEcho() {
         var flags = termios()
         tcgetattr(STDIN_FILENO, &flags)
-        flags.c_lflag |= UInt(ECHO)
+        flags.c_lflag |= tcflag_t(ECHO)
         tcsetattr(STDIN_FILENO, TCSANOW, &flags)
     }
 

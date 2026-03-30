@@ -512,11 +512,26 @@ public final class PortManager {
         // Fetch CPU + memory separately
         let stats = fetchProcessStats(pids: pids)
 
+        // Resolve process path and working directory from /proc
+        let classifier = ProcessClassifier.shared
+        var pidToPath: [Int: String] = [:]
+        var pidToCwd: [Int: String] = [:]
+        for process in processes {
+            if let path = classifier.getProcessPath(pid: process.pid) {
+                pidToPath[process.pid] = path
+            }
+            if let cwd = try? FileManager.default.destinationOfSymbolicLink(atPath: "/proc/\(process.pid)/cwd") {
+                pidToCwd[process.pid] = cwd
+            }
+        }
+
         return processes.map { process in
             var updated = process
             updated.fullCommand = pidToArgs[process.pid]
             updated.cpuUsage = stats.cpu[process.pid]
             updated.memoryMB = stats.memMB[process.pid]
+            updated.processPath = pidToPath[process.pid]
+            updated.workingDirectory = pidToCwd[process.pid]
             return updated
         }
     }

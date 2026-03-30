@@ -11,6 +11,15 @@ let package = Package(
             name: "portpilot",
             targets: ["PortKillerCLI"]
         ),
+        .executable(
+            name: "portpilot-tui",
+            targets: ["PortPilotTUI"]
+        ),
+        // Reusable TUI engine — zero-dependency terminal UI framework
+        .library(
+            name: "TerminalTUI",
+            targets: ["TerminalTUI"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
@@ -31,6 +40,23 @@ let package = Package(
                 "PortManagerLib"
             ],
             path: "Sources/PortKillerCLI"
+        ),
+
+        // Reusable TUI engine — zero dependencies, cross-platform (macOS + Linux + WSL)
+        .target(
+            name: "TerminalTUI",
+            dependencies: [],
+            path: "Sources/TerminalTUI"
+        ),
+
+        // PortPilot TUI app — uses TerminalTUI + PortManagerLib
+        .executableTarget(
+            name: "PortPilotTUI",
+            dependencies: [
+                "PortManagerLib",
+                "TerminalTUI",
+            ],
+            path: "Sources/PortPilotTUI"
         ),
     ]
 )

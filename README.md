@@ -4,10 +4,10 @@
   <img src="assets/portpilot.svg" alt="PortPilot" width="128" height="128">
 </p>
 
-<h3 align="center">Port management from your menu bar</h3>
+<h3 align="center">Port management from your menu bar — and your terminal</h3>
 
 <p align="center">
-  Monitor ports, discover local app daemons, proxy traffic, and kill processes — all from the macOS menu bar. With first-class support for SSH, Kubernetes, and Cloudflare tunnels.
+  Monitor ports, discover local app daemons, proxy traffic, and kill processes — from the macOS menu bar <strong>or</strong> a rich terminal UI on any platform. With first-class support for SSH, Kubernetes, and Cloudflare tunnels.
 </p>
 
 <p align="center">
@@ -87,6 +87,67 @@ Uses `proc_pidpath` to resolve executable paths and classify by heuristic:
 | **App** | Electron apps, .app bundles | `/Applications/`, `.app/` in path |
 | **Other** | Unclassified | Fallback |
 
+### Terminal UI (Cross-Platform)
+A full-featured terminal interface — works on macOS, Linux, and WSL. Zero dependencies.
+
+```bash
+portpilot-tui
+```
+
+```
+╭─────────────────────────────────────────────────────────────────────────╮
+│                        PortPilot TUI                            Linux  │
+│  Ports   Sockets                                                       │
+│─────────────────────────────────────────────────────────────────────────│
+│  PORT    PROTO  PID      CPU%     MEM     USER         COMMAND    TYPE │
+│  ─────────────────────────────────────────────────────────────────────  │
+│  3000    TCP    12345    0.3      45M     user         node       Web  │
+│▸ 5432    TCP    789      1.2      120M    postgres     postgres   DB   │
+│  8080    TCP    4567     5.1      300M    user         java       Web  │
+│  6379    TCP    1122     0.1      8M      redis        redis      DB   │
+│  9090    TCP    3344     0.0      15M     user         grafana    Web  │
+│                                                                    ░░  │
+│                                                                    ░░  │
+├─────────────────────────────────────────────────────────────────────────┤
+│ ↑↓/jk Navigate │ Enter Kill │ / Search │ Tab Switch │ i Info │ q Quit │
+│ 5 process(es) on Linux                                                 │
+╰─────────────────────────────────────────────────────────────────────────╯
+```
+
+**Keybindings:**
+
+| Key | Action |
+|-----|--------|
+| `↑↓` / `j` `k` | Navigate |
+| `Enter` | Kill process (with confirmation) |
+| `/` | Search / clear filter |
+| `Tab` | Switch between Ports and Sockets tabs |
+| `i` | View detailed process info + connections |
+| `r` | Refresh |
+| `q` | Quit |
+
+**Detail View** — press `i` on any port:
+```
+╭ Process Info ──────────────────────────────────────────╮
+│  Port:        5432                                     │
+│  Protocol:    TCP                                      │
+│  PID:         789                                      │
+│  User:        postgres                                 │
+│  Command:     postgres                                 │
+│  CPU:         1.2%                                     │
+│  Memory:      120M                                     │
+│  Path:        /usr/lib/postgresql/15/bin/postgres       │
+│  Work Dir:    /var/lib/postgresql/15/main               │
+╰────────────────────────────────────────────────────────╯
+╭ Connections (3) ───────────────────────────────────────╮
+│  LOCAL ADDRESS        REMOTE ADDRESS        STATE      │
+│  127.0.0.1:5432      127.0.0.1:48210       ESTABLISHED│
+│  127.0.0.1:5432      127.0.0.1:48212       ESTABLISHED│
+│  *:5432              *:*                    LISTEN     │
+╰────────────────────────────────────────────────────────╯
+ Esc Back │ x Kill │ X Force Kill │ q Quit
+```
+
 ### CLI Tool (Cross-Platform)
 ```bash
 portpilot list                          # All listening ports (with CPU%)
@@ -100,11 +161,12 @@ portpilot interactive                   # TUI mode
 portpilot proxy --port 1080 --host user@server  # SOCKS proxy
 ```
 
-CLI table output now includes a CPU% column:
+CLI table output includes CPU%, memory, and project/source info:
 ```
-PORT     PROTO  PID      CPU%     USER               COMMAND
-3000     TCP    21082    0.0      user               node
-5432     TCP    63341    9.4      user               OrbStack
+PORT     PROTO  PID      CPU%     MEM      USER         COMMAND            PATH/PROJECT
+3000     TCP    21082    0.0      45M      user         node               wooosh/client
+5432     TCP    63341    9.4      120M     user         postgres           postgresql/15/main
+8080     TCP    4567     5.1      300M     user         java               my-api/server
 ```
 
 ## Installation
@@ -122,7 +184,7 @@ The release currently attaches:
 - `portpilot-macos-cli`
 - `SHA256SUMS.txt`
 
-### macOS (App + CLI)
+### macOS (App + CLI + TUI)
 ```bash
 git clone https://github.com/sriinnu/portpilot.git
 cd portpilot
@@ -132,28 +194,44 @@ npm run release
 This builds everything and installs:
 - `PortPilot.app` → `/Applications/` (menu bar app)
 - `portpilot` CLI → `/usr/local/bin/`
+- `portpilot-tui` → `/usr/local/bin/` (terminal UI)
 
-Then just use it:
 ```bash
-portpilot list              # list all listening ports
-portpilot kill 3000         # kill process on port 3000
-portpilot list --json       # JSON output for scripting
+portpilot list              # CLI: list all listening ports
+portpilot-tui               # TUI: full interactive terminal UI
 ```
 
 ### Linux / WSL
+
+**1. Install Swift** (if not already installed):
+```bash
+curl -L https://swiftlang.github.io/swiftly/swiftly-install.sh | bash
+source ~/.profile  # or restart your shell
+swiftly install latest
+swift --version    # verify: should show Swift 6.x
+```
+> See the official [Swiftly Getting Started guide](https://www.swift.org/swiftly/documentation/swiftly/getting-started/) for details.
+
+**2. Build & install:**
 ```bash
 git clone https://github.com/sriinnu/portpilot.git
 cd portpilot
-swift build -c release
-sudo cp .build/release/portpilot /usr/local/bin/
+npm run setup:linux   # builds CLI + TUI and installs to /usr/local/bin
 ```
 
-Works out of the box — uses `ss` under the hood:
+Or step by step:
 ```bash
-portpilot list              # all listening ports
+npm run build:all:linux
+sudo cp .build/release/portpilot /usr/local/bin/
+sudo cp .build/release/portpilot-tui /usr/local/bin/
+```
+
+**3. Use it:**
+```bash
+portpilot list              # all listening ports with project paths
+portpilot tui               # launch rich terminal UI
+portpilot-tui               # direct launch
 portpilot kill 8080         # kill by port
-portpilot pids 3000 3001    # get PIDs
-portpilot interactive       # TUI mode
 ```
 
 ### Windows
@@ -161,7 +239,7 @@ Requires [Swift for Windows](https://www.swift.org/install/windows/):
 ```powershell
 git clone https://github.com/sriinnu/portpilot.git
 cd portpilot
-swift build -c release
+swift build -c release --product portpilot
 copy .build\release\portpilot.exe "C:\Program Files\PortPilot\"
 ```
 
@@ -172,27 +250,37 @@ portpilot kill 5000 --force # force kill
 portpilot list --json       # pipe to tools
 ```
 
-> **No config, no setup, no runtime dependencies.** Platform detection is automatic — same CLI interface everywhere.
+> **Note:** The TUI (`portpilot-tui`) requires a POSIX terminal and works on macOS, Linux, and WSL. On Windows, use WSL or the CLI directly.
 
-### npm scripts (macOS)
+> **No config, no setup, no runtime dependencies.** Platform detection is automatic — same interface everywhere.
+
+### npm scripts
 ```bash
-npm run build        # Build app only
-npm run build:cli    # Build CLI only
-npm run dev          # Build debug + launch
-npm run open         # Open installed app
-npm run uninstall    # Remove from /Applications
-npm run reinstall    # Clean reinstall
-npm run clean        # Remove build artifacts
+# macOS
+npm run build            # Build macOS app (xcodebuild)
+npm run release          # Build all + install app/CLI/TUI
+
+# Linux / WSL
+npm run setup:linux      # One-command: build + install CLI + TUI
+npm run build:all:linux  # Build CLI + TUI only
+
+# Common
+npm run build:cli        # Build CLI
+npm run build:tui        # Build TUI
+npm run install:cli      # Install CLI to /usr/local/bin
+npm run install:tui      # Install TUI to /usr/local/bin
+npm run uninstall        # Remove everything
+npm run clean            # Remove build artifacts
 ```
 
 ## Platform Support
 
-| Platform | GUI App | CLI | Port Discovery | Install |
-|----------|---------|-----|---------------|---------|
-| macOS 13+ | Menu bar + window | `portpilot` | `lsof` + `proc_pidpath` | `npm run release` |
-| Linux | - | `portpilot` | `ss` | `swift build -c release` |
-| WSL | - | `portpilot` | `ss` | `swift build -c release` |
-| Windows | - | `portpilot` | `netstat` + `tasklist` | `swift build -c release` |
+| Platform | GUI App | TUI | CLI | Port Discovery | Install |
+|----------|---------|-----|-----|---------------|---------|
+| macOS 13+ | Menu bar + window | `portpilot-tui` | `portpilot` | `lsof` + `proc_pidpath` | `npm run release` |
+| Linux | - | `portpilot-tui` | `portpilot` | `ss` | `npm run build:all:linux` |
+| WSL | - | `portpilot-tui` | `portpilot` | `ss` | `npm run build:all:linux` |
+| Windows | - | via WSL | `portpilot` | `netstat` + `tasklist` | `swift build -c release` |
 
 ## Keyboard Shortcuts
 
@@ -206,7 +294,7 @@ npm run clean        # Remove build artifacts
 
 ```
 Sources/
-├── PortPilot/                  # macOS menu bar app
+├── PortPilot/                  # macOS menu bar app (SwiftUI + AppKit)
 │   ├── PortPilotApp.swift            # Pure AppKit entry (no Dock icon)
 │   ├── ContentView.swift             # Main window layout
 │   ├── PortViewModel.swift           # State, filtering, tunnel detection
@@ -217,20 +305,34 @@ Sources/
 │   ├── ConfigurationPanel.swift      # Config + proxy controls
 │   ├── MainWindowToolbar.swift       # Toolbar with filter pills
 │   ├── LogsPanel.swift               # Activity logs
-│   ├── Theme.swift                   # 5 color themes (Classic, Graphite, Sunset, Oceanic, Noir)
-│   ├── FontManager.swift             # Custom font loading from Fonts/ folder
+│   ├── Theme.swift                   # 5 color themes
+│   ├── FontManager.swift             # Custom font loading
 │   ├── SettingsView.swift            # Preferences (appearance, fonts, themes)
 │   └── AppSettings.swift             # UserDefaults + font/theme settings
-├── PortManagerLib/             # Shared library
+├── TerminalTUI/                # Reusable TUI engine (zero dependencies)
+│   ├── Terminal.swift                # Raw mode, terminal size, cursor, alt screen
+│   ├── ANSI.swift                    # Escape codes — 16/256/TrueColor, styles
+│   ├── KeyEvent.swift                # Key reading — arrows, ctrl, UTF-8, escape seqs
+│   ├── Screen.swift                  # Double-buffered diff renderer
+│   ├── Widget.swift                  # Widget protocol + geometry types
+│   ├── Box.swift                     # Bordered container (4 border styles)
+│   ├── Table.swift                   # Scrollable table with columns + selection
+│   ├── StatusBar.swift               # Bottom bar with keybinding hints
+│   └── App.swift                     # TUIApp event loop + screen stack
+├── PortPilotTUI/               # Terminal UI app (macOS + Linux + WSL)
+│   ├── main.swift                    # Entry point
+│   ├── PortListScreen.swift          # Port table, search, kill, tabs
+│   └── PortDetailScreen.swift        # Process info + connections
+├── PortManagerLib/             # Shared library (all platforms)
 │   ├── PortManager.swift             # Port + socket + CPU discovery
 │   ├── ProcessClassifier.swift       # proc_pidpath classification
 │   ├── TCPProxyManager.swift         # Network.framework TCP proxy
 │   ├── PortWatcher.swift             # Port monitoring
 │   ├── FavoritesManager.swift        # Favorites
 │   └── HistoryManager.swift          # Kill history (thread-safe)
-├── PortKillerCLI/              # CLI
+├── PortKillerCLI/              # CLI tool
 │   ├── CLI.swift                     # Argument parsing
-│   └── InteractiveMode.swift         # TUI mode
+│   └── InteractiveMode.swift         # Basic interactive mode
 └── Fonts/                      # Drop .ttf/.otf here for custom fonts
 ```
 
@@ -238,10 +340,43 @@ Sources/
 
 - **Swift 5.9** + **SwiftUI** — native macOS UI
 - **AppKit** — menu bar, NSWindow management
+- **TerminalTUI** — custom zero-dependency TUI engine (ANSI rendering, key handling, widget system)
 - **Network.framework** — TCP proxy (NWListener + NWConnection)
 - **CoreText** — runtime font registration from custom font files
 - **proc_pidpath** — process classification via executable path (with bounds-checked buffer)
 - **Thread safety** — NSLock on shared caches; process execution with 10s timeout
+
+### Using TerminalTUI in Your Own Project
+
+`TerminalTUI` is a standalone, zero-dependency Swift library. Add it to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/sriinnu/portpilot.git", from: "3.0.0"),
+],
+targets: [
+    .executableTarget(
+        name: "MyApp",
+        dependencies: [.product(name: "TerminalTUI", package: "portpilot")]
+    ),
+]
+```
+
+```swift
+import TerminalTUI
+
+struct MyScreen: TUIScreen {
+    mutating func render(into screen: inout Screen) {
+        screen.put(row: 0, col: 0, text: "Hello, TUI!", style: ANSI.bold + ANSI.fg(.cyan))
+    }
+    mutating func handleKey(_ key: KeyEvent) -> ScreenAction {
+        key == .char("q") ? .quit : .continue
+    }
+}
+
+let app = TUIApp(screen: MyScreen())
+app.run()
+```
 
 ## License
 

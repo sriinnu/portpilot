@@ -159,7 +159,7 @@ public struct HistoryStats {
     }
 }
 
-public final class HistoryManager: ObservableObject {
+public final class HistoryManager {
     private let userDefaults: UserDefaults
     private let historyKey = "portKiller.history"
     private let portUsageKey = "portKiller.portUsage"
@@ -411,3 +411,8 @@ public final class HistoryManager: ObservableObject {
         }
     }
 }
+
+#if canImport(Combine)
+import Combine
+extension HistoryManager: ObservableObject {}
+#endif

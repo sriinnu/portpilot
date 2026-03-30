@@ -62,8 +62,9 @@ extension PortKiller {
             let pid = "PID".padRight(width: 8)
             let cpu = "CPU%".padRight(width: 8)
             let mem = "MEM".padRight(width: 8)
-            let user = "USER".padRight(width: 16)
-            return "\(port) \(proto) \(pid) \(cpu) \(mem) \(user) COMMAND"
+            let user = "USER".padRight(width: 12)
+            let command = "COMMAND".padRight(width: 18)
+            return "\(port) \(proto) \(pid) \(cpu) \(mem) \(user) \(command) PATH/PROJECT"
         }
 
         private func row(_ process: PortProcess) -> String {
@@ -72,9 +73,11 @@ extension PortKiller {
             let pid = "\(process.pid)".padRight(width: 8)
             let cpu = (process.cpuUsage.map { String(format: "%.1f", $0) } ?? "-").padRight(width: 8)
             let mem = (process.memoryMB.map { formatMem($0) } ?? "-").padRight(width: 8)
-            let user = process.user.padRight(width: 16)
-            let command = process.command.truncated(to: 26)
-            return "\(port) \(proto) \(pid) \(cpu) \(mem) \(user) \(command)"
+            let user = process.user.padRight(width: 12)
+            let command = process.command.truncated(to: 18).padRight(width: 18)
+            let rawPath = process.workingDirectory ?? process.processPath ?? ""
+            let project = rawPath.isEmpty ? "-" : shortProjectPath(rawPath)
+            return "\(port) \(proto) \(pid) \(cpu) \(mem) \(user) \(command) \(project)"
         }
 
         private func formatMem(_ mb: Double) -> String {
@@ -589,12 +592,54 @@ extension PortKiller {
     }
 }
 
+// MARK: - TUI Command
+extension PortKiller {
+    struct TUI: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Launch the rich terminal UI (portpilot-tui)"
+        )
+
+        func run() throws {
+            // Look for portpilot-tui next to this binary, then in PATH
+            let selfPath = CommandLine.arguments[0]
+            let selfDir = (selfPath as NSString).deletingLastPathComponent
+            let candidates = [
+                "\(selfDir)/portpilot-tui",
+                "/usr/local/bin/portpilot-tui",
+            ]
+
+            for path in candidates {
+                if FileManager.default.isExecutableFile(atPath: path) {
+                    // execv replaces this process entirely — terminal stays interactive
+                    let cPath = strdup(path)!
+                    var argv: [UnsafeMutablePointer<CChar>?] = [cPath, nil]
+                    execv(cPath, &argv)
+                    // execv only returns on failure
+                    free(cPath)
+                }
+            }
+
+            // Fallback: try PATH via execvp
+            let name = strdup("portpilot-tui")!
+            var argv: [UnsafeMutablePointer<CChar>?] = [name, nil]
+            execvp(name, &argv)
+            free(name)
+
+            // Only reached if exec failed
+            print("portpilot-tui not found. Install it with:")
+            print("  swift build -c release --product portpilot-tui")
+            print("  sudo cp .build/release/portpilot-tui /usr/local/bin/")
+            throw ExitCode(1)
+        }
+    }
+}
+
 // MARK: - Main Command
 @main
 struct PortKiller: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "A tiny CLI for viewing and clearing ports in use by running processes.",
-        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self],
+        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self],
         defaultSubcommand: List.self
     )
 }
@@ -612,4 +657,25 @@ extension String {
         }
         return String(self.prefix(length - 3)) + "..."
     }
+}
+
+/// Shorten an absolute path to just the project name (last 2-3 meaningful components)
+func shortProjectPath(_ path: String) -> String {
+    let components = path.split(separator: "/").map(String.init)
+    guard components.count >= 2 else { return path }
+
+    // Skip common uninteresting prefixes
+    var startIdx = 0
+    for (i, comp) in components.enumerated() {
+        if ["home", "mnt", "Users", "c", "usr", "var"].contains(comp) { continue }
+        if i > 0, ["home", "Users"].contains(components[i - 1]) { continue }
+        startIdx = i
+        break
+    }
+
+    let meaningful = Array(components[startIdx...])
+    if meaningful.count <= 3 {
+        return meaningful.joined(separator: "/")
+    }
+    return meaningful.suffix(3).joined(separator: "/")
 }
