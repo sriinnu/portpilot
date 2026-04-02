@@ -634,12 +634,111 @@ extension PortKiller {
     }
 }
 
+// MARK: - Cronjobs Command
+extension PortKiller {
+    struct Cronjobs: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List scheduled cronjobs (user crontab and system cron)"
+        )
+
+        @Flag(name: .long, help: "Show only user crontab entries")
+        var userOnly: Bool = false
+
+        @Flag(name: .long, help: "Show only system cron entries")
+        var systemOnly: Bool = false
+
+        @Flag(name: .long, help: "Output in JSON format")
+        var json: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+            let cronjobs = portManager.getCronjobs(userOnly: userOnly, systemOnly: systemOnly)
+
+            if cronjobs.isEmpty {
+                print("No cronjobs found.")
+                return
+            }
+
+            if json {
+                try outputJSON(cronjobs)
+            } else {
+                outputTable(cronjobs)
+            }
+        }
+
+        private func outputTable(_ cronjobs: [CronjobEntry]) {
+            print("\nScheduled Cronjobs:")
+            print(String(repeating: "─", count: 100))
+            print(headerRow())
+            print(String(repeating: "─", count: 100))
+
+            for job in cronjobs {
+                print(row(job))
+            }
+            print(String(repeating: "─", count: 100))
+            print("\nFound \(cronjobs.count) cronjob(s)")
+        }
+
+        private func headerRow() -> String {
+            let schedule = "SCHEDULE".padRight(width: 18)
+            let nextRun = "NEXT RUN".padRight(width: 20)
+            let user = "USER".padRight(width: 12)
+            let command = "COMMAND".padRight(width: 25)
+            let source = "SOURCE"
+            return "\(schedule) \(nextRun) \(user) \(command) \(source)"
+        }
+
+        private func row(_ job: CronjobEntry) -> String {
+            let schedule = (job.scheduleHuman ?? job.schedule).truncated(to: 17).padRight(width: 18)
+            let nextRun = formatNextRun(job.nextRun).padRight(width: 20)
+            let user = (job.user ?? "-").padRight(width: 12)
+            let command = job.command.truncated(to: 24).padRight(width: 25)
+            let source = job.source == "user" ? "user" : shortSourcePath(job.source)
+            return "\(schedule) \(nextRun) \(user) \(command) \(source)"
+        }
+
+        private func formatNextRun(_ date: Date?) -> String {
+            guard let date = date else { return "-".padRight(width: 20) }
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            let relative = relativeTime(from: date)
+            return "\(formatter.string(from: date)) (\(relative))"
+        }
+
+        private func relativeTime(from date: Date) -> String {
+            let interval = date.timeIntervalSinceNow
+            if interval < 0 { return "past" }
+            if interval < 60 { return "in \(Int(interval))s" }
+            if interval < 3600 { return "in \(Int(interval / 60))m" }
+            if interval < 86400 { return "in \(Int(interval / 3600))h" }
+            return "in \(Int(interval / 86400))d"
+        }
+
+        private func shortSourcePath(_ path: String) -> String {
+            if path == "user" { return "user" }
+            let components = path.split(separator: "/").map(String.init)
+            if components.count <= 3 { return path }
+            return components.suffix(2).joined(separator: "/")
+        }
+
+        private func outputJSON(_ cronjobs: [CronjobEntry]) throws {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(cronjobs)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print(jsonString)
+            }
+        }
+    }
+}
+
 // MARK: - Main Command
 @main
 struct PortKiller: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "A tiny CLI for viewing and clearing ports in use by running processes.",
-        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self],
+        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self, Cronjobs.self],
         defaultSubcommand: List.self
     )
 }

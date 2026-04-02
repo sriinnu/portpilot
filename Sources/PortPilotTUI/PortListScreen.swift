@@ -43,9 +43,14 @@ struct PortListScreen: TUIScreen {
     // Tab state
     private var activeTab: Tab = .ports
 
+    // Schedules tab state
+    private var cronjobs: [CronjobEntry] = []
+    private var filteredCronjobs: [CronjobEntry] = []
+
     enum Tab: String, CaseIterable {
-        case ports   = "Ports"
-        case sockets = "Sockets"
+        case ports    = "Ports"
+        case sockets  = "Sockets"
+        case schedules = "Schedules"
     }
 
     // MARK: - Init
@@ -62,8 +67,17 @@ struct PortListScreen: TUIScreen {
             switch activeTab {
             case .ports:
                 processes = try portManager.getListeningProcesses()
+                cronjobs = []
+                filteredCronjobs = []
             case .sockets:
                 processes = portManager.getUnixSocketProcesses()
+                cronjobs = []
+                filteredCronjobs = []
+            case .schedules:
+                cronjobs = portManager.getCronjobs()
+                filteredCronjobs = cronjobs
+                processes = []
+                filtered = []
             }
             applyFilter()
             clampSelection()
@@ -71,31 +85,48 @@ struct PortListScreen: TUIScreen {
         } catch {
             processes = []
             filtered = []
+            cronjobs = []
+            filteredCronjobs = []
             showStatus("Error: \(error.localizedDescription)", style: ANSI.fg(.red))
         }
     }
 
     /// Apply the current search filter
     private mutating func applyFilter() {
-        if searchQuery.isEmpty {
-            filtered = processes
+        if activeTab == .schedules {
+            if searchQuery.isEmpty {
+                filteredCronjobs = cronjobs
+            } else {
+                let query = searchQuery.lowercased()
+                filteredCronjobs = cronjobs.filter { job in
+                    job.command.lowercased().contains(query)
+                        || (job.user ?? "").lowercased().contains(query)
+                        || job.schedule.lowercased().contains(query)
+                        || job.source.lowercased().contains(query)
+                }
+            }
         } else {
-            let query = searchQuery.lowercased()
-            filtered = processes.filter { proc in
-                proc.command.lowercased().contains(query)
-                    || "\(proc.port)".contains(query)
-                    || proc.user.lowercased().contains(query)
-                    || "\(proc.pid)".contains(query)
+            if searchQuery.isEmpty {
+                filtered = processes
+            } else {
+                let query = searchQuery.lowercased()
+                filtered = processes.filter { proc in
+                    proc.command.lowercased().contains(query)
+                        || "\(proc.port)".contains(query)
+                        || proc.user.lowercased().contains(query)
+                        || "\(proc.pid)".contains(query)
+                }
             }
         }
     }
 
     /// Keep selectedIndex within bounds
     private mutating func clampSelection() {
-        if filtered.isEmpty {
+        let count = activeTab == .schedules ? filteredCronjobs.count : filtered.count
+        if count == 0 {
             selectedIndex = 0
         } else {
-            selectedIndex = min(selectedIndex, filtered.count - 1)
+            selectedIndex = min(selectedIndex, count - 1)
         }
     }
 
@@ -154,30 +185,56 @@ struct PortListScreen: TUIScreen {
         let visibleRows = max(tableHeight - 2, 1)
         adjustScroll(visibleRows: visibleRows)
 
-        let table = Table(
-            columns: columns,
-            rowCount: filtered.count,
-            selectedRow: filtered.isEmpty ? nil : selectedIndex,
-            scrollOffset: scrollOffset,
-            selectedStyle: ANSI.bg(.cyan) + ANSI.fg(.black),
-            cellProvider: { [filtered] row, col in
-                Self.cellContent(for: filtered[row], column: col)
-            }
-        )
-
-        table.render(into: &screen, at: tableOrigin, size: tableSize)
-
-        // Empty state
-        if filtered.isEmpty {
-            let emptyMsg = searchQuery.isEmpty
-                ? "No listening processes found."
-                : "No matches for \"\(searchQuery)\""
-            screen.put(
-                row: tableOrigin.row + 3,
-                col: max(0, (width - emptyMsg.count) / 2),
-                text: emptyMsg,
-                style: ANSI.dim + ANSI.italic
+        if activeTab == .schedules {
+            let table = Table(
+                columns: columns,
+                rowCount: filteredCronjobs.count,
+                selectedRow: filteredCronjobs.isEmpty ? nil : selectedIndex,
+                scrollOffset: scrollOffset,
+                selectedStyle: ANSI.bg(.cyan) + ANSI.fg(.black),
+                cellProvider: { [filteredCronjobs] row, col in
+                    Self.cellContent(for: filteredCronjobs[row], column: col)
+                }
             )
+            table.render(into: &screen, at: tableOrigin, size: tableSize)
+
+            if filteredCronjobs.isEmpty {
+                let emptyMsg = searchQuery.isEmpty
+                    ? "No cronjobs found."
+                    : "No matches for \"\(searchQuery)\""
+                screen.put(
+                    row: tableOrigin.row + 3,
+                    col: max(0, (width - emptyMsg.count) / 2),
+                    text: emptyMsg,
+                    style: ANSI.dim + ANSI.italic
+                )
+            }
+        } else {
+            let table = Table(
+                columns: columns,
+                rowCount: filtered.count,
+                selectedRow: filtered.isEmpty ? nil : selectedIndex,
+                scrollOffset: scrollOffset,
+                selectedStyle: ANSI.bg(.cyan) + ANSI.fg(.black),
+                cellProvider: { [filtered] row, col in
+                    Self.cellContent(for: filtered[row], column: col)
+                }
+            )
+
+            table.render(into: &screen, at: tableOrigin, size: tableSize)
+
+            // Empty state
+            if filtered.isEmpty {
+                let emptyMsg = searchQuery.isEmpty
+                    ? "No listening processes found."
+                    : "No matches for \"\(searchQuery)\""
+                screen.put(
+                    row: tableOrigin.row + 3,
+                    col: max(0, (width - emptyMsg.count) / 2),
+                    text: emptyMsg,
+                    style: ANSI.dim + ANSI.italic
+                )
+            }
         }
     }
 
@@ -198,6 +255,15 @@ struct PortListScreen: TUIScreen {
             items = [
                 StatusBar.Item(key: "y", label: "Confirm Kill"),
                 StatusBar.Item(key: "n/Esc", label: "Cancel"),
+            ]
+        } else if activeTab == .schedules {
+            items = [
+                StatusBar.Item(key: "↑↓/jk", label: "Navigate"),
+                StatusBar.Item(key: "Enter", label: "Detail"),
+                StatusBar.Item(key: "/", label: "Search"),
+                StatusBar.Item(key: "Tab", label: "Switch Tab"),
+                StatusBar.Item(key: "r", label: "Refresh"),
+                StatusBar.Item(key: "q", label: "Quit"),
             ]
         } else {
             items = [
@@ -227,6 +293,17 @@ struct PortListScreen: TUIScreen {
         } else if !searchQuery.isEmpty {
             let filterMsg = "Filter: \"\(searchQuery)\"  (/ to clear)"
             screen.put(row: msgRow, col: 0, text: fitString(filterMsg, width: width), style: ANSI.dim)
+        } else if activeTab == .schedules {
+            if !filteredCronjobs.isEmpty, selectedIndex < filteredCronjobs.count {
+                let job = filteredCronjobs[selectedIndex]
+                let countMsg = "\(filteredCronjobs.count) cronjob(s)"
+                screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: countMsg.count), style: ANSI.dim)
+                let nextStr = job.nextRun.map { formatRelativeTime($0) } ?? "no next run"
+                screen.put(row: msgRow, col: countMsg.count + 1, text: fitString("Next: \(nextStr)", width: width - countMsg.count - 1), style: ANSI.fg(.cyan))
+            } else {
+                let countMsg = "\(filteredCronjobs.count) cronjob(s) on \(platformLabel())"
+                screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: width), style: ANSI.dim)
+            }
         } else if !filtered.isEmpty, selectedIndex < filtered.count {
             // Show selected process's project root on the message line
             let proc = filtered[selectedIndex]
@@ -242,6 +319,15 @@ struct PortListScreen: TUIScreen {
             let countMsg = "\(filtered.count) process(es) on \(platformLabel())"
             screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: width), style: ANSI.dim)
         }
+    }
+
+    private func formatRelativeTime(_ date: Date) -> String {
+        let interval = date.timeIntervalSinceNow
+        if interval < 0 { return "past" }
+        if interval < 60 { return "in \(Int(interval))s" }
+        if interval < 3600 { return "in \(Int(interval / 60))m" }
+        if interval < 86400 { return "in \(Int(interval / 3600))h" }
+        return "in \(Int(interval / 86400))d"
     }
 
     // MARK: - Key Handling
@@ -277,19 +363,36 @@ struct PortListScreen: TUIScreen {
             selectedIndex = 0
 
         case .end:
-            selectedIndex = max(0, filtered.count - 1)
+            if activeTab == .schedules {
+                selectedIndex = max(0, filteredCronjobs.count - 1)
+            } else {
+                selectedIndex = max(0, filtered.count - 1)
+            }
 
         case .enter:
-            // Enter starts kill confirmation — does NOT kill immediately
-            if !filtered.isEmpty, selectedIndex < filtered.count {
-                confirmingKill = true
+            if activeTab == .schedules {
+                // Show cronjob detail
+                if !filteredCronjobs.isEmpty, selectedIndex < filteredCronjobs.count {
+                    return showCronjobDetail()
+                }
+            } else {
+                // Enter starts kill confirmation — does NOT kill immediately
+                if !filtered.isEmpty, selectedIndex < filtered.count {
+                    confirmingKill = true
+                }
             }
 
         case .char("/"):
             startSearch()
 
         case .char("i"), .char("I"):
-            return showDetail()
+            if activeTab == .schedules {
+                if !filteredCronjobs.isEmpty, selectedIndex < filteredCronjobs.count {
+                    return showCronjobDetail()
+                }
+            } else {
+                return showDetail()
+            }
 
         case .tab:
             switchTab()
@@ -315,8 +418,9 @@ struct PortListScreen: TUIScreen {
     // MARK: - Navigation
 
     private mutating func moveSelection(by delta: Int) {
-        guard !filtered.isEmpty else { return }
-        selectedIndex = max(0, min(filtered.count - 1, selectedIndex + delta))
+        let count = activeTab == .schedules ? filteredCronjobs.count : filtered.count
+        guard count > 0 else { return }
+        selectedIndex = max(0, min(count - 1, selectedIndex + delta))
     }
 
     private mutating func adjustScroll(visibleRows: Int) {
@@ -426,6 +530,13 @@ struct PortListScreen: TUIScreen {
         return .push(detailScreen)
     }
 
+    private mutating func showCronjobDetail() -> ScreenAction {
+        guard !filteredCronjobs.isEmpty, selectedIndex < filteredCronjobs.count else { return .continue }
+        let job = filteredCronjobs[selectedIndex]
+        let detailScreen = CronjobDetailScreen(cronjob: job)
+        return .push(detailScreen)
+    }
+
     private mutating func switchTab() {
         let allTabs = Tab.allCases
         if let idx = allTabs.firstIndex(of: activeTab) {
@@ -446,6 +557,14 @@ struct PortListScreen: TUIScreen {
                 TableColumn(title: "USER", width: 12),
                 TableColumn(title: "COMMAND", width: 16),
                 TableColumn(title: "SOCKET PATH", width: 40),
+            ]
+        } else if activeTab == .schedules {
+            return [
+                TableColumn(title: "SCHEDULE", width: 18),
+                TableColumn(title: "NEXT", width: 18),
+                TableColumn(title: "USER", width: 12),
+                TableColumn(title: "COMMAND", width: 25),
+                TableColumn(title: "SOURCE", width: 20),
             ]
         }
         return [
@@ -484,6 +603,38 @@ struct PortListScreen: TUIScreen {
             return (label, style)
         default: return ("", "")
         }
+    }
+
+    /// Provide cell content for a given cronjob and column
+    private static func cellContent(for job: CronjobEntry, column: Int) -> (text: String, style: String) {
+        switch column {
+        case 0:
+            let schedule = job.scheduleHuman ?? job.schedule
+            return (truncated(schedule, to: 17), ANSI.fg(.brightYellow))
+        case 1:
+            if let nextRun = job.nextRun {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MM-dd HH:mm"
+                return (formatter.string(from: nextRun), ANSI.fg(.cyan))
+            }
+            return ("-", ANSI.dim)
+        case 2:
+            return (job.user ?? "-", ANSI.fg(.brightBlue))
+        case 3:
+            return (truncated(job.command, to: 24), ANSI.fg(.brightWhite))
+        case 4:
+            let source = job.source == "user" ? "user" : shortSourcePath(job.source)
+            return (source, ANSI.fg(.green))
+        default:
+            return ("", "")
+        }
+    }
+
+    private static func shortSourcePath(_ path: String) -> String {
+        if path == "user" { return "user" }
+        let components = path.split(separator: "/").map(String.init)
+        if components.count <= 3 { return path }
+        return components.suffix(2).joined(separator: "/")
     }
 
     /// Build a short, useful source label: Docker container name, project dir, or category
@@ -542,6 +693,12 @@ struct PortListScreen: TUIScreen {
     }
 
     // MARK: - Formatting Helpers
+
+    /// Truncate string to length with ellipsis
+    private static func truncated(_ str: String, to length: Int) -> String {
+        guard str.count > length, length >= 4 else { return str }
+        return String(str.prefix(length - 3)) + "..."
+    }
 
     /// Color CPU usage based on load (green < 10%, yellow < 50%, red >= 50%)
     private static func cpuStyle(_ cpu: Double?) -> String {
