@@ -713,14 +713,20 @@ class PortViewModel: ObservableObject {
             .sorted { $0.totalCount > $1.totalCount }
     }
 
+    private var latestCronjobsRefreshID = UUID()
+
     /// Refresh all cronjobs (scheduled tasks).
     func refreshCronjobs() {
         isLoadingCronjobs = true
-        Task.detached { [weak self] in
-            let jobs = self?.portManager.getCronjobs() ?? []
+        let refreshID = UUID()
+        latestCronjobsRefreshID = refreshID
+        Task { [weak self] in
+            guard let self else { return }
+            let jobs = self.portManager.getCronjobs()
             await MainActor.run {
-                self?.cronjobs = jobs
-                self?.isLoadingCronjobs = false
+                guard self.latestCronjobsRefreshID == refreshID else { return }
+                self.cronjobs = jobs
+                self.isLoadingCronjobs = false
             }
         }
     }
