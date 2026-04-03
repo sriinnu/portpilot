@@ -87,11 +87,11 @@ public struct EstablishedConnection: Codable, Identifiable, Sendable {
     public var isBlocklisted: Bool = false
 
     public init(id: String = "", localAddress: String, remoteAddress: String, remoteHostname: String? = nil, state: String, pid: Int, processName: String, user: String, isBlocklisted: Bool = false) {
-        // Use all available fields to build a unique ID, avoiding collisions when
+        // Use all available fields to build a deterministic unique ID, avoiding collisions when
         // multiple connections share the same remote/local address pair
         if id.isEmpty {
             let uniqueString = "\(pid)-\(remoteAddress)-\(localAddress)-\(state)-\(processName)-\(user)"
-            self.id = uniqueString.data(using: .utf8).map { String($0.hashValue) } ?? uniqueString
+            self.id = uniqueString
         } else {
             self.id = id
         }
