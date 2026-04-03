@@ -91,25 +91,18 @@ struct ConnectionDetailScreen: TUIScreen {
 
     private func killProcess() -> ScreenAction {
         let pid = connection.pid
-        // Run kill process asynchronously to avoid blocking the TUI event loop
-        Task.detached {
-            // Try SIGTERM first for graceful shutdown, then SIGKILL if needed
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/kill")
-            process.arguments = ["-s", "TERM", "\(pid)"]
-            try? process.run()
-            process.waitUntilExit()
 
-            // If TERM failed, try KILL
-            if process.terminationStatus != 0 {
-                let killProcess = Process()
-                killProcess.executableURL = URL(fileURLWithPath: "/bin/kill")
-                killProcess.arguments = ["-s", "KILL", "\(pid)"]
-                try? killProcess.run()
-                killProcess.waitUntilExit()
+        do {
+            try portManager.killProcessByPID(pid, force: false)
+            return .pop
+        } catch {
+            do {
+                try portManager.killProcessByPID(pid, force: true)
+                return .pop
+            } catch {
+                return .continue
             }
         }
-        return .pop
     }
 
     private func renderField(into screen: inout Screen, row: inout Int, label: String, value: String, width: Int) {
