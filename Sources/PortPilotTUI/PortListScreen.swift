@@ -360,10 +360,6 @@ struct PortListScreen: TUIScreen {
             let proc = filtered[selectedIndex]
             let msg = "Kill \(proc.command) on port \(proc.port) (pid \(proc.pid))? [y/n]"
             screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: ANSI.bold + ANSI.fg(.red))
-        } else if confirmingKill, activeTab == .connections, !filteredConnections.isEmpty, selectedIndex < filteredConnections.count {
-            let conn = filteredConnections[selectedIndex]
-            let msg = "Kill \(conn.processName) (pid \(conn.pid))? [y/n]"
-            screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: ANSI.bold + ANSI.fg(.red))
         } else if let msg = statusMessage {
             screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: statusStyle)
         } else if !searchQuery.isEmpty {
