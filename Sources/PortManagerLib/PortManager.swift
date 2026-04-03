@@ -1505,9 +1505,10 @@ public final class PortManager {
 
         // Step pattern: */n
         if pattern.hasPrefix("*/") {
-            if let step = Int(String(pattern.dropFirst(2))) {
+            if let step = Int(String(pattern.dropFirst(2))), step > 0 {
                 return value % step == 0
             }
+            return false
         }
 
         // Range pattern: n-m
