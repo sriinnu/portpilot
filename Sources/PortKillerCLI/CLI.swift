@@ -851,12 +851,8 @@ extension PortKiller {
         }
 
         private func killProcess(_ pid: Int) throws {
-            let signal = "KILL"
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/kill")
-            process.arguments = ["-s", signal, "\(pid)"]
-            try process.run()
-            process.waitUntilExit()
+            let portManager = PortManager()
+            try portManager.killProcessByPID(pid, force: true)
             print("✅ Process \(pid) has been terminated.")
         }
     }
