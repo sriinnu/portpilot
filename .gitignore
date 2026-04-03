@@ -4,6 +4,7 @@
 .swiftpm/
 DerivedData/
 dist/
+build/
 
 # Xcode
 *.xcuserdata
@@ -28,3 +29,6 @@ RELEASE.local.md
 *~
 .vscode/
 .idea/
+
+# Claude Code
+.secret-allowlist

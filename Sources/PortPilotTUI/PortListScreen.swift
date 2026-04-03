@@ -47,10 +47,15 @@ struct PortListScreen: TUIScreen {
     private var cronjobs: [CronjobEntry] = []
     private var filteredCronjobs: [CronjobEntry] = []
 
+    // Connections tab state
+    private var connections: [EstablishedConnection] = []
+    private var filteredConnections: [EstablishedConnection] = []
+
     enum Tab: String, CaseIterable {
-        case ports    = "Ports"
-        case sockets  = "Sockets"
-        case schedules = "Schedules"
+        case ports      = "Ports"
+        case sockets    = "Sockets"
+        case schedules  = "Schedules"
+        case connections = "Connections"
     }
 
     // MARK: - Init
@@ -69,15 +74,28 @@ struct PortListScreen: TUIScreen {
                 processes = try portManager.getListeningProcesses()
                 cronjobs = []
                 filteredCronjobs = []
+                connections = []
+                filteredConnections = []
             case .sockets:
                 processes = portManager.getUnixSocketProcesses()
                 cronjobs = []
                 filteredCronjobs = []
+                connections = []
+                filteredConnections = []
             case .schedules:
                 cronjobs = portManager.getCronjobs()
                 filteredCronjobs = cronjobs
                 processes = []
                 filtered = []
+                connections = []
+                filteredConnections = []
+            case .connections:
+                connections = try portManager.getAllConnections()
+                filteredConnections = connections
+                processes = []
+                filtered = []
+                cronjobs = []
+                filteredCronjobs = []
             }
             applyFilter()
             clampSelection()
@@ -87,6 +105,8 @@ struct PortListScreen: TUIScreen {
             filtered = []
             cronjobs = []
             filteredCronjobs = []
+            connections = []
+            filteredConnections = []
             showStatus("Error: \(error.localizedDescription)", style: ANSI.fg(.red))
         }
     }
@@ -103,6 +123,18 @@ struct PortListScreen: TUIScreen {
                         || (job.user ?? "").lowercased().contains(query)
                         || job.schedule.lowercased().contains(query)
                         || job.source.lowercased().contains(query)
+                }
+            }
+        } else if activeTab == .connections {
+            if searchQuery.isEmpty {
+                filteredConnections = connections
+            } else {
+                let query = searchQuery.lowercased()
+                filteredConnections = connections.filter { conn in
+                    conn.remoteAddress.lowercased().contains(query)
+                        || conn.processName.lowercased().contains(query)
+                        || conn.user.lowercased().contains(query)
+                        || "\(conn.pid)".contains(query)
                 }
             }
         } else {
@@ -122,7 +154,14 @@ struct PortListScreen: TUIScreen {
 
     /// Keep selectedIndex within bounds
     private mutating func clampSelection() {
-        let count = activeTab == .schedules ? filteredCronjobs.count : filtered.count
+        let count: Int
+        if activeTab == .schedules {
+            count = filteredCronjobs.count
+        } else if activeTab == .connections {
+            count = filteredConnections.count
+        } else {
+            count = filtered.count
+        }
         if count == 0 {
             selectedIndex = 0
         } else {
@@ -209,6 +248,30 @@ struct PortListScreen: TUIScreen {
                     style: ANSI.dim + ANSI.italic
                 )
             }
+        } else if activeTab == .connections {
+            let table = Table(
+                columns: columns,
+                rowCount: filteredConnections.count,
+                selectedRow: filteredConnections.isEmpty ? nil : selectedIndex,
+                scrollOffset: scrollOffset,
+                selectedStyle: ANSI.bg(.cyan) + ANSI.fg(.black),
+                cellProvider: { [filteredConnections] row, col in
+                    Self.cellContent(for: filteredConnections[row], column: col, isBlocklisted: filteredConnections[row].isBlocklisted)
+                }
+            )
+            table.render(into: &screen, at: tableOrigin, size: tableSize)
+
+            if filteredConnections.isEmpty {
+                let emptyMsg = searchQuery.isEmpty
+                    ? "No established connections."
+                    : "No matches for \"\(searchQuery)\""
+                screen.put(
+                    row: tableOrigin.row + 3,
+                    col: max(0, (width - emptyMsg.count) / 2),
+                    text: emptyMsg,
+                    style: ANSI.dim + ANSI.italic
+                )
+            }
         } else {
             let table = Table(
                 columns: columns,
@@ -265,6 +328,15 @@ struct PortListScreen: TUIScreen {
                 StatusBar.Item(key: "r", label: "Refresh"),
                 StatusBar.Item(key: "q", label: "Quit"),
             ]
+        } else if activeTab == .connections {
+            items = [
+                StatusBar.Item(key: "↑↓/jk", label: "Navigate"),
+                StatusBar.Item(key: "Enter", label: "Detail"),
+                StatusBar.Item(key: "/", label: "Search"),
+                StatusBar.Item(key: "Tab", label: "Switch Tab"),
+                StatusBar.Item(key: "r", label: "Refresh"),
+                StatusBar.Item(key: "q", label: "Quit"),
+            ]
         } else {
             items = [
                 StatusBar.Item(key: "↑↓/jk", label: "Navigate"),
@@ -284,9 +356,13 @@ struct PortListScreen: TUIScreen {
         if isSearching {
             let prompt = "Search: \(searchBuffer)_"
             screen.put(row: msgRow, col: 0, text: fitString(prompt, width: width), style: ANSI.bold + ANSI.fg(.yellow))
-        } else if confirmingKill, !filtered.isEmpty, selectedIndex < filtered.count {
+        } else if confirmingKill, activeTab != .connections, !filtered.isEmpty, selectedIndex < filtered.count {
             let proc = filtered[selectedIndex]
             let msg = "Kill \(proc.command) on port \(proc.port) (pid \(proc.pid))? [y/n]"
+            screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: ANSI.bold + ANSI.fg(.red))
+        } else if confirmingKill, activeTab == .connections, !filteredConnections.isEmpty, selectedIndex < filteredConnections.count {
+            let conn = filteredConnections[selectedIndex]
+            let msg = "Kill \(conn.processName) (pid \(conn.pid))? [y/n]"
             screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: ANSI.bold + ANSI.fg(.red))
         } else if let msg = statusMessage {
             screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: statusStyle)
@@ -302,6 +378,20 @@ struct PortListScreen: TUIScreen {
                 screen.put(row: msgRow, col: countMsg.count + 1, text: fitString("Next: \(nextStr)", width: width - countMsg.count - 1), style: ANSI.fg(.cyan))
             } else {
                 let countMsg = "\(filteredCronjobs.count) cronjob(s) on \(platformLabel())"
+                screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: width), style: ANSI.dim)
+            }
+        } else if activeTab == .connections {
+            if !filteredConnections.isEmpty, selectedIndex < filteredConnections.count {
+                let conn = filteredConnections[selectedIndex]
+                let isBlocklisted = conn.isBlocklisted
+                let blocklistMarker = isBlocklisted ? "🚨 BLOCKLISTED " : ""
+                let countMsg = "\(filteredConnections.count) connection(s)"
+                screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: countMsg.count), style: ANSI.dim)
+                let markerStyle = isBlocklisted ? ANSI.bold + ANSI.fg(.red) : ANSI.fg(.cyan)
+                let suspiciousMarker = conn.remoteAddress.contains("*") ? "" : "→ \(conn.remoteAddress)"
+                screen.put(row: msgRow, col: countMsg.count + 1, text: fitString("\(blocklistMarker)\(conn.processName) \(suspiciousMarker)", width: width - countMsg.count - 1), style: markerStyle)
+            } else {
+                let countMsg = "\(filteredConnections.count) connection(s) on \(platformLabel())"
                 screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: width), style: ANSI.dim)
             }
         } else if !filtered.isEmpty, selectedIndex < filtered.count {
@@ -365,6 +455,8 @@ struct PortListScreen: TUIScreen {
         case .end:
             if activeTab == .schedules {
                 selectedIndex = max(0, filteredCronjobs.count - 1)
+            } else if activeTab == .connections {
+                selectedIndex = max(0, filteredConnections.count - 1)
             } else {
                 selectedIndex = max(0, filtered.count - 1)
             }
@@ -374,6 +466,11 @@ struct PortListScreen: TUIScreen {
                 // Show cronjob detail
                 if !filteredCronjobs.isEmpty, selectedIndex < filteredCronjobs.count {
                     return showCronjobDetail()
+                }
+            } else if activeTab == .connections {
+                // Show connection detail
+                if !filteredConnections.isEmpty, selectedIndex < filteredConnections.count {
+                    return showConnectionDetail()
                 }
             } else {
                 // Enter starts kill confirmation — does NOT kill immediately
@@ -389,6 +486,10 @@ struct PortListScreen: TUIScreen {
             if activeTab == .schedules {
                 if !filteredCronjobs.isEmpty, selectedIndex < filteredCronjobs.count {
                     return showCronjobDetail()
+                }
+            } else if activeTab == .connections {
+                if !filteredConnections.isEmpty, selectedIndex < filteredConnections.count {
+                    return showConnectionDetail()
                 }
             } else {
                 return showDetail()
@@ -418,7 +519,14 @@ struct PortListScreen: TUIScreen {
     // MARK: - Navigation
 
     private mutating func moveSelection(by delta: Int) {
-        let count = activeTab == .schedules ? filteredCronjobs.count : filtered.count
+        let count: Int
+        if activeTab == .schedules {
+            count = filteredCronjobs.count
+        } else if activeTab == .connections {
+            count = filteredConnections.count
+        } else {
+            count = filtered.count
+        }
         guard count > 0 else { return }
         selectedIndex = max(0, min(count - 1, selectedIndex + delta))
     }
@@ -457,6 +565,9 @@ struct PortListScreen: TUIScreen {
         case .escape:
             isSearching = false
             searchBuffer = ""
+            searchQuery = ""
+            applyFilter()
+            clampSelection()
 
         case .backspace:
             if !searchBuffer.isEmpty {
@@ -537,6 +648,13 @@ struct PortListScreen: TUIScreen {
         return .push(detailScreen)
     }
 
+    private mutating func showConnectionDetail() -> ScreenAction {
+        guard !filteredConnections.isEmpty, selectedIndex < filteredConnections.count else { return .continue }
+        let conn = filteredConnections[selectedIndex]
+        let detailScreen = ConnectionDetailScreen(connection: conn)
+        return .push(detailScreen)
+    }
+
     private mutating func switchTab() {
         let allTabs = Tab.allCases
         if let idx = allTabs.firstIndex(of: activeTab) {
@@ -544,6 +662,7 @@ struct PortListScreen: TUIScreen {
         }
         selectedIndex = 0
         scrollOffset = 0
+        confirmingKill = false  // Reset kill confirmation when switching tabs
         refresh()
     }
 
@@ -565,6 +684,14 @@ struct PortListScreen: TUIScreen {
                 TableColumn(title: "USER", width: 12),
                 TableColumn(title: "COMMAND", width: 25),
                 TableColumn(title: "SOURCE", width: 20),
+            ]
+        } else if activeTab == .connections {
+            return [
+                TableColumn(title: "REMOTE", width: 30),
+                TableColumn(title: "PROCESS", width: 16),
+                TableColumn(title: "PID", width: 8),
+                TableColumn(title: "USER", width: 12),
+                TableColumn(title: "STATE", width: 12),
             ]
         }
         return [
@@ -635,6 +762,26 @@ struct PortListScreen: TUIScreen {
         let components = path.split(separator: "/").map(String.init)
         if components.count <= 3 { return path }
         return components.suffix(2).joined(separator: "/")
+    }
+
+    /// Provide cell content for a given connection and column
+    private static func cellContent(for conn: EstablishedConnection, column: Int, isBlocklisted: Bool = false) -> (text: String, style: String) {
+        switch column {
+        case 0:
+            let style = isBlocklisted ? ANSI.fg(.brightWhite) + ANSI.bold : ANSI.fg(.brightYellow)
+            return (conn.remoteAddress, style)
+        case 1:
+            return (conn.processName, ANSI.fg(.brightWhite))
+        case 2:
+            return ("\(conn.pid)", ANSI.fg(.brightMagenta))
+        case 3:
+            return (conn.user, ANSI.fg(.brightBlue))
+        case 4:
+            let baseStyle = conn.state == "ESTABLISHED" ? ANSI.fg(.green) : ANSI.fg(.yellow)
+            return (conn.state, isBlocklisted ? ANSI.fg(.brightWhite) : baseStyle)
+        default:
+            return ("", "")
+        }
     }
 
     /// Build a short, useful source label: Docker container name, project dir, or category
