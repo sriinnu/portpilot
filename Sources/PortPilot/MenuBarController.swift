@@ -143,7 +143,19 @@ class MenuBarController: NSObject, ObservableObject {
 
         Task { @MainActor in
             portViewModel.refreshPorts()
+            portViewModel.refreshAllConnections()
+            self.updateMenuBarIconWithCurrentState()
         }
+    }
+
+    @MainActor private func updateMenuBarIconWithCurrentState() {
+        let portCount = portViewModel.ports.count
+        let alertCount = portViewModel.allConnections.filter { $0.isBlocklisted }.count +
+                         portViewModel.connectionsGrouped.filter { $0.totalCount > 50 }.count
+
+        // Use portViewModel's alertState for proper warning/critical distinction
+        let alertState: AlertState = portViewModel.alertState
+        updateMenuBarIcon(activePorts: portCount, alertState: alertState)
     }
 
     private func dismissPanel() {
@@ -179,8 +191,21 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
 
-    @MainActor func updateMenuBarIcon(activePorts: Int) {
+    @MainActor func updateMenuBarIcon(activePorts: Int, alertState: AlertState = .normal) {
         guard let button = statusItem?.button else { return }
+
+        // If critical alert, show red icon without template mode
+        if alertState == .critical {
+            let icon = createAlertMenuBarIcon()
+            button.image = icon
+            button.image?.isTemplate = false
+            // Start pulsing animation
+            startAlertPulse()
+            return
+        }
+
+        // Stop any existing pulse animation
+        stopAlertPulse()
 
         if activePorts > 0 {
             // Show port count as badge
@@ -194,38 +219,106 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
 
-    private func createMenuBarIconWithBadge(count: Int) -> NSImage {
-        let size = NSSize(width: 30, height: 18)
+    private var pulseTimer: Timer?
+
+    private func startAlertPulse() {
+        stopAlertPulse()
+        var isOn = false
+        pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let button = self?.statusItem?.button else { return }
+            isOn.toggle()
+            if let icon = self?.createAlertMenuBarIcon(highlighted: isOn) {
+                button.image = icon
+            }
+        }
+    }
+
+    private func stopAlertPulse() {
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+    }
+
+    private func createAlertMenuBarIcon(highlighted: Bool = false) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size, flipped: false) { rect in
-            // Draw the base icon on the left
-            let iconRect = NSRect(x: 0, y: 0, width: 18, height: 18)
-            if let symbolImage = NSImage(systemSymbolName: "network.badge.shield.half.filled", accessibilityDescription: "PortPilot") {
-                let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-                if let configured = symbolImage.withSymbolConfiguration(config) {
-                    configured.draw(in: iconRect)
-                }
-            } else {
-                self.drawCustomPortIcon(in: iconRect)
+            let symbolName = "network.badge.shield.half.filled"
+            guard let symbolImage = NSImage(systemSymbolName: symbolName, accessibilityDescription: "PortPilot Alert") else {
+                self.drawCustomPortIcon(in: rect)
+                return true
             }
 
-            // Draw count text
-            let countStr = count > 99 ? "99+" : "\(count)"
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .bold),
-                .foregroundColor: NSColor.black // template mode handles color
+            let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            if let configured = symbolImage.withSymbolConfiguration(config) {
+                // Tint red for alert
+                if highlighted {
+                    NSColor.systemRed.set()
+                } else {
+                    NSColor.systemOrange.set()
+                }
+                configured.draw(in: rect, from: .zero, operation: .sourceOver, fraction: highlighted ? 1.0 : 0.7)
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    private func createMenuBarIconWithBadge(count: Int) -> NSImage {
+        // Wider icon: icon + pill badge
+        let size = NSSize(width: 36, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            // Draw the base icon on the left (14px wide area)
+            let iconArea = NSRect(x: 0, y: 0, width: 18, height: 18)
+            if let symbolImage = NSImage(systemSymbolName: "network.badge.shield.half.filled", accessibilityDescription: "PortPilot") {
+                let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+                if let configured = symbolImage.withSymbolConfiguration(config) {
+                    configured.draw(in: iconArea)
+                }
+            } else {
+                self.drawCustomPortIcon(in: iconArea)
+            }
+
+            // Draw elegant pill badge on the right
+            let badgeStr = count > 99 ? "99+" : "\(count)"
+            let badgeAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.white
             ]
-            let textSize = countStr.size(withAttributes: attrs)
+            let textSize = badgeStr.size(withAttributes: badgeAttrs)
+            let padding: CGFloat = 4
+            let badgeHeight: CGFloat = 14
+            let badgeWidth = textSize.width + padding * 2
+
+            let badgeRect = NSRect(
+                x: 20,
+                y: (18 - badgeHeight) / 2,
+                width: badgeWidth,
+                height: badgeHeight
+            )
+
+            // Draw pill shape with subtle gradient
+            let pillPath = NSBezierPath(roundedRect: badgeRect, xRadius: badgeHeight / 2, yRadius: badgeHeight / 2)
+
+            // Gradient fill
+            let gradient = NSGradient(colors: [
+                NSColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1.0), // #FF3B30
+                NSColor(red: 0.9, green: 0.17, blue: 0.14, alpha: 1.0)  // slightly darker
+            ])
+            gradient?.draw(in: pillPath, angle: -90)
+
+            // Draw text centered in pill
             let textRect = NSRect(
-                x: 20 - textSize.width / 2,
-                y: rect.midY - textSize.height / 2,
+                x: badgeRect.midX - textSize.width / 2,
+                y: badgeRect.midY - textSize.height / 2,
                 width: textSize.width,
                 height: textSize.height
             )
-            countStr.draw(in: textRect, withAttributes: attrs)
+            badgeStr.draw(in: textRect, withAttributes: badgeAttrs)
 
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = false
+        image.setName("PortPilotBadgeIcon")
         return image
     }
 
@@ -255,11 +348,14 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     static let killActionIdentifier = "KILL_ACTION"
     static let copyPortActionIdentifier = "COPY_PORT_ACTION"
     static let dismissActionIdentifier = "DISMISS_ACTION"
+    static let viewConnectionsActionIdentifier = "VIEW_CONNECTIONS_ACTION"
+    static let killProcessActionIdentifier = "KILL_PROCESS_ACTION"
 
     // Notification category identifiers
     static let portOccupiedCategoryIdentifier = "PORT_OCCUPIED"
     static let portAvailableCategoryIdentifier = "PORT_AVAILABLE"
     static let reservedPortCategoryIdentifier = "RESERVED_PORT"
+    static let connectionAlertCategoryIdentifier = "CONNECTION_ALERT"
 
     override init() {
         self.portWatcher = PortWatcher(portManager: portManager)
@@ -319,7 +415,26 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
             options: [.customDismissAction]
         )
 
-        center.setNotificationCategories([portOccupiedCategory, portAvailableCategory, reservedPortCategory])
+        // Connection alert category
+        let viewConnectionsAction = UNNotificationAction(
+            identifier: Self.viewConnectionsActionIdentifier,
+            title: "View Connections",
+            options: [.foreground]
+        )
+
+        let connectionAlertCategory = UNNotificationCategory(
+            identifier: Self.connectionAlertCategoryIdentifier,
+            actions: [viewConnectionsAction, dismissAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
+        center.setNotificationCategories([
+            portOccupiedCategory,
+            portAvailableCategory,
+            reservedPortCategory,
+            connectionAlertCategory
+        ])
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
@@ -454,6 +569,46 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
                 print("Failed to send notification: \(error)")
             }
         }
+    }
+
+    // MARK: - Connection Alert Notifications
+
+    /// Send a notification for suspicious connections (blocklisted hosts or bot activity)
+    func sendConnectionAlertNotification(
+        blocklistedCount: Int,
+        suspiciousProcesses: [(processName: String, connectionCount: Int)]
+    ) {
+        guard notificationsEnabled else { return }
+
+        var title: String
+        var body: String
+
+        if blocklistedCount > 0 && suspiciousProcesses.isEmpty {
+            title = "Suspicious Connections Blocked"
+            body = "\(blocklistedCount) connection(s) from blocklisted hosts have been rejected"
+        } else if blocklistedCount > 0 {
+            title = "Security Alert"
+            body = "\(blocklistedCount) blocklisted + \(suspiciousProcesses.count) suspicious process(es) detected"
+        } else if suspiciousProcesses.count == 1 {
+            title = "Bot Activity Suspected"
+            body = "\(suspiciousProcesses[0].processName) has \(suspiciousProcesses[0].connectionCount) connections - possible bot"
+        } else if suspiciousProcesses.count > 1 {
+            title = "Bot Activity Suspected"
+            body = "\(suspiciousProcesses.count) processes with 50+ connections each - possible bot activity"
+        } else {
+            return
+        }
+
+        sendNotification(
+            title: title,
+            body: body,
+            identifier: "connection-alert-\(UUID().uuidString)",
+            categoryIdentifier: Self.connectionAlertCategoryIdentifier,
+            userInfo: [
+                "blocklistedCount": blocklistedCount,
+                "suspiciousProcesses": suspiciousProcesses.map { ["processName": $0.processName, "count": $0.connectionCount] }
+            ]
+        )
     }
 
     // MARK: - Persistence

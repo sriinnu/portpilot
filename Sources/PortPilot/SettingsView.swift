@@ -747,6 +747,17 @@ struct MenuBarSettingsView: View {
                 if appSettings.showMenuBarIcon {
                     Toggle("Launch at login", isOn: $appSettings.launchAtLogin)
                         .help("Automatically start PortPilot when you log in")
+
+                    Button {
+                        openTUI()
+                    } label: {
+                        HStack {
+                            Image(systemName: "terminal")
+                            Text("Open TUI")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Open the terminal-based user interface")
                 }
             } header: {
                 Text("Visibility")
@@ -779,6 +790,53 @@ struct MenuBarSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private func openTUI() {
+        // Find the TUI binary path
+        let bundlePath = Bundle.main.bundlePath
+        let tuiPath = bundlePath + "/../Resources/portpilot-tui"
+
+        // Try to find it in common locations
+        let possiblePaths = [
+            bundlePath + "/../Resources/portpilot-tui",
+            "/Applications/PortPilot.app/Contents/Resources/portpilot-tui",
+            bundlePath + "/../../../../.build/release/portpilot-tui"
+        ]
+
+        var finalPath: String?
+        for path in possiblePaths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                finalPath = path
+                break
+            }
+        }
+
+        // Fallback: use the built TUI path
+        if finalPath == nil {
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+            let builtTui = homeDir + "/Sriinnu/Personal/ports/.build/release/portpilot-tui"
+            if FileManager.default.isExecutableFile(atPath: builtTui) {
+                finalPath = builtTui
+            }
+        }
+
+        guard let path = finalPath else {
+            print("Could not find portpilot-tui binary")
+            return
+        }
+
+        // Open Terminal.app and run the TUI
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(path)"
+        end tell
+        """
+
+        if let appleScript = NSAppleScript(source: script) {
+            appleScript.executeAndReturnError(nil)
+        }
     }
 }
 

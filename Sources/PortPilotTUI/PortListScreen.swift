@@ -9,6 +9,14 @@ import PortManagerLib
 
 // MARK: - Shared Formatting
 
+/// Alert state for TUI display
+enum AlertState {
+    case normal
+    case warning
+    case critical
+    var isAlert: Bool { self != .normal }
+}
+
 /// Format memory in human-readable units (MB/GB) — shared across screens
 func formatMemory(_ mb: Double) -> String {
     if mb >= 1024 { return String(format: "%.1fG", mb / 1024.0) }
@@ -50,6 +58,9 @@ struct PortListScreen: TUIScreen {
     // Connections tab state
     private var connections: [EstablishedConnection] = []
     private var filteredConnections: [EstablishedConnection] = []
+
+    // Alert state
+    private var alertState: AlertState = .normal
 
     enum Tab: String, CaseIterable {
         case ports      = "Ports"
@@ -96,6 +107,7 @@ struct PortListScreen: TUIScreen {
                 filtered = []
                 cronjobs = []
                 filteredCronjobs = []
+                updateAlertState()
             }
             applyFilter()
             clampSelection()
@@ -107,7 +119,23 @@ struct PortListScreen: TUIScreen {
             filteredCronjobs = []
             connections = []
             filteredConnections = []
+            alertState = .normal
             showStatus("Error: \(error.localizedDescription)", style: ANSI.fg(.red))
+        }
+    }
+
+    /// Update alert state based on current connections
+    private mutating func updateAlertState() {
+        let blocklistedCount = connections.filter { $0.isBlocklisted }.count
+        let groupedConnections = Dictionary(grouping: connections, by: { $0.processName })
+        let suspiciousCount = groupedConnections.filter { $0.value.count > 50 }.count
+
+        if blocklistedCount > 0 {
+            alertState = .critical
+        } else if suspiciousCount > 0 {
+            alertState = .warning
+        } else {
+            alertState = .normal
         }
     }
 
@@ -191,20 +219,58 @@ struct PortListScreen: TUIScreen {
     private func renderHeader(into screen: inout Screen, width: Int) {
         let title = " PortPilot TUI "
         let platform = platformLabel()
-        let titleRow = fitString(
-            centerString(title, width: width - platform.count - 2) + platform + " ",
-            width: width
-        )
-        screen.put(row: 0, col: 0, text: titleRow, style: ANSI.bold + ANSI.bg(.blue) + ANSI.fg(.brightWhite))
+
+        // Use red background for critical alert, orange for warning, blue for normal
+        let headerStyle: String
+        if alertState == .critical {
+            headerStyle = ANSI.bold + ANSI.bg(.brightRed) + ANSI.fg(.white)
+        } else if alertState == .warning {
+            headerStyle = ANSI.bold + ANSI.bg(.brightYellow) + ANSI.fg(.black)
+        } else {
+            headerStyle = ANSI.bold + ANSI.bg(.blue) + ANSI.fg(.brightWhite)
+        }
+
+        // Alert indicator placement
+        let alertText: String
+        let alertWidth: Int
+        if alertState.isAlert {
+            alertText = alertState == .critical ? " ALERT " : " WARNING "
+            alertWidth = alertText.count
+        } else {
+            alertText = ""
+            alertWidth = 0
+        }
+
+        // Title row: reserve space for platform + alert at the end
+        // platform + space = \(platform.count + 1), alert + space = \(alertWidth + 1) at end
+        let reservedRight = (alertWidth > 0 ? alertWidth + 1 : 0) + platform.count + 1
+        let titleAreaWidth = max(width - reservedRight, 20)
+        let adjustedTitle = centerString(title, width: titleAreaWidth - 2)  // -2 for padding
+        let titleRow = fitString(adjustedTitle + " " + platform + " ", width: width - reservedRight + 1)
+        screen.put(row: 0, col: 0, text: titleRow, style: headerStyle)
+
+        // Alert indicator at far right (after platform)
+        if alertState.isAlert {
+            let alertStyle = alertState == .critical
+                ? ANSI.bold + ANSI.fg(.brightRed)
+                : ANSI.bold + ANSI.fg(.brightYellow)
+            screen.put(row: 0, col: width - alertWidth, text: alertText, style: alertStyle)
+        }
 
         // Tab bar
         var col = 1
         for tab in Tab.allCases {
             let isActive = tab == activeTab
             let tabText = " \(tab.rawValue) "
-            let style = isActive
-                ? ANSI.bold + ANSI.fg(.brightCyan) + ANSI.underline
-                : ANSI.fg(.white)
+            let style: String
+            if isActive {
+                style = ANSI.bold + ANSI.fg(.brightCyan) + ANSI.underline
+            } else if alertState.isAlert && tab == .connections {
+                // Highlight connections tab when there's an alert
+                style = ANSI.bold + ANSI.fg(.brightRed)
+            } else {
+                style = ANSI.fg(.white)
+            }
             screen.put(row: 1, col: col, text: tabText, style: style)
             col += tabText.count + 1
         }
@@ -381,11 +447,35 @@ struct PortListScreen: TUIScreen {
                 let conn = filteredConnections[selectedIndex]
                 let isBlocklisted = conn.isBlocklisted
                 let blocklistMarker = isBlocklisted ? "🚨 BLOCKLISTED " : ""
-                let countMsg = "\(filteredConnections.count) connection(s)"
+
+                // Build count message with alert indicator
+                let alertIndicator = alertState.isAlert ? " ⚠ " : " "
+                let countMsg = "\(filteredConnections.count) connection(s)\(alertIndicator)"
                 screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: countMsg.count), style: ANSI.dim)
+
                 let markerStyle = isBlocklisted ? ANSI.bold + ANSI.fg(.red) : ANSI.fg(.cyan)
                 let suspiciousMarker = conn.remoteAddress.contains("*") ? "" : "→ \(conn.remoteAddress)"
-                screen.put(row: msgRow, col: countMsg.count + 1, text: fitString("\(blocklistMarker)\(conn.processName) \(suspiciousMarker)", width: width - countMsg.count - 1), style: markerStyle)
+                screen.put(row: msgRow, col: countMsg.count, text: fitString("\(blocklistMarker)\(conn.processName) \(suspiciousMarker)", width: width - countMsg.count), style: markerStyle)
+
+                // Show alert summary if in alert state
+                if alertState.isAlert {
+                    let blocklistedCount = connections.filter { $0.isBlocklisted }.count
+                    let groupedConnections = Dictionary(grouping: connections, by: { $0.processName })
+                    let suspiciousProcesses = groupedConnections.filter { $0.value.count > 50 }
+
+                    if blocklistedCount > 0 {
+                        let alertMsg = " \(blocklistedCount) blocklisted"
+                        let alertStyle = ANSI.bold + ANSI.fg(.brightRed)
+                        screen.put(row: msgRow, col: width - alertMsg.count - 1, text: alertMsg, style: alertStyle)
+                    } else if !suspiciousProcesses.isEmpty {
+                        let topSuspicious = suspiciousProcesses.max { $0.value.count < $1.value.count }
+                        if let (name, conns) = topSuspicious {
+                            let alertMsg = " \(name):\(conns.count) ⚠"
+                            let alertStyle = ANSI.bold + ANSI.fg(.brightYellow)
+                            screen.put(row: msgRow, col: max(0, width - alertMsg.count - 1), text: alertMsg, style: alertStyle)
+                        }
+                    }
+                }
             } else {
                 let countMsg = "\(filteredConnections.count) connection(s) on \(platformLabel())"
                 screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: width), style: ANSI.dim)
@@ -693,10 +783,10 @@ struct PortListScreen: TUIScreen {
         return [
             TableColumn(title: "PORT", width: 6),
             TableColumn(title: "PID", width: 7),
-            TableColumn(title: "CPU%", width: 6, alignment: .right),
-            TableColumn(title: "MEM", width: 6, alignment: .right),
-            TableColumn(title: "COMMAND", width: 15),
-            TableColumn(title: "PROJECT/SOURCE", width: 30),
+            TableColumn(title: "FRAMEWORK", width: 12),
+            TableColumn(title: "PROJECT", width: 24),
+            TableColumn(title: "UPTIME", width: 8),
+            TableColumn(title: "STATUS", width: 8),
         ]
     }
 
@@ -713,19 +803,85 @@ struct PortListScreen: TUIScreen {
             }
         }
 
-        // Ports tab: PORT, PID, CPU%, MEM, COMMAND, PROJECT/SOURCE
+        // Ports tab: PORT, PID, FRAMEWORK, PROJECT, UPTIME, STATUS
         switch column {
         case 0: return ("\(process.port)", ANSI.fg(.brightYellow))
         case 1: return ("\(process.pid)", ANSI.fg(.brightMagenta))
-        case 2: return (process.cpuUsage.map { String(format: "%.1f", $0) } ?? "-", cpuStyle(process.cpuUsage))
-        case 3: return (process.memoryMB.map { formatMemory($0) } ?? "-", ANSI.fg(.white))
-        case 4: return (process.command, ANSI.fg(.brightWhite))
-        case 5:
-            let label = sourceLabel(for: process)
-            let style = label.hasPrefix("🐳") ? ANSI.fg(.brightCyan) : ANSI.fg(.cyan)
-            return (label, style)
+        case 2: return (process.framework ?? "-", process.framework.map { frameworkStyle($0) } ?? ANSI.dim)
+        case 3: return (projectLabel(for: process), ANSI.fg(.cyan))
+        case 4: return (uptimeString(for: process), ANSI.fg(.white))
+        case 5: return (statusLabel(for: process), statusStyle(for: process))
         default: return ("", "")
         }
+    }
+
+    private static func frameworkStyle(_ framework: String) -> String {
+        switch framework {
+        case "Next.js", "Nuxt", "Remix", "Gatsby", "Astro":
+            return ANSI.fg(.brightCyan)
+        case "React", "Vue", "Angular", "Svelte":
+            return ANSI.fg(.brightBlue)
+        case "Node.js", "Express", "Fastify", "Koa":
+            return ANSI.fg(.green)
+        case "Python", "Django", "FastAPI":
+            return ANSI.fg(.yellow)
+        case "Rails", "Ruby":
+            return ANSI.fg(.brightRed)
+        case "Go", "Rust", "Java", ".NET", "PHP", "Laravel":
+            return ANSI.fg(.brightMagenta)
+        default:
+            return ANSI.fg(.white)
+        }
+    }
+
+    private static func uptimeString(for process: PortProcess) -> String {
+        guard let startTime = process.startTime else { return "-" }
+        let interval = Date().timeIntervalSince(startTime)
+        guard interval >= 0 else { return "-" }
+
+        let secondsInMinute: Double = 60
+        let secondsInHour: Double = 3600
+        let secondsInDay: Double = 86400
+
+        let days = Int(interval / secondsInDay)
+        let hours = Int((interval.truncatingRemainder(dividingBy: secondsInDay)) / secondsInHour)
+        let minutes = Int((interval.truncatingRemainder(dividingBy: secondsInHour)) / secondsInMinute)
+
+        if days > 0 {
+            return "\(days)d\(hours)h"
+        } else if hours > 0 {
+            return "\(hours)h\(minutes)m"
+        } else if minutes > 0 {
+            return "\(minutes)m"
+        } else {
+            return "<1m"
+        }
+    }
+
+    private static func statusLabel(for process: PortProcess) -> String {
+        if process.isOrphaned { return "ORPHAN" }
+
+        let cmd = process.command.lowercased()
+        let dockerProcesses = ["docker", "containerd", "docker-proxy", "com.docker"]
+        if dockerProcesses.contains(where: { cmd.contains($0) }) { return "DOCKER" }
+
+        let devProcesses = ["node", "npm", "yarn", "python", "ruby", "rails", "go", "cargo", "java", "dotnet"]
+        if devProcesses.contains(where: { cmd.contains($0) }) { return "DEV" }
+
+        return "SYSTEM"
+    }
+
+    private static func statusStyle(for process: PortProcess) -> String {
+        if process.isOrphaned { return ANSI.fg(.brightYellow) }
+
+        let cmd = process.command.lowercased()
+        let dockerProcesses = ["docker", "containerd", "docker-proxy", "com.docker"]
+        if dockerProcesses.contains(where: { cmd.contains($0) }) { return ANSI.fg(.brightCyan) }
+
+        let devProcesses = ["node", "npm", "yarn", "python", "ruby", "rails", "go", "cargo", "java", "dotnet"]
+        if devProcesses.contains(where: { cmd.contains($0) }) { return ANSI.fg(.green) }
+
+        return ANSI.fg(.white)
     }
 
     /// Provide cell content for a given cronjob and column

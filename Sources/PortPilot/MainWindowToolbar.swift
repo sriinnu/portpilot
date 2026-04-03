@@ -11,6 +11,7 @@ struct MainWindowToolbar: View {
     let isLoading: Bool
     let portCount: Int
     let totalCount: Int
+    @Binding var selectedMainTab: MainTab
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,9 +29,15 @@ struct MainWindowToolbar: View {
                     }
                 }
                 .buttonStyle(.borderless)
-                .help("Refresh ports (\u{2318}R)")
+                .help("Refresh (\u{2318}R)")
 
-                ToolbarPortSummary(portCount: portCount, totalCount: totalCount)
+                if selectedMainTab == .ports {
+                    ToolbarPortSummary(portCount: portCount, totalCount: totalCount)
+                } else {
+                    Text("Schedules")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.primary)
+                }
 
                 Spacer()
 
@@ -39,7 +46,7 @@ struct MainWindowToolbar: View {
                     Image(systemName: Theme.Icon.search)
                         .foregroundColor(.secondary)
                         .font(.system(size: 12))
-                    TextField("Search ports, processes...", text: $searchText)
+                    TextField(selectedMainTab == .ports ? "Search ports, processes..." : "Search cronjobs...", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                     if !searchText.isEmpty {
@@ -72,86 +79,152 @@ struct MainWindowToolbar: View {
             .padding(.top, 9)
             .padding(.bottom, 7)
 
-            // Source tabs row
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(PortSourceFilter.allCases) { source in
-                        SourceTabPill(
-                            source: source,
-                            count: viewModel.sourceCounts[source] ?? 0,
-                            isSelected: viewModel.selectedSourceFilter == source
-                        ) {
-                            withAnimation(toolbarSelectionSpring) {
-                                viewModel.selectedSourceFilter = viewModel.selectedSourceFilter == source ? .all : source
-                            }
-                        }
+            // Main tabs row (Ports / Schedules)
+            HStack(spacing: 8) {
+                MainTabPill(
+                    label: "Ports",
+                    icon: "network",
+                    isSelected: selectedMainTab == .ports
+                ) {
+                    withAnimation(toolbarSelectionSpring) {
+                        selectedMainTab = .ports
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .fill(Theme.Surface.headerTint)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                )
+
+                MainTabPill(
+                    label: "Schedules",
+                    icon: "clock",
+                    isSelected: selectedMainTab == .schedules
+                ) {
+                    withAnimation(toolbarSelectionSpring) {
+                        selectedMainTab = .schedules
+                    }
+                }
+
+                Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 4)
 
-            // Filter pills row
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    // Protocol filters
-                    ProtocolPill(label: "TCP", isSelected: viewModel.selectedProtocol == .tcp) {
-                        withAnimation(toolbarSelectionSpring) {
-                            viewModel.selectedProtocol = viewModel.selectedProtocol == .tcp ? .all : .tcp
-                        }
-                    }
-                    ProtocolPill(label: "UDP", isSelected: viewModel.selectedProtocol == .udp) {
-                        withAnimation(toolbarSelectionSpring) {
-                            viewModel.selectedProtocol = viewModel.selectedProtocol == .udp ? .all : .udp
-                        }
-                    }
-
-                    DividerPill()
-
-                    // Category filters
-                    ForEach(FilterCategory.allCases) { cat in
-                        CategoryPill(
-                            category: cat,
-                            count: viewModel.categoryCounts[cat] ?? 0,
-                            isSelected: viewModel.selectedCategory == cat
-                        ) {
-                            withAnimation(toolbarSelectionSpring) {
-                                viewModel.selectedCategory = viewModel.selectedCategory == cat ? .all : cat
+            // Source tabs row (only visible for Ports tab)
+            if selectedMainTab == .ports {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(PortSourceFilter.allCases) { source in
+                            SourceTabPill(
+                                source: source,
+                                count: viewModel.sourceCounts[source] ?? 0,
+                                isSelected: viewModel.selectedSourceFilter == source
+                            ) {
+                                withAnimation(toolbarSelectionSpring) {
+                                    viewModel.selectedSourceFilter = viewModel.selectedSourceFilter == source ? .all : source
+                                }
                             }
                         }
                     }
-
-                    DividerPill()
-
-                    // Hide system toggle
-                    TogglePill(
-                        label: "Hide System",
-                        icon: viewModel.hideSystemProcesses ? "eye.slash" : "eye",
-                        isActive: viewModel.hideSystemProcesses
-                    ) {
-                        withAnimation(toolbarSelectionSpring) {
-                            viewModel.hideSystemProcesses.toggle()
-                        }
-                    }
-
-                    Spacer()
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            .fill(Theme.Surface.headerTint)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 3)
-                .padding(.bottom, 8)
+                .padding(.bottom, 4)
+
+                // Filter pills row
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        // Protocol filters
+                        ProtocolPill(label: "TCP", isSelected: viewModel.selectedProtocol == .tcp) {
+                            withAnimation(toolbarSelectionSpring) {
+                                viewModel.selectedProtocol = viewModel.selectedProtocol == .tcp ? .all : .tcp
+                            }
+                        }
+                        ProtocolPill(label: "UDP", isSelected: viewModel.selectedProtocol == .udp) {
+                            withAnimation(toolbarSelectionSpring) {
+                                viewModel.selectedProtocol = viewModel.selectedProtocol == .udp ? .all : .udp
+                            }
+                        }
+
+                        DividerPill()
+
+                        // Category filters
+                        ForEach(FilterCategory.allCases) { cat in
+                            CategoryPill(
+                                category: cat,
+                                count: viewModel.categoryCounts[cat] ?? 0,
+                                isSelected: viewModel.selectedCategory == cat
+                            ) {
+                                withAnimation(toolbarSelectionSpring) {
+                                    viewModel.selectedCategory = viewModel.selectedCategory == cat ? .all : cat
+                                }
+                            }
+                        }
+
+                        DividerPill()
+
+                        // Hide system toggle
+                        TogglePill(
+                            label: "Hide System",
+                            icon: viewModel.hideSystemProcesses ? "eye.slash" : "eye",
+                            isActive: viewModel.hideSystemProcesses
+                        ) {
+                            withAnimation(toolbarSelectionSpring) {
+                                viewModel.hideSystemProcesses.toggle()
+                            }
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 3)
+                    .padding(.bottom, 8)
+                }
             }
         }
         .background(Theme.Surface.windowBackground)
+    }
+}
+
+// MARK: - Main Tab Pill
+struct MainTabPill: View {
+    let label: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundColor(isSelected ? .white : .secondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(
+                isSelected
+                    ? Theme.Badge.accentBackground
+                    : Theme.Surface.chromeTint
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? Color.white.opacity(0.16) : Color.primary.opacity(0.06),
+                        lineWidth: 1
+                    )
+            )
+            .cornerRadius(12)
+            .animation(toolbarSelectionSpring, value: isSelected)
+        }
+        .buttonStyle(.plain)
     }
 }
 

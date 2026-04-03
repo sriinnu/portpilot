@@ -489,6 +489,18 @@ enum Theme {
         static var warning: Color { Theme.palette.warning.color }
     }
 
+    // MARK: - Alert Colors
+
+    enum Alert {
+        // Alert background - red for critical alerts
+        static let criticalBackground = Color.red
+        static let criticalText = Color.white
+        // Alert dot - pulsing indicator
+        static let dotActive = Color.green
+        static let dotWarning = Color.orange
+        static let dotCritical = Color.red
+    }
+
     // MARK: - Action Colors
 
     enum Action {

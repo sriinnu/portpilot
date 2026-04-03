@@ -19,6 +19,12 @@ public struct PortProcess: Codable, Identifiable, Sendable {
     public var cpuUsage: Double?
     public var memoryMB: Double?
 
+    // Framework detection fields
+    public var framework: String?
+    public var gitBranch: String?
+    public var gitRepo: String?
+    public var isOrphaned: Bool = false  // true if process is stale/zombie
+
     /// Unique ID: combines protocol+port for network, protocol+pid for sockets
     public var id: String {
         if protocolName == "unix" { return "unix-\(pid)" }
@@ -28,7 +34,7 @@ public struct PortProcess: Codable, Identifiable, Sendable {
     /// Whether this is a Unix socket process (no network port)
     public var isUnixSocket: Bool { protocolName == "unix" }
 
-    public init(port: Int, protocolName: String, pid: Int, user: String, command: String, fullCommand: String? = nil, parentPID: Int? = nil, startTime: Date? = nil, workingDirectory: String? = nil, processPath: String? = nil, socketPath: String? = nil, cpuUsage: Double? = nil, memoryMB: Double? = nil) {
+    public init(port: Int, protocolName: String, pid: Int, user: String, command: String, fullCommand: String? = nil, parentPID: Int? = nil, startTime: Date? = nil, workingDirectory: String? = nil, processPath: String? = nil, socketPath: String? = nil, cpuUsage: Double? = nil, memoryMB: Double? = nil, framework: String? = nil, gitBranch: String? = nil, gitRepo: String? = nil, isOrphaned: Bool = false) {
         self.port = port
         self.protocolName = protocolName
         self.pid = pid
@@ -42,6 +48,10 @@ public struct PortProcess: Codable, Identifiable, Sendable {
         self.socketPath = socketPath
         self.cpuUsage = cpuUsage
         self.memoryMB = memoryMB
+        self.framework = framework
+        self.gitBranch = gitBranch
+        self.gitRepo = gitRepo
+        self.isOrphaned = isOrphaned
     }
 }
 
@@ -222,6 +232,189 @@ public enum Platform {
 public final class PortManager {
 
     public init() {}
+
+    // MARK: - Framework Detection
+
+    /// Detect framework type from working directory or process path
+    public func detectFramework(for workingDirectory: String?, processPath: String? = nil) -> String? {
+        // Try working directory first
+        if let framework = detectFrameworkInDirectory(workingDirectory) {
+            return framework
+        }
+        // Fall back to directory containing the process executable
+        if let path = processPath {
+            let dir = (path as NSString).deletingLastPathComponent
+            if let framework = detectFrameworkInDirectory(dir) {
+                return framework
+            }
+            // Also check parent directory (for node_modules/.bin style setups)
+            let parentDir = (dir as NSString).deletingLastPathComponent
+            if let framework = detectFrameworkInDirectory(parentDir) {
+                return framework
+            }
+        }
+        return nil
+    }
+
+    /// Detect framework by scanning files in a directory
+    private func detectFrameworkInDirectory(_ dir: String?) -> String? {
+        guard let dir = dir, !dir.isEmpty else { return nil }
+        let fileManager = FileManager.default
+
+        // Node.js ecosystem
+        let packageJSON = dir + "/package.json"
+        if fileManager.fileExists(atPath: packageJSON) {
+            if let content = try? String(contentsOfFile: packageJSON, encoding: .utf8) {
+                if content.contains("\"next\"") { return "Next.js" }
+                if content.contains("\"nuxt\"") { return "Nuxt" }
+                if content.contains("\"remix\"") { return "Remix" }
+                if content.contains("\"gatsby\"") { return "Gatsby" }
+                if content.contains("\"astro\"") { return "Astro" }
+                if content.contains("\"react\"") { return "React" }
+                if content.contains("\"vue\"") && !content.contains("nuxt") { return "Vue" }
+                if content.contains("\"svelte\"") { return "Svelte" }
+                if content.contains("\"angular\"") { return "Angular" }
+                if content.contains("\"express\"") { return "Express" }
+                if content.contains("\"fastify\"") { return "Fastify" }
+                if content.contains("\"koa\"") { return "Koa" }
+                return "Node.js"
+            }
+            return "Node.js"
+        }
+
+        // Python
+        if fileManager.fileExists(atPath: dir + "/requirements.txt") { return "Python" }
+        if fileManager.fileExists(atPath: dir + "/pyproject.toml") { return "Python" }
+        if fileManager.fileExists(atPath: dir + "/Pipfile") { return "Python" }
+        if fileManager.fileExists(atPath: dir + "/setup.py") { return "Python" }
+
+        // Ruby/Rails
+        if fileManager.fileExists(atPath: dir + "/Gemfile") {
+            if fileManager.fileExists(atPath: dir + "/config.ru") { return "Rails" }
+            return "Ruby"
+        }
+
+        // Go
+        if fileManager.fileExists(atPath: dir + "/go.mod") { return "Go" }
+
+        // Rust
+        if fileManager.fileExists(atPath: dir + "/Cargo.toml") { return "Rust" }
+
+        // Java
+        if fileManager.fileExists(atPath: dir + "/pom.xml") { return "Java" }
+        if fileManager.fileExists(atPath: dir + "/build.gradle") { return "Java" }
+        if fileManager.fileExists(atPath: dir + "/build.gradle.kts") { return "Java" }
+
+        // PHP/Composer
+        if fileManager.fileExists(atPath: dir + "/composer.json") { return "PHP" }
+
+        // .NET/C#
+        if fileManager.fileExists(atPath: dir + "/.csproj") { return ".NET" }
+        if fileManager.fileExists(atPath: dir + "/Program.cs") { return ".NET" }
+
+        // Laravel specific
+        if fileManager.fileExists(atPath: dir + "/artisan") { return "Laravel" }
+
+        // Django
+        if fileManager.fileExists(atPath: dir + "/manage.py") {
+            if let content = try? String(contentsOfFile: dir + "/manage.py", encoding: .utf8),
+               content.contains("django") { return "Django" }
+        }
+
+        return nil
+    }
+
+    // MARK: - Git Info Detection
+
+    /// Detect git branch and repository from working directory
+    public func detectGitInfo(for workingDirectory: String?) -> (branch: String?, repo: String?) {
+        guard let dir = workingDirectory, !dir.isEmpty else { return (nil, nil) }
+
+        let headFile = dir + "/.git/HEAD"
+        guard let headContent = try? String(contentsOfFile: headFile, encoding: .utf8) else {
+            return (nil, nil)
+        }
+
+        let trimmed = headContent.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle detached HEAD
+        if trimmed.starts(with: "ref: ") {
+            let branchPath = String(trimmed.dropFirst(5))  // Remove "ref: "
+
+            // Read branch name from ref
+            let refFile = dir + "/.git/" + branchPath
+            if let branchName = try? String(contentsOfFile: refFile, encoding: .utf8) {
+                let trimmedBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cleanBranch = trimmedBranch.components(separatedBy: "/").last ?? trimmedBranch
+                let repo = detectRepoName(from: dir)
+                return (cleanBranch, repo)
+            }
+
+            // Fallback: just use the last component of the path
+            let branchName = branchPath.components(separatedBy: "/").last ?? branchPath
+            let repo = detectRepoName(from: dir)
+            return (branchName, repo)
+        }
+
+        // Detached HEAD - just show commit hash
+        let shortHash = String(trimmed.prefix(7))
+        let repo = detectRepoName(from: dir)
+        return (shortHash, repo)
+    }
+
+    private func detectRepoName(from workingDirectory: String) -> String? {
+        let configFile = workingDirectory + "/.git/config"
+        guard let config = try? String(contentsOfFile: configFile, encoding: .utf8) else {
+            return nil
+        }
+
+        // Find remote.origin.url line
+        let lines = config.components(separatedBy: "\n")
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("url = ") {
+                let url = String(trimmed.dropFirst(6))
+
+                // Extract repo name from various git hosting formats
+                // github.com/user/repo.git
+                // github.com:user/repo.git (ssh)
+                // gitlab.com/user/repo
+                if let name = extractRepoName(from: url) {
+                    return name
+                }
+            }
+        }
+        return nil
+    }
+
+    private func extractRepoName(from url: String) -> String? {
+        var clean = url
+
+        // Remove protocol prefix
+        if clean.hasPrefix("https://") { clean = String(clean.dropFirst(8)) }
+        else if clean.hasPrefix("http://") { clean = String(clean.dropFirst(7)) }
+        else if clean.hasPrefix("git@") { clean = String(clean.dropFirst(4)) }
+
+        // Remove trailing .git
+        if clean.hasSuffix(".git") {
+            clean = String(clean.dropLast(4))
+        }
+
+        // Handle SSH format git@host:user/repo
+        if clean.contains(":") {
+            clean = clean.replacingOccurrences(of: ":", with: "/")
+        }
+
+        // Get last two components (user/repo)
+        let parts = clean.split(separator: "/").map(String.init)
+        if parts.count >= 2 {
+            return parts.suffix(2).joined(separator: "/")
+        } else if parts.count == 1 {
+            return parts[0]
+        }
+
+        return nil
+    }
 
     // MARK: - Get PID for Port
 
@@ -545,6 +738,10 @@ public final class PortManager {
             updated.cpuUsage = stats.cpu[process.pid]
             updated.memoryMB = stats.memMB[process.pid]
             updated.processPath = pidToPath[process.pid]
+            updated.framework = detectFramework(for: updated.workingDirectory, processPath: updated.processPath)
+            let gitInfo = detectGitInfo(for: updated.workingDirectory)
+            updated.gitBranch = gitInfo.branch
+            updated.gitRepo = gitInfo.repo
             return updated
         }
     }
@@ -609,6 +806,10 @@ public final class PortManager {
             updated.memoryMB = stats.memMB[process.pid]
             updated.processPath = pidToPath[process.pid]
             updated.workingDirectory = pidToCwd[process.pid]
+            updated.framework = detectFramework(for: updated.workingDirectory, processPath: updated.processPath)
+            let gitInfo = detectGitInfo(for: updated.workingDirectory)
+            updated.gitBranch = gitInfo.branch
+            updated.gitRepo = gitInfo.repo
             return updated
         }
     }
@@ -635,6 +836,10 @@ public final class PortManager {
         return processes.map { process in
             var updated = process
             updated.fullCommand = pidToCmd[process.pid]
+            updated.framework = detectFramework(for: updated.workingDirectory)
+            let gitInfo = detectGitInfo(for: updated.workingDirectory)
+            updated.gitBranch = gitInfo.branch
+            updated.gitRepo = gitInfo.repo
             return updated
         }
     }

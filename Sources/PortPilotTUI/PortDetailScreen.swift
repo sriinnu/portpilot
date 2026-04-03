@@ -99,6 +99,9 @@ struct PortDetailScreen: TUIScreen {
         if process.processPath != nil { count += 1 }
         if process.workingDirectory != nil { count += 1 }
         if process.socketPath != nil  { count += 1 }
+        if process.framework != nil  { count += 1 }
+        if process.gitBranch != nil   { count += 1 }
+        if process.gitRepo != nil     { count += 1 }
         return count
     }
 
@@ -150,6 +153,15 @@ struct PortDetailScreen: TUIScreen {
         }
         if let socketPath = process.socketPath {
             field("Socket", socketPath)
+        }
+        if let framework = process.framework {
+            field("Framework", framework)
+        }
+        if let gitBranch = process.gitBranch {
+            field("Git Branch", gitBranch)
+        }
+        if let gitRepo = process.gitRepo {
+            field("Git Repo", gitRepo)
         }
     }
 

@@ -694,6 +694,7 @@ class PortViewModel: ObservableObject {
                     self.allConnections = conns
                     self.updateConnectionsGroupedCache()
                     self.isLoadingAllConnections = false
+                    self.checkConnectionAlerts()
                 }
             } catch {
                 await MainActor.run {
@@ -704,6 +705,15 @@ class PortViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Check for suspicious connections and send notifications if needed
+    private func checkConnectionAlerts() {
+        guard hasAlert else { return }
+        NotificationManager.shared.sendConnectionAlertNotification(
+            blocklistedCount: blocklistedCount,
+            suspiciousProcesses: suspiciousProcesses
+        )
     }
 
     /// Update the cached grouped connections whenever allConnections changes.
@@ -1255,5 +1265,42 @@ class PortViewModel: ObservableObject {
 extension PortViewModel {
     var hasActiveFilters: Bool {
         !searchText.isEmpty || selectedCategory != .all || selectedProtocol != .all || hideSystemProcesses
+    }
+}
+
+// MARK: - Alert Detection
+extension PortViewModel {
+    /// Count of blocklisted connections
+    var blocklistedCount: Int {
+        allConnections.filter { $0.isBlocklisted }.count
+    }
+
+    /// Count of suspicious processes (more than 50 connections)
+    var suspiciousConnectionCount: Int {
+        connectionsGrouped.filter { $0.totalCount > 50 }.count
+    }
+
+    /// Whether any alert condition exists
+    var hasAlert: Bool {
+        blocklistedCount > 0 || suspiciousConnectionCount > 0
+    }
+
+    /// Combined alert count
+    var alertCount: Int {
+        blocklistedCount + suspiciousConnectionCount
+    }
+
+    /// List of suspicious processes with their connection counts
+    var suspiciousProcesses: [(processName: String, connectionCount: Int)] {
+        connectionsGrouped
+            .filter { $0.totalCount > 50 }
+            .map { (processName: $0.processName, connectionCount: $0.totalCount) }
+    }
+
+    /// Alert state for UI display
+    var alertState: AlertState {
+        if blocklistedCount > 0 { return .critical }
+        if suspiciousConnectionCount > 0 { return .warning }
+        return .normal
     }
 }

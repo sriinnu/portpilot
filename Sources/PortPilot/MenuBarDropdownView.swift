@@ -9,6 +9,17 @@ enum MenuBarProtocolFilter: String, CaseIterable {
     case udp = "UDP"
 }
 
+// MARK: - Alert State
+enum AlertState {
+    case normal
+    case warning
+    case critical
+
+    var isAlert: Bool {
+        self != .normal
+    }
+}
+
 // MARK: - Menu Bar Dropdown View
 struct MenuBarDropdownView: View {
     @ObservedObject var viewModel: PortViewModel
@@ -99,15 +110,49 @@ struct MenuBarDropdownView: View {
         ]
     }
 
+    // MARK: - Alert State
+
+    private var alertState: AlertState {
+        let blocklistedCount = viewModel.allConnections.filter { $0.isBlocklisted }.count
+        let suspiciousCount = viewModel.connectionsGrouped.filter { $0.totalCount > 50 }.count
+        if blocklistedCount > 0 || suspiciousCount > 0 {
+            return .critical
+        }
+        return .normal
+    }
+
+    private var alertCount: Int {
+        let blocklistedCount = viewModel.allConnections.filter { $0.isBlocklisted }.count
+        let suspiciousCount = viewModel.connectionsGrouped.filter { $0.totalCount > 50 }.count
+        return blocklistedCount + suspiciousCount
+    }
+
+    private var statusDotColor: Color {
+        switch alertState {
+        case .normal: return Theme.Alert.dotActive
+        case .warning: return Theme.Alert.dotWarning
+        case .critical: return Theme.Alert.dotCritical
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            // Status bar (Dynamic Island style)
+            MenuBarStatusBar(
+                portCount: networkPorts.count,
+                socketCount: socketProcesses.count,
+                alertCount: alertCount,
+                alertState: alertState,
+                onSettingsTap: onOpenSettings
+            )
+
             // Search bar + count badge
             MenuBarSearchHeader(
                 searchText: $searchText
             )
 
             // Tab switcher: Ports | Sockets | Connections
-            HStack(spacing: 4) {
+            HStack(spacing: 12) {
                 MenuBarTabButton(
                     tab: .ports,
                     count: networkPorts.count,
@@ -441,6 +486,127 @@ struct MenuBarFilterBar: View {
         .padding(.horizontal, 12)
         .padding(.top, 4)
         .padding(.bottom, 6)
+    }
+}
+
+// MARK: - Status Bar (Dynamic Island Style)
+struct MenuBarStatusBar: View {
+    let portCount: Int
+    let socketCount: Int
+    let alertCount: Int
+    let alertState: AlertState
+    let onSettingsTap: () -> Void
+
+    @State private var isPulsing = false
+    @ObservedObject private var appSettings = AppSettings.shared
+
+    private var statusDotColor: Color {
+        switch alertState {
+        case .normal: return Theme.Alert.dotActive
+        case .warning: return Theme.Alert.dotWarning
+        case .critical: return Theme.Alert.dotCritical
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if alertState.isAlert {
+                // Alert state - prominent warning
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("⚠ ALERT")
+                        .font(appSettings.appFont(size: 11, weight: .bold))
+                    if alertCount > 0 {
+                        Text("(\(alertCount))")
+                            .font(appSettings.appFont(size: 11, weight: .medium))
+                    }
+                }
+                .foregroundColor(Theme.Alert.criticalText)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule()
+                        .fill(Theme.Alert.criticalBackground)
+                )
+                .scaleEffect(isPulsing ? 1.02 : 1.0)
+            } else {
+                // Normal state - live counts
+                HStack(spacing: 8) {
+                    // Pulsing status dot
+                    Circle()
+                        .fill(statusDotColor)
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(isPulsing ? 1.3 : 1.0)
+                        .animation(
+                            .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                            value: isPulsing
+                        )
+
+                    // Port count
+                    HStack(spacing: 3) {
+                        Text("\(portCount)")
+                            .font(appSettings.appFont(size: 12, weight: .semibold))
+                        Text("Active")
+                            .font(appSettings.appFont(size: 11))
+                    }
+                    .foregroundColor(.primary)
+
+                    Text("|")
+                        .foregroundColor(.secondary)
+
+                    // Socket count
+                    HStack(spacing: 3) {
+                        Text("\(socketCount)")
+                            .font(appSettings.appFont(size: 12, weight: .semibold))
+                        Text("Sockets")
+                            .font(appSettings.appFont(size: 11))
+                    }
+                    .foregroundColor(.secondary)
+
+                    if alertCount > 0 {
+                        Text("|")
+                            .foregroundColor(.secondary)
+
+                        HStack(spacing: 3) {
+                            Text("\(alertCount)")
+                                .font(appSettings.appFont(size: 12, weight: .bold))
+                                .foregroundColor(Theme.Alert.dotCritical)
+                            Text("Alert\(alertCount == 1 ? "" : "s")")
+                                .font(appSettings.appFont(size: 11))
+                                .foregroundColor(Theme.Alert.dotCritical)
+                        }
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Settings gear
+            Button(action: onSettingsTap) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .onTapGesture {
+                onSettingsTap()
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            Theme.Surface.headerTint
+                .opacity(0.95)
+        )
+        .onAppear {
+            if alertState.isAlert {
+                isPulsing = true
+            }
+        }
+        .onChange(of: alertState) { newValue in
+            isPulsing = newValue.isAlert
+        }
     }
 }
 
