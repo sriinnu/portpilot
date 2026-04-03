@@ -30,6 +30,8 @@ struct MenuBarDropdownView: View {
     enum MenuBarTab: String, CaseIterable {
         case ports = "Ports"
         case sockets = "Sockets"
+        case connections = "Connections"
+        case schedules = "Schedules"
     }
 
     private var searchablePorts: [PortProcess] {
@@ -104,44 +106,48 @@ struct MenuBarDropdownView: View {
                 searchText: $searchText
             )
 
-            // Tab switcher: Ports | Sockets
+            // Tab switcher: Ports | Sockets | Connections
             HStack(spacing: 4) {
-                ForEach(MenuBarTab.allCases, id: \.self) { tab in
-                    let count = tab == .ports ? networkPorts.count : socketProcesses.count
-                    Button(action: {
-                        withAnimation(menuBarSelectionSpring) {
-                            activeTab = tab
-                        }
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: tab == .ports ? Theme.Icon.portsTab : Theme.Icon.socketsTab)
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(tab.rawValue)
-                                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .semibold))
-                            Text("\(count)")
-                                .font(appSettings.appMonoFont(size: appSettings.fontSize - 1, weight: .bold))
-                                .foregroundColor(activeTab == tab ? .white.opacity(0.7) : .secondary.opacity(0.6))
-                        }
-                        .foregroundColor(activeTab == tab ? .white : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(
-                            activeTab == tab
-                                ? Theme.Badge.accentBackground
-                                : Color.clear
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(
-                                    activeTab == tab ? Color.white.opacity(0.14) : Color.clear,
-                                    lineWidth: 1
-                                )
-                        )
-                        .cornerRadius(12)
-                        .animation(menuBarSelectionSpring, value: activeTab)
+                MenuBarTabButton(
+                    tab: .ports,
+                    count: networkPorts.count,
+                    isActive: activeTab == .ports,
+                    icon: Theme.Icon.portsTab,
+                    onTap: {
+                        withAnimation(menuBarSelectionSpring) { activeTab = .ports }
                     }
-                    .buttonStyle(.plain)
-                }
+                )
+                MenuBarTabButton(
+                    tab: .sockets,
+                    count: socketProcesses.count,
+                    isActive: activeTab == .sockets,
+                    icon: Theme.Icon.socketsTab,
+                    onTap: {
+                        withAnimation(menuBarSelectionSpring) { activeTab = .sockets }
+                    }
+                )
+                MenuBarTabButton(
+                    tab: .connections,
+                    count: viewModel.allConnections.count,
+                    isActive: activeTab == .connections,
+                    icon: "network",
+                    onTap: {
+                        withAnimation(menuBarSelectionSpring) { activeTab = .connections }
+                        // Always refresh when switching to Connections tab to ensure fresh data
+                        viewModel.refreshAllConnections()
+                    }
+                )
+                MenuBarTabButton(
+                    tab: .schedules,
+                    count: viewModel.cronjobs.count,
+                    isActive: activeTab == .schedules,
+                    icon: "clock",
+                    onTap: {
+                        withAnimation(menuBarSelectionSpring) { activeTab = .schedules }
+                        // Refresh cronjobs when switching to Schedules tab
+                        viewModel.refreshCronjobs()
+                    }
+                )
             }
             .padding(5)
             .background(
@@ -216,6 +222,97 @@ struct MenuBarDropdownView: View {
                                             statusColor: type.color
                                         )
                                     }
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+                } else if activeTab == .connections {
+                    // Connections tab - show established connections grouped by process
+                    if viewModel.isLoadingAllConnections {
+                        VStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Scanning connections...")
+                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if viewModel.allConnections.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "network")
+                                .font(.system(size: 24))
+                                .foregroundColor(.secondary)
+                            Text("No Active Connections")
+                                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
+                            Text("Active outbound connections appear here")
+                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        // Blocklist warning banner
+                        let blocklistedCount = viewModel.allConnections.filter { $0.isBlocklisted }.count
+                        if blocklistedCount > 0 {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 12))
+                                Text("🚨 \(blocklistedCount) connection(s) to blocklisted host(s)")
+                                    .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
+                                Spacer()
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Theme.Action.kill.opacity(0.9))
+                            )
+                            .padding(.horizontal, 12)
+                            .padding(.top, 4)
+                        }
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(viewModel.connectionsGrouped, id: \.processName) { group in
+                                    MenuBarConnectionSection(
+                                        processName: group.processName,
+                                        connections: group.connections,
+                                        totalCount: group.totalCount,
+                                        onKill: { pid in viewModel.killProcess(pid: pid) }
+                                    )
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+                } else if activeTab == .schedules {
+                    // Schedules tab - show cronjobs
+                    if viewModel.isLoadingCronjobs {
+                        VStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Scanning cronjobs...")
+                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if viewModel.cronjobs.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 24))
+                                .foregroundColor(.secondary)
+                            Text("No Cronjobs Found")
+                                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
+                            Text("User and system cronjobs appear here")
+                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(viewModel.cronjobs) { job in
+                                    MenuBarCronjobRow(cronjob: job)
                                 }
                             }
                             .padding(.vertical, 6)
@@ -758,6 +855,8 @@ struct MenuBarQuickActions: View {
     let onKillAll: () -> Void
     let hasActivePorts: Bool
 
+    @State private var confirmingKillAll = false
+
     var body: some View {
         MenuBarActionSection {
             MenuBarActionButton(
@@ -784,12 +883,23 @@ struct MenuBarQuickActions: View {
                 MenuBarActionDivider()
 
                 MenuBarActionButton(
-                    label: "Kill All",
-                    shortcut: "K",
-                    icon: Theme.Icon.killAll,
-                    iconColor: Theme.Action.kill,
-                    labelColor: Theme.Action.kill,
-                    action: onKillAll
+                    label: confirmingKillAll ? "Confirm Kill All?" : "Kill All",
+                    shortcut: confirmingKillAll ? "Y" : "K",
+                    icon: confirmingKillAll ? "exclamationmark.triangle.fill" : Theme.Icon.killAll,
+                    iconColor: confirmingKillAll ? .orange : Theme.Action.kill,
+                    labelColor: confirmingKillAll ? .orange : Theme.Action.kill,
+                    action: {
+                        if confirmingKillAll {
+                            confirmingKillAll = false
+                            onKillAll()
+                        } else {
+                            confirmingKillAll = true
+                            // Auto-cancel after 3 seconds
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                                confirmingKillAll = false
+                            }
+                        }
+                    }
                 )
             }
         }
@@ -1172,5 +1282,266 @@ struct MenuBarSocketRow: View {
             r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
         }
         return Color(red: r, green: g, blue: b)
+    }
+}
+
+// MARK: - Cronjob Row (for Schedules tab)
+struct MenuBarCronjobRow: View {
+    let cronjob: CronjobEntry
+
+    @ObservedObject private var appSettings = AppSettings.shared
+    @State private var isHovered = false
+
+    private var sourceColor: Color {
+        cronjob.source == "user" ? Theme.Classification.userApp : Theme.Classification.system
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm"
+        return f
+    }()
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Schedule info
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Text(cronjob.scheduleHuman ?? cronjob.schedule)
+                        .font(appSettings.appFont(size: appSettings.fontSize, weight: .medium))
+                        .foregroundColor(.yellow)
+                        .lineLimit(1)
+
+                    if let user = cronjob.user {
+                        Text(user)
+                            .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.blue.opacity(0.2))
+                            .cornerRadius(3)
+                    }
+                }
+
+                Text(cronjob.command)
+                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer()
+
+            // Next run time
+            if let nextRun = cronjob.nextRun {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("Next")
+                        .font(appSettings.appFont(size: max(appSettings.fontSize - 4, 7)))
+                        .foregroundColor(.secondary)
+                    Text(Self.dateFormatter.string(from: nextRun))
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 1, weight: .medium))
+                        .foregroundColor(.cyan)
+                }
+            }
+
+            // Source badge
+            Text(cronjob.source == "user" ? "user" : "sys")
+                .font(appSettings.appFont(size: max(appSettings.fontSize - 4, 7), weight: .bold))
+                .foregroundColor(sourceColor)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(sourceColor.opacity(0.2))
+                .cornerRadius(3)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(isHovered ? Theme.Surface.hover : .clear)
+        .cornerRadius(Theme.Size.cornerRadiusSmall)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+        }
+    }
+}
+
+// MARK: - Tab Button
+struct MenuBarTabButton: View {
+    let tab: MenuBarDropdownView.MenuBarTab
+    let count: Int
+    let isActive: Bool
+    let icon: String
+    let onTap: () -> Void
+
+    @ObservedObject private var appSettings = AppSettings.shared
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(tab.rawValue)
+                    .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .semibold))
+                Text("\(count)")
+                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 1, weight: .bold))
+                    .foregroundColor(isActive ? .white.opacity(0.7) : .secondary.opacity(0.6))
+            }
+            .foregroundColor(isActive ? .white : .secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                isActive
+                    ? Theme.Badge.accentBackground
+                    : Color.clear
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        isActive ? Color.white.opacity(0.14) : Color.clear,
+                        lineWidth: 1
+                    )
+            )
+            .cornerRadius(12)
+            .animation(menuBarSelectionSpring, value: isActive)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Connection Section (grouped by process)
+struct MenuBarConnectionSection: View {
+    let processName: String
+    let connections: [EstablishedConnection]
+    let totalCount: Int
+    let onKill: (Int) -> Void
+
+    @ObservedObject private var appSettings = AppSettings.shared
+    @State private var isExpanded = true
+
+    private var isSuspicious: Bool { totalCount > 50 }
+    private var hasBlocklisted: Bool { connections.contains { $0.isBlocklisted } }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "network")
+                        .font(.system(size: 11))
+                        .foregroundColor(hasBlocklisted || isSuspicious ? Theme.Action.kill : Theme.Action.treeView)
+                    Text(processName)
+                        .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
+                        .foregroundColor(hasBlocklisted || isSuspicious ? Theme.Action.kill : .primary)
+                    if hasBlocklisted {
+                        Text("🚨 \(totalCount)")
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Theme.Action.kill)
+                            .cornerRadius(8)
+                    } else if isSuspicious {
+                        Text("⚠️ \(totalCount)")
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Theme.Action.kill)
+                            .cornerRadius(8)
+                    } else {
+                        Text("\(totalCount)")
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.6))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ForEach(connections, id: \.id) { conn in
+                    MenuBarConnectionRow(
+                        connection: conn,
+                        onKill: { onKill(conn.pid) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Connection Row
+struct MenuBarConnectionRow: View {
+    let connection: EstablishedConnection
+    let onKill: () -> Void
+
+    @ObservedObject private var appSettings = AppSettings.shared
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(connection.isBlocklisted ? Theme.Action.kill : Theme.Status.connected)
+                .frame(width: Theme.Size.statusDotLarge, height: Theme.Size.statusDotLarge)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(connection.remoteAddress)
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize, weight: connection.isBlocklisted ? .bold : .medium))
+                        .foregroundColor(connection.isBlocklisted ? Theme.Action.kill : .primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    if connection.isBlocklisted {
+                        Text("🚨")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+
+                    Text(connection.state)
+                        .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Theme.Surface.headerTint)
+                        .cornerRadius(3)
+                }
+
+                HStack(spacing: 4) {
+                    Text("PID \(connection.pid)")
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Text(connection.user)
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+            }
+
+            Spacer()
+
+            if isHovered {
+                Button(action: onKill) {
+                    Text("Kill")
+                        .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Theme.Action.kill)
+                        .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(isHovered ? Theme.Surface.hover : .clear)
+        .cornerRadius(Theme.Size.cornerRadiusSmall)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.18)) { isHovered = hovering }
+        }
     }
 }

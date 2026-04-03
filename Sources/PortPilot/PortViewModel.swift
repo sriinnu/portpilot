@@ -138,6 +138,17 @@ class PortViewModel: ObservableObject {
     @Published var selectedPorts: Set<PortProcess> = []
     @Published var connections: [PortConnection] = []
     @Published var isLoadingConnections: Bool = false
+
+    // Established connections (for Connections tab)
+    @Published var allConnections: [EstablishedConnection] = []
+    @Published var isLoadingAllConnections: Bool = false
+    /// Cached grouped connections - updated whenever allConnections changes
+    @Published private var connectionsGroupedCache: [(processName: String, connections: [EstablishedConnection], totalCount: Int)] = []
+
+    // Cronjobs (for Schedules tab)
+    @Published var cronjobs: [CronjobEntry] = []
+    @Published var isLoadingCronjobs: Bool = false
+
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     @Published var successMessage: String?
@@ -178,6 +189,7 @@ class PortViewModel: ObservableObject {
     private var allPortsCache: [PortProcess] = []
     private var parentProcessNameCache: [Int: String] = [:]
     private var latestRefreshID = UUID()
+    private var latestAllConnectionsRefreshID = UUID()
 
     @Published private(set) var favorites: Set<Int> = []
     @Published private(set) var connectionNames: [String: String] = [:]
@@ -542,6 +554,24 @@ class PortViewModel: ObservableObject {
 
         let startPort = portRangeStart.isEmpty ? nil : Int(portRangeStart)
         let endPort = portRangeEnd.isEmpty ? nil : Int(portRangeEnd)
+
+        // Validate port range
+        if let start = startPort, start < 0 || start > 65535 {
+            errorMessage = "Start port must be between 0 and 65535"
+            isLoading = false
+            return
+        }
+        if let end = endPort, end < 0 || end > 65535 {
+            errorMessage = "End port must be between 0 and 65535"
+            isLoading = false
+            return
+        }
+        if let start = startPort, let end = endPort, start > end {
+            errorMessage = "Start port cannot be greater than end port"
+            isLoading = false
+            return
+        }
+
         let refreshID = UUID()
         latestRefreshID = refreshID
 
@@ -638,6 +668,81 @@ class PortViewModel: ObservableObject {
             } catch {
                 await MainActor.run {
                     self.isLoadingConnections = false
+                }
+            }
+        }
+    }
+
+    // MARK: - All Connections (for menu bar Connections tab)
+
+    /// Group all connections by process name for the Connections tab.
+    /// Returns cached value to avoid repeated computation on each access.
+    var connectionsGrouped: [(processName: String, connections: [EstablishedConnection], totalCount: Int)] {
+        return connectionsGroupedCache
+    }
+
+    /// Refresh all established connections.
+    func refreshAllConnections() {
+        isLoadingAllConnections = true
+        let refreshID = UUID()
+        latestAllConnectionsRefreshID = refreshID
+        Task {
+            do {
+                let conns = try portManager.getAllConnections()
+                await MainActor.run {
+                    guard self.latestAllConnectionsRefreshID == refreshID else { return }
+                    self.allConnections = conns
+                    self.updateConnectionsGroupedCache()
+                    self.isLoadingAllConnections = false
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.latestAllConnectionsRefreshID == refreshID else { return }
+                    self.allConnections = []
+                    self.updateConnectionsGroupedCache()
+                    self.isLoadingAllConnections = false
+                }
+            }
+        }
+    }
+
+    /// Update the cached grouped connections whenever allConnections changes.
+    private func updateConnectionsGroupedCache() {
+        let grouped = Dictionary(grouping: allConnections, by: { $0.processName })
+        connectionsGroupedCache = grouped.map { (processName: $0.key, connections: $0.value, totalCount: $0.value.count) }
+            .sorted { $0.totalCount > $1.totalCount }
+    }
+
+    private var latestCronjobsRefreshID = UUID()
+
+    /// Refresh all cronjobs (scheduled tasks).
+    func refreshCronjobs() {
+        isLoadingCronjobs = true
+        let refreshID = UUID()
+        latestCronjobsRefreshID = refreshID
+        Task { [weak self] in
+            guard let self else { return }
+            let jobs = self.portManager.getCronjobs()
+            await MainActor.run {
+                guard self.latestCronjobsRefreshID == refreshID else { return }
+                self.cronjobs = jobs
+                self.isLoadingCronjobs = false
+            }
+        }
+    }
+
+    /// Kill a process by PID (used from Connections tab).
+    func killProcess(pid: Int) {
+        Task {
+            do {
+                try portManager.killProcessByPID(pid)
+                await MainActor.run {
+                    self.refreshAllConnections()
+                    self.addLog(source: "system", message: "Killed process \(pid)", level: .info)
+                }
+            } catch {
+                await MainActor.run {
+                    self.addLog(source: "system", message: "Failed to kill process \(pid): \(error.localizedDescription)", level: .error)
                 }
             }
         }
@@ -898,6 +1003,7 @@ class PortViewModel: ObservableObject {
     ]
 
     // Docker info cache to avoid blocking calls during rendering
+    // Keyed by PID since a Docker container/process may expose multiple ports
     private var dockerInfoCache: [Int: DockerInfo?] = [:]
 
     /// Returns cached Docker container info. Never blocks - returns nil if not cached yet.
@@ -910,18 +1016,20 @@ class PortViewModel: ObservableObject {
 
         guard isDockerRelated else { return nil }
 
-        // Return cached value if available
-        if let cached = dockerInfoCache[port.port] {
+        // Return cached value if available (keyed by PID for correctness)
+        if let cached = dockerInfoCache[port.pid] {
             return cached
         }
 
         // Fetch asynchronously - don't block the main thread
         let portNum = port.port
+        let pid = port.pid
         Task.detached { [weak self] in
-            let containerInfo = await self?.getContainerForPortAsync(portNum)
+            guard let self = self else { return }
+            let containerInfo = await self.getContainerForPortAsync(portNum)
             await MainActor.run {
-                self?.dockerInfoCache[portNum] = containerInfo
-                self?.objectWillChange.send()
+                self.dockerInfoCache[pid] = containerInfo
+                self.objectWillChange.send()
             }
         }
         return nil

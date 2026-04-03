@@ -36,10 +36,13 @@ Unlike basic `lsof` wrappers, PortPilot:
 ### Menu Bar App
 - **Ports tab** — live port list grouped by connection type (Local, Database, SSH, K8s, Cloudflare)
 - **Sockets tab** — Unix socket processes with PID, classification badge, and socket path
+- **Connections tab** — all established outbound connections grouped by process, with blocklist detection
+- **Schedules tab** — cronjobs (user crontab + system cron) with next-run times
 - **CPU usage** — real-time per-process CPU % with color-coded badges (green/yellow/orange/red)
 - **Filter pills** — TCP / UDP / Unix protocol filters, connection type icons with counts, hide system toggle
 - **Process classification** — each process labeled as System, App, or Developer using `proc_pidpath`
 - **Tunnel detection** — SSH, Kubernetes, Cloudflare with smart name extraction
+- **Blocklist detection** — 🚨 markers for connections to blocklisted hosts (matches `~/.portpilot/blocklist.txt`)
 - **Inline actions** — kill, copy, stop tunnel — right from the dropdown
 - **No Dock icon** — pure menu bar accessory app
 
@@ -87,6 +90,24 @@ Uses `proc_pidpath` to resolve executable paths and classify by heuristic:
 | **App** | Electron apps, .app bundles | `/Applications/`, `.app/` in path |
 | **Other** | Unclassified | Fallback |
 
+### Blocklist Detection
+Suspicious connections are flagged by matching against `~/.portpilot/blocklist.txt`:
+
+```
+# ~/.portpilot/blocklist.txt — one domain, IP, or CIDR per line
+upload.dev
+52.45.119.88
+192.168.1.0/24
+2a06:98c1:310b
+```
+
+Supports:
+- Exact domain/IP matching
+- Domain suffix matching (`.evil.com` matches `cdn.evil.com`)
+- IPv6 prefix matching
+- CIDR ranges
+- Blocklisted connections show 🚨 in CLI, TUI, and menu bar
+
 ### Terminal UI (Cross-Platform)
 A full-featured terminal interface — works on macOS, Linux, and WSL. Zero dependencies.
 
@@ -97,7 +118,7 @@ portpilot-tui
 ```
 ╭─────────────────────────────────────────────────────────────────────────╮
 │                        PortPilot TUI                            Linux  │
-│  Ports   Sockets                                                       │
+│  Ports   Sockets   Connections   Schedules                             │
 │─────────────────────────────────────────────────────────────────────────│
 │  PORT    PROTO  PID      CPU%     MEM     USER         COMMAND    TYPE │
 │  ─────────────────────────────────────────────────────────────────────  │
@@ -121,10 +142,14 @@ portpilot-tui
 | `↑↓` / `j` `k` | Navigate |
 | `Enter` | Kill process (with confirmation) |
 | `/` | Search / clear filter |
-| `Tab` | Switch between Ports and Sockets tabs |
+| `Tab` | Switch between Ports, Sockets, Connections, Schedules tabs |
 | `i` | View detailed process info + connections |
 | `r` | Refresh |
 | `q` | Quit |
+
+**Connections tab** shows all established outbound connections grouped by process with blocklist 🚨 markers.
+
+**Schedules tab** shows cronjobs (user + system) with next-run calculation.
 
 **Detail View** — press `i` on any port:
 ```
@@ -157,6 +182,12 @@ portpilot kill 5173 --force             # Kill by port
 portpilot kill :8080                    # Colon prefix syntax
 portpilot pid 8080                      # Get PID for port
 portpilot pids 3000 3001 3002           # Multiple PIDs
+portpilot connections                   # All established connections (grouped by process)
+portpilot connections --suspect         # Only processes with >50 connections
+portpilot connections --kill 12345      # Kill process by PID
+portpilot connections --json            # JSON output
+portpilot schedules                     # User + system cronjobs
+portpilot schedules --json              # JSON output
 portpilot interactive                   # TUI mode
 portpilot proxy --port 1080 --host user@server  # SOCKS proxy
 ```
@@ -167,6 +198,21 @@ PORT     PROTO  PID      CPU%     MEM      USER         COMMAND            PATH/
 3000     TCP    21082    0.0      45M      user         node               wooosh/client
 5432     TCP    63341    9.4      120M     user         postgres           postgresql/15/main
 8080     TCP    4567     5.1      300M     user         java               my-api/server
+```
+
+**Connections output** with blocklist detection:
+```
+REMOTE              PROCESS      PID     USER     STATE         COUNT
+52.45.119.88:443    node         12345   user     ESTABLISHED   1847   🚨
+54.210.12.45:443    chrome       999     user     ESTABLISHED   23
+...
+```
+
+**Schedules output:**
+```
+SCHEDULE          NEXT RUN        USER     COMMAND                        SOURCE
+@hourly          04-03 14:00     user     /usr/bin/some-script.sh       user
+*/5 * * * *      04-03 13:35     root     /usr/bin/monitoring.sh        /etc/cron.d/sys
 ```
 
 ## Installation
@@ -299,7 +345,7 @@ Sources/
 │   ├── ContentView.swift             # Main window layout
 │   ├── PortViewModel.swift           # State, filtering, tunnel detection
 │   ├── MenuBarController.swift       # Status item + panel management
-│   ├── MenuBarDropdownView.swift     # Dropdown with Ports/Sockets tabs
+│   ├── MenuBarDropdownView.swift     # Dropdown with Ports/Sockets/Connections/Schedules tabs
 │   ├── MenuBarPanel.swift            # Floating NSPanel
 │   ├── PortListPanel.swift           # Port list with classification badges
 │   ├── ConfigurationPanel.swift      # Config + proxy controls
@@ -321,10 +367,12 @@ Sources/
 │   └── App.swift                     # TUIApp event loop + screen stack
 ├── PortPilotTUI/               # Terminal UI app (macOS + Linux + WSL)
 │   ├── main.swift                    # Entry point
-│   ├── PortListScreen.swift          # Port table, search, kill, tabs
-│   └── PortDetailScreen.swift        # Process info + connections
+│   ├── PortListScreen.swift          # Port/Socket/Connection/Schedule tables, search, kill
+│   ├── PortDetailScreen.swift        # Process info + connections
+│   ├── ConnectionDetailScreen.swift  # Connection remote details, kill option
+│   └── CronjobDetailScreen.swift    # Cronjob schedule info, next run
 ├── PortManagerLib/             # Shared library (all platforms)
-│   ├── PortManager.swift             # Port + socket + CPU discovery
+│   ├── PortManager.swift             # Port + socket + connection + cronjob discovery
 │   ├── ProcessClassifier.swift       # proc_pidpath classification
 │   ├── TCPProxyManager.swift         # Network.framework TCP proxy
 │   ├── PortWatcher.swift             # Port monitoring

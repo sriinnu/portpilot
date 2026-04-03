@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL_ENV_FILE="$ROOT_DIR/.port.local.env"
-BUILD_ROOT="$ROOT_DIR/.build/release-signed"
+BUILD_ROOT="$ROOT_DIR/build"
 DIST_DIR="$ROOT_DIR/dist/release"
 APP_PATH="$BUILD_ROOT/Release/PortPilot.app"
 ZIP_PATH="$DIST_DIR/PortPilot-macOS-app.zip"
@@ -31,14 +31,13 @@ require_env "APP_STORE_CONNECT_ISSUER_ID"
 require_env "APP_STORE_CONNECT_API_KEY_P8"
 
 mkdir -p "$DIST_DIR"
-rm -rf "$BUILD_ROOT" "$APP_PATH" "$ZIP_PATH"
+rm -rf "$APP_PATH" "$ZIP_PATH"
 
 echo "Building PortPilot.app in Release mode..."
 xcodebuild \
   -project "$ROOT_DIR/PortPilot.xcodeproj" \
   -target PortPilot \
   -configuration Release \
-  SYMROOT="$BUILD_ROOT" \
   build
 
 if [[ ! -d "$APP_PATH" ]]; then
@@ -90,3 +89,19 @@ ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 echo "Signed release ready:"
 echo "  $ZIP_PATH"
 echo "  $CHECKSUM_PATH"
+
+# Push to Applications (set SKIP_APPLICATIONS=y to skip)
+if [[ "${SKIP_APPLICATIONS:-n}" != "y" ]]; then
+  if [[ -d "/Applications/PortPilot.app" ]]; then
+    echo "Removing existing /Applications/PortPilot.app..."
+    rm -rf "/Applications/PortPilot.app"
+  fi
+  echo "Installing PortPilot.app to /Applications..."
+  cp -R "$APP_PATH" "/Applications/PortPilot.app"
+  # Clear quarantine attribute to avoid Gatekeeper issues with copied apps
+  xattr -cr "/Applications/PortPilot.app"
+  echo "Installed to /Applications/PortPilot.app"
+else
+  echo ""
+  echo "Skipped /Applications installation (SKIP_APPLICATIONS=y)"
+fi

@@ -634,12 +634,236 @@ extension PortKiller {
     }
 }
 
+// MARK: - Cronjobs Command
+extension PortKiller {
+    struct Cronjobs: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List scheduled cronjobs (user crontab and system cron)"
+        )
+
+        @Flag(name: .long, help: "Show only user crontab entries")
+        var userOnly: Bool = false
+
+        @Flag(name: .long, help: "Show only system cron entries")
+        var systemOnly: Bool = false
+
+        @Flag(name: .long, help: "Output in JSON format")
+        var json: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+            let cronjobs = portManager.getCronjobs(userOnly: userOnly, systemOnly: systemOnly)
+
+            if cronjobs.isEmpty {
+                print("No cronjobs found.")
+                return
+            }
+
+            if json {
+                try outputJSON(cronjobs)
+            } else {
+                outputTable(cronjobs)
+            }
+        }
+
+        private func outputTable(_ cronjobs: [CronjobEntry]) {
+            print("\nScheduled Cronjobs:")
+            print(String(repeating: "─", count: 100))
+            print(headerRow())
+            print(String(repeating: "─", count: 100))
+
+            for job in cronjobs {
+                print(row(job))
+            }
+            print(String(repeating: "─", count: 100))
+            print("\nFound \(cronjobs.count) cronjob(s)")
+        }
+
+        private func headerRow() -> String {
+            let schedule = "SCHEDULE".padRight(width: 18)
+            let nextRun = "NEXT RUN".padRight(width: 20)
+            let user = "USER".padRight(width: 12)
+            let command = "COMMAND".padRight(width: 25)
+            let source = "SOURCE"
+            return "\(schedule) \(nextRun) \(user) \(command) \(source)"
+        }
+
+        private func row(_ job: CronjobEntry) -> String {
+            let schedule = (job.scheduleHuman ?? job.schedule).truncated(to: 17).padRight(width: 18)
+            let nextRun = formatNextRun(job.nextRun).padRight(width: 20)
+            let user = (job.user ?? "-").padRight(width: 12)
+            let command = job.command.truncated(to: 24).padRight(width: 25)
+            let source = job.source == "user" ? "user" : shortSourcePath(job.source)
+            return "\(schedule) \(nextRun) \(user) \(command) \(source)"
+        }
+
+        private func formatNextRun(_ date: Date?) -> String {
+            guard let date = date else { return "-".padRight(width: 20) }
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            let relative = relativeTime(from: date)
+            return "\(formatter.string(from: date)) (\(relative))"
+        }
+
+        private func relativeTime(from date: Date) -> String {
+            let interval = date.timeIntervalSinceNow
+            if interval < 0 { return "past" }
+            if interval < 60 { return "in \(Int(interval))s" }
+            if interval < 3600 { return "in \(Int(interval / 60))m" }
+            if interval < 86400 { return "in \(Int(interval / 3600))h" }
+            return "in \(Int(interval / 86400))d"
+        }
+
+        private func shortSourcePath(_ path: String) -> String {
+            if path == "user" { return "user" }
+            let components = path.split(separator: "/").map(String.init)
+            if components.count <= 3 { return path }
+            return components.suffix(2).joined(separator: "/")
+        }
+
+        private func outputJSON(_ cronjobs: [CronjobEntry]) throws {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(cronjobs)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print(jsonString)
+            }
+        }
+    }
+}
+
+// MARK: - Connections Command
+extension PortKiller {
+    struct Connections: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List all established network connections"
+        )
+
+        @Flag(name: .long, help: "Show only processes with suspicious connection counts (>50)")
+        var suspect: Bool = false
+
+        @Flag(name: .long, help: "Show only connections to blocklisted hosts (~/.portpilot/blocklist.txt)")
+        var blocklist: Bool = false
+
+        @Option(name: .long, help: "Kill the process with the given PID")
+        var kill: Int?
+
+        @Flag(name: .long, help: "Output in JSON format")
+        var json: Bool = false
+
+        func run() throws {
+            let portManager = PortManager()
+
+            if let pid = kill {
+                try killProcess(pid)
+                return
+            }
+
+            let connections = try portManager.getAllConnections()
+
+            // Group by PID for display
+            var grouped: [Int: [EstablishedConnection]] = [:]
+            for conn in connections {
+                grouped[conn.pid, default: []].append(conn)
+            }
+
+            var displayItems: [(pid: Int, processName: String, user: String, count: Int, remoteSample: String, isBlocklisted: Bool)] = []
+            for (pid, conns) in grouped {
+                let sample = conns.first?.remoteAddress ?? "-"
+                let processName = conns.first?.processName ?? "unknown"
+                let user = conns.first?.user ?? "unknown"
+                let isBlocklisted = conns.contains { portManager.isBlocklisted(connection: $0) }
+                displayItems.append((pid: pid, processName: processName, user: user, count: conns.count, remoteSample: sample, isBlocklisted: isBlocklisted))
+            }
+
+            // Sort by connection count descending
+            displayItems.sort { $0.count > $1.count }
+
+            // Filter to suspect if requested
+            if suspect {
+                displayItems = displayItems.filter { $0.count > 50 }
+            }
+
+            // Filter to blocklist if requested
+            if blocklist {
+                displayItems = displayItems.filter { $0.isBlocklisted }
+            }
+
+            if displayItems.isEmpty {
+                if blocklist {
+                    print("No blocklisted connections found.")
+                } else {
+                    print("No established connections found.")
+                }
+                return
+            }
+
+            if json {
+                try outputJSON(connections)
+            } else {
+                outputTable(displayItems, portManager: portManager)
+            }
+        }
+
+        private func outputTable(_ items: [(pid: Int, processName: String, user: String, count: Int, remoteSample: String, isBlocklisted: Bool)], portManager: PortManager) {
+            let blocklistCount = items.filter { $0.isBlocklisted }.count
+            let suspectCount = items.filter { $0.count > 50 }.count
+
+            print("\nEstablished Connections:")
+            print(String(repeating: "─", count: 100))
+
+            if blocklistCount > 0 {
+                print("🚨 \(blocklistCount) connection(s) to blocklisted host(s)")
+                print(String(repeating: "─", count: 100))
+            } else if suspectCount > 0 {
+                print("⚠️  \(suspectCount) process(es) with suspicious connection counts (>50)")
+                print(String(repeating: "─", count: 100))
+            }
+
+            print("REMOTE".padRight(width: 30) + "PROCESS".padRight(width: 18) + "PID".padRight(width: 8) + "USER".padRight(width: 12) + "COUNT")
+            print(String(repeating: "─", count: 100))
+
+            for item in items {
+                let remote = item.remoteSample.padRight(width: 30)
+                let process = item.processName.truncated(to: 17).padRight(width: 18)
+                let pid = "\(item.pid)".padRight(width: 8)
+                let user = item.user.padRight(width: 12)
+                var countStr = "\(item.count)"
+                if item.isBlocklisted {
+                    countStr += " 🚨"
+                } else if item.count > 50 {
+                    countStr += " ⚠️"
+                }
+                print("\(remote) \(process) \(pid) \(user) \(countStr)")
+            }
+            print(String(repeating: "─", count: 100))
+            print("\n\(items.count) process(es) with \(items.reduce(0) { $0 + $1.count }) total connections")
+        }
+
+        private func outputJSON(_ connections: [EstablishedConnection]) throws {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            let data = try encoder.encode(connections)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print(jsonString)
+            }
+        }
+
+        private func killProcess(_ pid: Int) throws {
+            let portManager = PortManager()
+            try portManager.killProcessByPID(pid, force: true)
+            print("✅ Process \(pid) has been terminated.")
+        }
+    }
+}
+
 // MARK: - Main Command
 @main
 struct PortKiller: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "A tiny CLI for viewing and clearing ports in use by running processes.",
-        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self],
+        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self, Cronjobs.self, Connections.self],
         defaultSubcommand: List.self
     )
 }
