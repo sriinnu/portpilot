@@ -111,7 +111,9 @@ class MenuBarController: NSObject, ObservableObject {
 
         // Scope event monitor to when panel is open
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.dismissPanel()
+            Task { @MainActor [weak self] in
+                self?.dismissPanel()
+            }
         }
 
         Task { [weak self] in
