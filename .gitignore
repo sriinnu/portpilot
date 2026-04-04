@@ -32,3 +32,8 @@ RELEASE.local.md
 
 # Claude Code
 .secret-allowlist
+
+# Notarization scripts (contain team ID)
+build-and-notarize.sh
+notarize.sh
+setup-notarization.sh

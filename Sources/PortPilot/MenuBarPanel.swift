@@ -26,7 +26,7 @@ class MenuBarPanel: NSPanel {
         visualEffect.state = .active
         visualEffect.blendingMode = .behindWindow
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 16
+        visualEffect.layer?.cornerRadius = Theme.Liquid.panelCornerRadius
         visualEffect.layer?.cornerCurve = .continuous
         visualEffect.layer?.masksToBounds = true
 
@@ -49,7 +49,14 @@ class MenuBarPanel: NSPanel {
         let panelWidth = frame.width
         let panelHeight = frame.height
 
-        let x = screenFrame.maxX - panelWidth
+        // Center below the button, clamped to screen
+        let idealX = screenFrame.midX - panelWidth / 2
+        let x: CGFloat
+        if let screen = buttonWindow.screen ?? NSScreen.main {
+            x = max(screen.visibleFrame.minX + 8, min(idealX, screen.visibleFrame.maxX - panelWidth - 8))
+        } else {
+            x = idealX
+        }
         let y = screenFrame.minY - panelHeight - 4
 
         setFrameOrigin(NSPoint(x: x, y: y))
@@ -58,7 +65,7 @@ class MenuBarPanel: NSPanel {
         alphaValue = 0
         makeKeyAndOrderFront(nil)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
+            context.duration = 0.22
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
             self.animator().alphaValue = 1
         }
@@ -67,14 +74,15 @@ class MenuBarPanel: NSPanel {
     override func close() {
         guard !isClosing else { return }
         isClosing = true
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.1
+        NSAnimationContext.runAnimationGroup({ [weak self] context in
+            context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            self.animator().alphaValue = 0
-        }, completionHandler: {
-            super.close()
-            self.alphaValue = 1
-            self.isClosing = false
+            self?.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            // Use orderOut instead of super.close() to avoid weak-self limitation
+            self?.orderOut(nil)
+            self?.alphaValue = 1
+            self?.isClosing = false
         })
     }
 
@@ -105,9 +113,20 @@ class MenuBarPanel: NSPanel {
         guard let visualEffect = contentView as? NSVisualEffectView else { return }
         visualEffect.appearance = NSApp.appearance
         let effectiveAppearance = appearance ?? NSApp.effectiveAppearance
+        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+
+        // Use theme-aware panel fill for consistency with main window
         visualEffect.layer?.backgroundColor = Theme.Surface.panelFill(for: effectiveAppearance).cgColor
+
+        // Theme-aware border
         visualEffect.layer?.borderWidth = 0.5
         visualEffect.layer?.borderColor = Theme.Surface.panelBorder(for: effectiveAppearance)
-            .withAlphaComponent(0.3).cgColor
+            .withAlphaComponent(isDark ? 0.30 : 0.15).cgColor
+
+        // Shadow
+        visualEffect.layer?.shadowColor = NSColor.black.cgColor
+        visualEffect.layer?.shadowOpacity = isDark ? 0.5 : 0.2
+        visualEffect.layer?.shadowRadius = isDark ? 20 : 12
+        visualEffect.layer?.shadowOffset = CGSize(width: 0, height: -4)
     }
 }

@@ -42,6 +42,12 @@
 		F8B95C825566C7102D39B04B /* ProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */; };
 		FBCDFFA1C78CC98B520C00DB /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */; };
 		DDDD123456789ABCDEF00001 /* CronjobListPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCCC123456789ABCDEF00001 /* CronjobListPanel.swift */; };
+		AA01000000000000000001A1 /* PortManager+FrameworkDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000001F1 /* PortManager+FrameworkDetector.swift */; };
+		AA01000000000000000001A2 /* PortManager+CronDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000001F2 /* PortManager+CronDiscovery.swift */; };
+		AA01000000000000000001A3 /* PortManager+Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000001F3 /* PortManager+Connections.swift */; };
+		AA01000000000000000001B1 /* PortManager+FrameworkDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000001F1 /* PortManager+FrameworkDetector.swift */; };
+		AA01000000000000000001B2 /* PortManager+CronDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000001F2 /* PortManager+CronDiscovery.swift */; };
+		AA01000000000000000001B3 /* PortManager+Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000001F3 /* PortManager+Connections.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,6 +82,9 @@
 		E856A016D49BF0EA323BF579 /* PortWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortWatcher.swift; sourceTree = "<group>"; };
 		F425A17AF5886E28CEAECA52 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		CCCC123456789ABCDEF00001 /* CronjobListPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CronjobListPanel.swift; sourceTree = "<group>"; };
+		AA01000000000000000001F1 /* PortManager+FrameworkDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+FrameworkDetector.swift"; sourceTree = "<group>"; };
+		AA01000000000000000001F2 /* PortManager+CronDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+CronDiscovery.swift"; sourceTree = "<group>"; };
+		AA01000000000000000001F3 /* PortManager+Connections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+Connections.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,6 +151,9 @@
 				950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */,
 				30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */,
 				B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */,
+				AA01000000000000000001F1 /* PortManager+FrameworkDetector.swift */,
+				AA01000000000000000001F2 /* PortManager+CronDiscovery.swift */,
+				AA01000000000000000001F3 /* PortManager+Connections.swift */,
 				E856A016D49BF0EA323BF579 /* PortWatcher.swift */,
 				2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */,
 				27629EA5FE623F463B619EAB /* TCPProxyManager.swift */,
@@ -274,6 +286,9 @@
 				FBCDFFA1C78CC98B520C00DB /* HistoryManager.swift in Sources */,
 				3CC8F08BC715035E95B24F96 /* InteractiveMode.swift in Sources */,
 				A5C7B7031CBD15F652D56C54 /* PortManager.swift in Sources */,
+				AA01000000000000000001A1 /* PortManager+FrameworkDetector.swift in Sources */,
+				AA01000000000000000001A2 /* PortManager+CronDiscovery.swift in Sources */,
+				AA01000000000000000001A3 /* PortManager+Connections.swift in Sources */,
 				B323941FDAF42AF131E25F4C /* PortWatcher.swift in Sources */,
 				A8C2647D076157EE14C94959 /* ProcessClassifier.swift in Sources */,
 				36BBA1CD6F505249CD1D6184 /* TCPProxyManager.swift in Sources */,
@@ -300,6 +315,9 @@
 				64CD01E9489530F2554BF1EE /* PortListPanel.swift in Sources */,
 				DDDD123456789ABCDEF00001 /* CronjobListPanel.swift in Sources */,
 				090F6E3B429AC22F6E659A6A /* PortManager.swift in Sources */,
+				AA01000000000000000001B1 /* PortManager+FrameworkDetector.swift in Sources */,
+				AA01000000000000000001B2 /* PortManager+CronDiscovery.swift in Sources */,
+				AA01000000000000000001B3 /* PortManager+Connections.swift in Sources */,
 				10D96EE61150BDB66AE0029F /* PortPilotApp.swift in Sources */,
 				53FADF13C4BE66641E932DA1 /* PortViewModel.swift in Sources */,
 				680841545D8FF9CC9A107352 /* PortWatcher.swift in Sources */,

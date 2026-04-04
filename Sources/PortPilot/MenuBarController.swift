@@ -4,20 +4,24 @@ import UserNotifications
 import Combine
 
 // MARK: - Menu Bar Controller
+@MainActor
 class MenuBarController: NSObject, ObservableObject {
     private var statusItem: NSStatusItem?
     private var panel: MenuBarPanel?
-    private var eventMonitor: Any?
+    nonisolated(unsafe) private var eventMonitor: Any?
     private let portViewModel: PortViewModel
     private let notificationManager: NotificationManager
 
     @Published var isPanelShown = false
+
+    nonisolated(unsafe) private var metricsTimer: Timer?
 
     init(portViewModel: PortViewModel, notificationManager: NotificationManager) {
         self.portViewModel = portViewModel
         self.notificationManager = notificationManager
         super.init()
         setupMenuBar()
+        startMetricsUpdates()
     }
 
     private func setupMenuBar() {
@@ -28,73 +32,37 @@ class MenuBarController: NSObject, ObservableObject {
             return
         }
 
-        // Create a professional menu bar icon programmatically
-        let icon = createMenuBarIcon()
-        button.image = icon
-        button.image?.isTemplate = true // Ensures proper light/dark mode adaptation
+        // SF Symbol — configure BEFORE assigning to button
+        if let icon = NSImage(systemSymbolName: "network.badge.shield.half.filled",
+                              accessibilityDescription: "PortPilot") {
+            let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            let configured = icon.withSymbolConfiguration(config) ?? icon
+            configured.size = NSSize(width: 18, height: 18)
+            configured.isTemplate = true
+            button.image = configured
+        } else {
+            button.title = "PP"
+        }
 
         button.action = #selector(togglePanel)
         button.target = self
+    }
 
-        // Global event monitor for outside-click dismiss
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.dismissPanel()
+    private func startMetricsUpdates() {
+        metricsTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshCapsuleMetrics()
+            }
+        }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            self?.refreshCapsuleMetrics()
         }
     }
 
-    /// Create a crisp 18x18 menu bar icon showing a stylized port/network symbol
-    private func createMenuBarIcon() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            // Use SF Symbol for clean rendering
-            guard let symbolImage = NSImage(systemSymbolName: "network.badge.shield.half.filled", accessibilityDescription: "PortPilot") else {
-                // Fallback: draw a custom port icon
-                self.drawCustomPortIcon(in: rect)
-                return true
-            }
-
-            let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-            if let configured = symbolImage.withSymbolConfiguration(config) {
-                configured.draw(in: rect)
-            } else {
-                symbolImage.draw(in: rect)
-            }
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-
-    private func drawCustomPortIcon(in rect: NSRect) {
-        let color = NSColor.black // Will be tinted by template mode
-        color.setStroke()
-        color.setFill()
-
-        let lineWidth: CGFloat = 1.5
-
-        // Draw a circle (representing a port)
-        let circlePath = NSBezierPath(ovalIn: rect.insetBy(dx: 4, dy: 4))
-        circlePath.lineWidth = lineWidth
-        circlePath.stroke()
-
-        // Draw center dot
-        let centerDot = NSBezierPath(ovalIn: NSRect(
-            x: rect.midX - 2, y: rect.midY - 2, width: 4, height: 4
-        ))
-        centerDot.fill()
-
-        // Draw small lines radiating out (like a port symbol)
-        let positions: [(CGFloat, CGFloat)] = [
-            (rect.midX, rect.maxY - 2),  // top
-            (rect.midX, rect.minY + 2),  // bottom
-            (rect.minX + 2, rect.midY),  // left
-            (rect.maxX - 2, rect.midY),  // right
-        ]
-
-        for (x, y) in positions {
-            let dot = NSBezierPath(ovalIn: NSRect(x: x - 1.5, y: y - 1.5, width: 3, height: 3))
-            dot.fill()
-        }
+    private func refreshCapsuleMetrics() {
+        let alertState: AlertState = portViewModel.alertState
+        updateMenuBarIcon(alertState: alertState)
     }
 
     @objc private func togglePanel() {
@@ -108,8 +76,8 @@ class MenuBarController: NSObject, ObservableObject {
     private func showPanel() {
         guard let button = statusItem?.button else { return }
 
-        let panelWidth: CGFloat = 320
-        let panelHeight: CGFloat = 580
+        let panelWidth = Theme.Liquid.panelWidth
+        let panelHeight = Theme.Liquid.panelHeight
 
         if panel == nil {
             panel = MenuBarPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
@@ -141,35 +109,35 @@ class MenuBarController: NSObject, ObservableObject {
         panel?.showBelow(button: button)
         isPanelShown = true
 
-        Task { @MainActor in
-            portViewModel.refreshPorts()
-            portViewModel.refreshAllConnections()
-            self.updateMenuBarIconWithCurrentState()
+        // Scope event monitor to when panel is open
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.dismissPanel()
         }
-    }
 
-    @MainActor private func updateMenuBarIconWithCurrentState() {
-        let portCount = portViewModel.ports.count
-        let alertCount = portViewModel.allConnections.filter { $0.isBlocklisted }.count +
-                         portViewModel.connectionsGrouped.filter { $0.totalCount > 50 }.count
-
-        // Use portViewModel's alertState for proper warning/critical distinction
-        let alertState: AlertState = portViewModel.alertState
-        updateMenuBarIcon(activePorts: portCount, alertState: alertState)
+        Task { [weak self] in
+            self?.portViewModel.refreshPorts()
+            self?.portViewModel.refreshAllConnections()
+            self?.refreshCapsuleMetrics()
+        }
     }
 
     private func dismissPanel() {
         guard isPanelShown else { return }
         panel?.close()
+        panel = nil
         isPanelShown = false
+
+        // Remove event monitor when panel closes
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
     }
 
     private func openSettings() {
         dismissPanel()
-        Task { @MainActor in
-            if let delegate = NSApp.delegate as? AppDelegate {
-                delegate.openSettingsWindow()
-            }
+        if let delegate = NSApp.delegate as? AppDelegate {
+            delegate.openSettingsWindow()
         }
     }
 
@@ -180,152 +148,39 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
 
-    @MainActor func openMainWindow() {
+    func openMainWindow() {
         dismissPanel()
         NotificationCenter.default.post(name: .openMainWindow, object: nil)
     }
 
-    @MainActor func showPopover() {
+    func showPopover() {
         if !isPanelShown {
             showPanel()
         }
     }
 
-    @MainActor func updateMenuBarIcon(activePorts: Int, alertState: AlertState = .normal) {
+    func updateMenuBarIcon(alertState: AlertState = .normal) {
         guard let button = statusItem?.button else { return }
 
-        // If critical alert, show red icon without template mode
-        if alertState == .critical {
-            let icon = createAlertMenuBarIcon()
-            button.image = icon
-            button.image?.isTemplate = false
-            // Start pulsing animation
-            startAlertPulse()
-            return
-        }
+        let symbolName = alertState == .critical
+            ? "exclamationmark.triangle.fill"
+            : "network.badge.shield.half.filled"
 
-        // Stop any existing pulse animation
-        stopAlertPulse()
-
-        if activePorts > 0 {
-            // Show port count as badge
-            let icon = createMenuBarIconWithBadge(count: activePorts)
+        if let icon = NSImage(systemSymbolName: symbolName, accessibilityDescription: "PortPilot") {
+            icon.size = NSSize(width: 18, height: 18)
+            icon.isTemplate = alertState != .critical
             button.image = icon
-            button.image?.isTemplate = true
         } else {
-            let icon = createMenuBarIcon()
-            button.image = icon
-            button.image?.isTemplate = true
+            button.title = "PP"
         }
     }
 
-    private var pulseTimer: Timer?
-
-    private func startAlertPulse() {
-        stopAlertPulse()
-        var isOn = false
-        pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            guard let button = self?.statusItem?.button else { return }
-            isOn.toggle()
-            if let icon = self?.createAlertMenuBarIcon(highlighted: isOn) {
-                button.image = icon
-            }
-        }
-    }
-
-    private func stopAlertPulse() {
-        pulseTimer?.invalidate()
-        pulseTimer = nil
-    }
-
-    private func createAlertMenuBarIcon(highlighted: Bool = false) -> NSImage {
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            let symbolName = "network.badge.shield.half.filled"
-            guard let symbolImage = NSImage(systemSymbolName: symbolName, accessibilityDescription: "PortPilot Alert") else {
-                self.drawCustomPortIcon(in: rect)
-                return true
-            }
-
-            let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-            if let configured = symbolImage.withSymbolConfiguration(config) {
-                // Tint red for alert
-                if highlighted {
-                    NSColor.systemRed.set()
-                } else {
-                    NSColor.systemOrange.set()
-                }
-                configured.draw(in: rect, from: .zero, operation: .sourceOver, fraction: highlighted ? 1.0 : 0.7)
-            }
-            return true
-        }
-        image.isTemplate = false
-        return image
-    }
-
-    private func createMenuBarIconWithBadge(count: Int) -> NSImage {
-        // Wider icon: icon + pill badge
-        let size = NSSize(width: 36, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            // Draw the base icon on the left (14px wide area)
-            let iconArea = NSRect(x: 0, y: 0, width: 18, height: 18)
-            if let symbolImage = NSImage(systemSymbolName: "network.badge.shield.half.filled", accessibilityDescription: "PortPilot") {
-                let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-                if let configured = symbolImage.withSymbolConfiguration(config) {
-                    configured.draw(in: iconArea)
-                }
-            } else {
-                self.drawCustomPortIcon(in: iconArea)
-            }
-
-            // Draw elegant pill badge on the right
-            let badgeStr = count > 99 ? "99+" : "\(count)"
-            let badgeAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-                .foregroundColor: NSColor.white
-            ]
-            let textSize = badgeStr.size(withAttributes: badgeAttrs)
-            let padding: CGFloat = 4
-            let badgeHeight: CGFloat = 14
-            let badgeWidth = textSize.width + padding * 2
-
-            let badgeRect = NSRect(
-                x: 20,
-                y: (18 - badgeHeight) / 2,
-                width: badgeWidth,
-                height: badgeHeight
-            )
-
-            // Draw pill shape with subtle gradient
-            let pillPath = NSBezierPath(roundedRect: badgeRect, xRadius: badgeHeight / 2, yRadius: badgeHeight / 2)
-
-            // Gradient fill
-            let gradient = NSGradient(colors: [
-                NSColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1.0), // #FF3B30
-                NSColor(red: 0.9, green: 0.17, blue: 0.14, alpha: 1.0)  // slightly darker
-            ])
-            gradient?.draw(in: pillPath, angle: -90)
-
-            // Draw text centered in pill
-            let textRect = NSRect(
-                x: badgeRect.midX - textSize.width / 2,
-                y: badgeRect.midY - textSize.height / 2,
-                width: textSize.width,
-                height: textSize.height
-            )
-            badgeStr.draw(in: textRect, withAttributes: badgeAttrs)
-
-            return true
-        }
-        image.isTemplate = false
-        image.setName("PortPilotBadgeIcon")
-        return image
-    }
 
     deinit {
         if let eventMonitor = eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
+        metricsTimer?.invalidate()
     }
 }
 
@@ -370,28 +225,24 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     private func registerNotificationCategories() {
         let center = UNUserNotificationCenter.current()
 
-        // Kill action
         let killAction = UNNotificationAction(
             identifier: Self.killActionIdentifier,
             title: "Kill",
             options: [.destructive, .authenticationRequired]
         )
 
-        // Copy port action
         let copyPortAction = UNNotificationAction(
             identifier: Self.copyPortActionIdentifier,
             title: "Copy Port",
             options: [.foreground]
         )
 
-        // Dismiss action
         let dismissAction = UNNotificationAction(
             identifier: Self.dismissActionIdentifier,
             title: "Dismiss",
             options: [.destructive]
         )
 
-        // Port occupied category
         let portOccupiedCategory = UNNotificationCategory(
             identifier: Self.portOccupiedCategoryIdentifier,
             actions: [killAction, copyPortAction, dismissAction],
@@ -399,7 +250,6 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
             options: [.customDismissAction]
         )
 
-        // Port available category
         let portAvailableCategory = UNNotificationCategory(
             identifier: Self.portAvailableCategoryIdentifier,
             actions: [copyPortAction, dismissAction],
@@ -407,7 +257,6 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
             options: [.customDismissAction]
         )
 
-        // Reserved port category
         let reservedPortCategory = UNNotificationCategory(
             identifier: Self.reservedPortCategoryIdentifier,
             actions: [killAction, dismissAction],
@@ -415,7 +264,6 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
             options: [.customDismissAction]
         )
 
-        // Connection alert category
         let viewConnectionsAction = UNNotificationAction(
             identifier: Self.viewConnectionsActionIdentifier,
             title: "View Connections",
@@ -444,17 +292,14 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
 
         switch identifier {
         case Self.killActionIdentifier:
-            // Kill the process on the port
             Task {
                 try? portManager.killProcessOnPort(port, force: true)
             }
         case Self.copyPortActionIdentifier:
-            // Copy port to clipboard
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(String(port), forType: .string)
         case Self.dismissActionIdentifier:
-            // Just dismiss
             break
         default:
             break
@@ -464,7 +309,6 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        // Show notification even when app is in foreground
         completionHandler([.banner, .sound])
     }
 
@@ -521,7 +365,6 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
         do {
             let processes = try portManager.getListeningProcesses(startPort: port, endPort: port)
             if let process = processes.first {
-                // Check if this is a reserved port
                 if AppSettings.shared.reservedPorts.contains(port) {
                     sendNotification(
                         title: "Reserved Port Threatened",
@@ -552,7 +395,10 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     }
 
     func portWatcher(_ watcher: PortWatcher, didUpdateState state: PortState, forPort port: Int) {
-        watchedPorts = portWatcher.getWatchedPorts()
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.watchedPorts = self.portWatcher.getWatchedPorts()
+        }
     }
 
     private func sendNotification(title: String, body: String, identifier: String, categoryIdentifier: String, userInfo: [String: Any] = [:]) {
@@ -573,7 +419,6 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
 
     // MARK: - Connection Alert Notifications
 
-    /// Send a notification for suspicious connections (blocklisted hosts or bot activity)
     func sendConnectionAlertNotification(
         blocklistedCount: Int,
         suspiciousProcesses: [(processName: String, connectionCount: Int)]

@@ -50,7 +50,7 @@ struct ContentView: View {
                         viewModel: viewModel,
                         selectedCronjob: $selectedCronjob
                     )
-                    .frame(minWidth: 220, maxWidth: 350)
+                    .frame(minWidth: 300, maxWidth: 400)
                 } else {
                     PortListPanel(
                         viewModel: viewModel,
@@ -65,7 +65,7 @@ struct ContentView: View {
                         },
                         onAdd: {}
                     )
-                    .frame(minWidth: 220, maxWidth: 350)
+                    .frame(minWidth: 300, maxWidth: 400)
                 }
 
                 // Right: Config + Logs
@@ -87,7 +87,7 @@ struct ContentView: View {
                         CronjobLogsPanel(viewModel: viewModel)
                     }
                 }
-                .frame(minWidth: 400)
+                .frame(minWidth: 400, idealWidth: 500)
             }
         }
         .alert("Kill Process", isPresented: $showConfirmation) {
@@ -178,5 +178,5 @@ struct SuccessToast: View {
 #Preview {
     ContentView()
         .environmentObject(PortViewModel())
-        .frame(width: 900, height: 600)
+        .frame(width: 1000, height: 650)
 }

@@ -19,6 +19,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
     case sunset = "Sunset"
     case oceanic = "Oceanic"
     case noir = "Noir"
+    case retro = "Retro"
 
     var id: String { rawValue }
 
@@ -30,6 +31,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .sunset: return "Avenir Next"
         case .oceanic: return "SF Pro Rounded"
         case .noir: return "Helvetica Neue"
+        case .retro: return "American Typewriter"
         }
     }
 
@@ -41,6 +43,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .sunset: return "Menlo"
         case .oceanic: return "SF Mono"
         case .noir: return "Fira Code"
+        case .retro: return "Courier New"
         }
     }
 
@@ -52,6 +55,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .sunset: return "Warm and expressive"
         case .oceanic: return "Deep and focused"
         case .noir: return "Sharp and minimal"
+        case .retro: return "Warm and nostalgic"
         }
     }
 }

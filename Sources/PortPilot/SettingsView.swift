@@ -39,12 +39,12 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             settingsSidebar
-            Divider()
+            Divider().opacity(0.3)
             settingsDetail(for: selection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 780, height: 560)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Theme.Surface.windowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
@@ -70,13 +70,21 @@ struct SettingsView: View {
 
     private var settingsSidebar: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Settings")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 16)
-                .padding(.top, 18)
+            // Branding header
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Theme.Liquid.headerIcon)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(Theme.Liquid.accentPurpleMuted))
+                Text("Settings")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
 
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 ForEach(SettingsPane.allCases) { pane in
                     Button {
                         selection = pane
@@ -92,6 +100,17 @@ struct SettingsView: View {
             .padding(.horizontal, 10)
 
             Spacer(minLength: 0)
+
+            // Version footer
+            HStack(spacing: 4) {
+                Text("PortPilot")
+                    .font(.system(size: 10, weight: .medium))
+                Text("by Sriinnu")
+                    .font(.system(size: 10))
+            }
+            .foregroundColor(.secondary.opacity(0.6))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
         }
         .frame(
             minWidth: 220,
@@ -102,7 +121,7 @@ struct SettingsView: View {
             maxHeight: .infinity,
             alignment: .topLeading
         )
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Theme.Surface.controlBackground)
     }
 }
 
@@ -113,26 +132,67 @@ private struct SettingsSidebarRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: pane.icon)
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 18)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(isSelected ? Theme.Liquid.accentPurple : .secondary)
+                .frame(width: 20)
 
             Text(pane.rawValue)
-                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
 
             Spacer(minLength: 0)
         }
-        .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.88))
+        .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.75))
         .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isSelected ? Theme.Surface.selected : Color.clear)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(isSelected ? Theme.Surface.groupedStroke : Color.clear, lineWidth: 0.5)
         )
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Liquid Card Components
+
+private struct LiquidCard<Content: View>: View {
+    let title: String
+    let icon: String
+    var footer: String? = nil
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.Liquid.accentPurple)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+
+            content
+
+            if let footer = footer {
+                Text(footer)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .lineSpacing(2)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Theme.Surface.groupedFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Theme.Surface.groupedStroke, lineWidth: 0.5)
+        )
     }
 }
 
@@ -141,332 +201,149 @@ struct GeneralSettingsView: View {
     @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Auto-refresh ports", isOn: $appSettings.autoRefresh)
+        ScrollView {
+            VStack(spacing: 14) {
+                LiquidCard(title: "Refresh", icon: "arrow.clockwise", footer: "Auto-refresh periodically scans for new ports and connections.") {
+                    Toggle("Auto-refresh ports", isOn: $appSettings.autoRefresh)
+                        .font(.system(size: 13))
 
-                if appSettings.autoRefresh {
-                    Picker("Refresh interval", selection: $appSettings.refreshInterval) {
-                        Text("15 seconds").tag(15)
-                        Text("30 seconds").tag(30)
-                        Text("1 minute").tag(60)
-                        Text("5 minutes").tag(300)
+                    if appSettings.autoRefresh {
+                        Picker("Refresh interval", selection: $appSettings.refreshInterval) {
+                            Text("15 seconds").tag(15)
+                            Text("30 seconds").tag(30)
+                            Text("1 minute").tag(60)
+                            Text("5 minutes").tag(300)
+                        }
+                        .font(.system(size: 13))
                     }
                 }
-            } header: {
-                Text("Refresh")
-            }
 
-            Section {
-                Toggle("Confirm before killing processes", isOn: $appSettings.confirmBeforeKill)
-                    .help("Show a confirmation dialog before killing a process")
-                Toggle("Default to force kill", isOn: $appSettings.defaultForceKill)
-                    .help("Use SIGKILL instead of SIGTERM when killing processes")
-            } header: {
-                Text("Behavior")
+                LiquidCard(title: "Behavior", icon: "hand.raised", footer: "Force kill sends SIGKILL instead of SIGTERM.") {
+                    Toggle("Confirm before killing processes", isOn: $appSettings.confirmBeforeKill)
+                        .font(.system(size: 13))
+                    Toggle("Default to force kill", isOn: $appSettings.defaultForceKill)
+                        .font(.system(size: 13))
+                }
             }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .padding()
     }
 }
 
 // MARK: - Appearance Settings
 struct AppearanceSettingsView: View {
     @ObservedObject private var appSettings = AppSettings.shared
-
-    var body: some View {
-        Form {
-            Section {
-                Picker("Appearance Mode", selection: $appSettings.appearanceMode) {
-                    ForEach(AppearanceMode.allCases) { mode in
-                        HStack(spacing: 8) {
-                            Image(systemName: iconForMode(mode))
-                                .foregroundColor(colorForMode(mode))
-                            Text(mode.rawValue)
-                        }
-                        .tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-            } header: {
-                Text("Appearance")
-            } footer: {
-                Text("Choose between Light, Dark, or follow the System appearance.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Section {
-                HStack(spacing: 16) {
-                    // System preview
-                    AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .system, label: "System")
-                    // Light preview
-                    AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .light, label: "Light")
-                    // Dark preview
-                    AppearancePreviewCard(isDark: true, isActive: appSettings.appearanceMode == .dark, label: "Dark")
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-            } header: {
-                Text("Preview")
-            }
-
-            Section {
-                Picker("Color Theme", selection: $appSettings.visualTheme) {
-                    ForEach(VisualTheme.allCases) { theme in
-                        Text(theme.rawValue).tag(theme)
-                    }
-                }
-
-                // Top row: 3 themes
-                HStack(spacing: 10) {
-                    ForEach(Array(VisualTheme.allCases.prefix(3)), id: \.self) { theme in
-                        ThemePreviewCard(
-                            theme: theme,
-                            isActive: appSettings.visualTheme == theme
-                        )
-                        .onTapGesture { appSettings.visualTheme = theme }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 2)
-
-                // Bottom row: 2 themes
-                HStack(spacing: 10) {
-                    ForEach(Array(VisualTheme.allCases.suffix(2)), id: \.self) { theme in
-                        ThemePreviewCard(
-                            theme: theme,
-                            isActive: appSettings.visualTheme == theme
-                        )
-                        .onTapGesture { appSettings.visualTheme = theme }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 2)
-
-                // Apply recommended fonts button
-                HStack {
-                    Button {
-                        let theme = appSettings.visualTheme
-                        var applied: [String] = []
-                        var missing: [String] = []
-
-                        if fontManager.isFamilyAvailable(theme.recommendedFont) {
-                            appSettings.selectedFont = theme.recommendedFont
-                            applied.append(theme.recommendedFont)
-                        } else {
-                            missing.append(theme.recommendedFont)
-                        }
-                        if fontManager.isFamilyAvailable(theme.recommendedMonoFont) {
-                            appSettings.selectedMonoFont = theme.recommendedMonoFont
-                            applied.append(theme.recommendedMonoFont)
-                        } else {
-                            missing.append(theme.recommendedMonoFont)
-                        }
-
-                        if !missing.isEmpty {
-                            fontApplyMessage = "Not installed: \(missing.joined(separator: ", "))"
-                        } else {
-                            fontApplyMessage = "Applied: \(applied.joined(separator: " + "))"
-                        }
-                        // Clear message after 3 seconds
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                            fontApplyMessage = nil
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "textformat")
-                            Text("Apply \(appSettings.visualTheme.rawValue) recommended fonts")
-                                .font(.system(size: 11))
-                        }
-                    }
-                    .help("Sets UI font to \(appSettings.visualTheme.recommendedFont) and mono font to \(appSettings.visualTheme.recommendedMonoFont)")
-
-                    if let message = fontApplyMessage {
-                        Text(message)
-                            .font(.system(size: 10))
-                            .foregroundColor(message.hasPrefix("Not") ? .orange : .green)
-                            .transition(.opacity)
-                    }
-                }
-            } header: {
-                Text("Color Theme")
-            } footer: {
-                Text("Each theme comes with a recommended font pairing. Click the button above to apply it.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Section {
-                Picker("Icon Pack", selection: $appSettings.iconPack) {
-                    ForEach(IconPack.allCases) { pack in
-                        Text(pack.rawValue).tag(pack)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                HStack(spacing: 14) {
-                    ForEach(IconPack.allCases) { pack in
-                        IconPackPreviewCard(
-                            iconPack: pack,
-                            isActive: appSettings.iconPack == pack
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-            } header: {
-                Text("Icon Pack")
-            } footer: {
-                Text("Filled gives the app more weight. Minimal keeps the iconography lighter and cleaner.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            // MARK: - Font Settings
-            Section {
-                Picker("UI Font", selection: $appSettings.selectedFont) {
-                    ForEach(fontManager.availableFamilies, id: \.self) { family in
-                        Text(family)
-                            .font(family == "System Default"
-                                  ? .system(size: 13)
-                                  : .custom(family, size: 13))
-                            .tag(family)
-                    }
-                }
-                .onAppear {
-                    if !fontManager.availableFamilies.contains(appSettings.selectedFont) {
-                        appSettings.selectedFont = "System Default"
-                    }
-                }
-
-                Picker("Monospaced Font", selection: $appSettings.selectedMonoFont) {
-                    ForEach(fontManager.monospacedFamilies, id: \.self) { family in
-                        Text(family)
-                            .font(family == "System Monospaced"
-                                  ? .system(size: 13, design: .monospaced)
-                                  : .custom(family, size: 13))
-                            .tag(family)
-                    }
-                }
-                .onAppear {
-                    if !fontManager.monospacedFamilies.contains(appSettings.selectedMonoFont) {
-                        appSettings.selectedMonoFont = "System Monospaced"
-                    }
-                }
-
-                HStack {
-                    Text("Font Size")
-                    Spacer()
-                    Slider(value: $appSettings.fontSize, in: 9...18, step: 1)
-                        .frame(width: 160)
-                    Text("\(Int(appSettings.fontSize))px")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .frame(width: 32, alignment: .trailing)
-                }
-            } header: {
-                Text("Fonts")
-            }
-
-            Section {
-                // Live font preview
-                FontPreviewCard(
-                    uiFont: appSettings.selectedFont,
-                    monoFont: appSettings.selectedMonoFont,
-                    size: CGFloat(appSettings.fontSize)
-                )
-                .padding(.vertical, 4)
-            } header: {
-                Text("Preview")
-            }
-
-            Section {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Project Fonts")
-                            .font(.system(size: 12, weight: .medium))
-                        Text(fontManager.projectFontsURL.path)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer()
-                    Button("Open") {
-                        fontManager.revealFontsFolder()
-                    }
-                }
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("User Fonts")
-                            .font(.system(size: 12, weight: .medium))
-                        Text(fontManager.appSupportFontsURL.path)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer()
-                    Button("Open") {
-                        fontManager.revealAppSupportFontsFolder()
-                    }
-                }
-
-                HStack {
-                    Spacer()
-                    Button {
-                        fontManager.reload()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.clockwise")
-                            Text("Reload Fonts")
-                        }
-                    }
-                }
-
-                if !fontManager.customFontFamilies.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Loaded custom fonts:")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
-                        ForEach(fontManager.customFontFamilies, id: \.self) { family in
-                            Text("• \(family)")
-                                .font(.custom(family, size: 12))
-                        }
-                    }
-                }
-            } header: {
-                Text("Custom Fonts")
-            } footer: {
-                Text("Drop .ttf or .otf files into either folder and click Reload. The project Fonts/ folder lives next to your Sources/ directory.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-
     @ObservedObject private var fontManager = FontManager.shared
     @State private var fontApplyMessage: String?
 
-    private func iconForMode(_ mode: AppearanceMode) -> String {
-        switch mode {
-        case .system: return "circle.lefthalf.filled"
-        case .light: return "sun.max.fill"
-        case .dark: return "moon.fill"
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                // Appearance mode
+                LiquidCard(title: "Appearance", icon: "circle.lefthalf.filled", footer: "Choose between Light, Dark, or follow the System appearance.") {
+                    HStack(spacing: 16) {
+                        AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .system, label: "System")
+                            .onTapGesture { appSettings.appearanceMode = .system }
+                        AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .light, label: "Light")
+                            .onTapGesture { appSettings.appearanceMode = .light }
+                        AppearancePreviewCard(isDark: true, isActive: appSettings.appearanceMode == .dark, label: "Dark")
+                            .onTapGesture { appSettings.appearanceMode = .dark }
+                    }
+                }
+
+                // Color Theme
+                LiquidCard(title: "Color Theme", icon: "paintpalette", footer: "Each theme comes with a recommended font pairing.") {
+                    // Top row: 3 themes
+                    HStack(spacing: 10) {
+                        ForEach(Array(VisualTheme.allCases.prefix(3)), id: \.self) { theme in
+                            ThemePreviewCard(theme: theme, isActive: appSettings.visualTheme == theme)
+                                .onTapGesture { appSettings.visualTheme = theme }
+                        }
+                    }
+                    // Bottom row: 3 themes
+                    HStack(spacing: 10) {
+                        ForEach(Array(VisualTheme.allCases.suffix(3)), id: \.self) { theme in
+                            ThemePreviewCard(theme: theme, isActive: appSettings.visualTheme == theme)
+                                .onTapGesture { appSettings.visualTheme = theme }
+                        }
+                    }
+
+                    HStack {
+                        Button {
+                            applyRecommendedFonts()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "textformat")
+                                Text("Apply \(appSettings.visualTheme.rawValue) fonts")
+                                    .font(.system(size: 11))
+                            }
+                        }
+                        if let message = fontApplyMessage {
+                            Text(message)
+                                .font(.system(size: 10))
+                                .foregroundColor(message.hasPrefix("Not") ? .orange : Theme.Status.connected)
+                        }
+                    }
+                }
+
+                // Icon Pack
+                LiquidCard(title: "Icon Pack", icon: "square.grid.2x2", footer: "Filled gives more weight. Minimal keeps it lighter.") {
+                    HStack(spacing: 14) {
+                        ForEach(IconPack.allCases) { pack in
+                            IconPackPreviewCard(iconPack: pack, isActive: appSettings.iconPack == pack)
+                                .onTapGesture { appSettings.iconPack = pack }
+                        }
+                    }
+                }
+
+                // Fonts
+                LiquidCard(title: "Fonts", icon: "textformat.size") {
+                    Picker("UI Font", selection: $appSettings.selectedFont) {
+                        ForEach(fontManager.availableFamilies, id: \.self) { family in
+                            Text(family)
+                                .font(family == "System Default" ? .system(size: 13) : .custom(family, size: 13))
+                                .tag(family)
+                        }
+                    }
+                    .font(.system(size: 13))
+
+                    Picker("Mono Font", selection: $appSettings.selectedMonoFont) {
+                        ForEach(fontManager.monospacedFamilies, id: \.self) { family in
+                            Text(family)
+                                .font(family == "System Monospaced" ? .system(size: 13, design: .monospaced) : .custom(family, size: 13))
+                                .tag(family)
+                        }
+                    }
+                    .font(.system(size: 13))
+
+                    HStack {
+                        Text("Size").font(.system(size: 13))
+                        Spacer()
+                        Slider(value: $appSettings.fontSize, in: 9...18, step: 1).frame(width: 140)
+                        Text(verbatim: "\(Int(appSettings.fontSize))px")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+
+                    FontPreviewCard(uiFont: appSettings.selectedFont, monoFont: appSettings.selectedMonoFont, size: CGFloat(appSettings.fontSize))
+                }
+            }
+            .padding(20)
         }
     }
 
-    private func colorForMode(_ mode: AppearanceMode) -> Color {
-        switch mode {
-        case .system: return .accentColor
-        case .light: return Theme.Status.warning
-        case .dark: return Theme.Section.ssh
-        }
+    private func applyRecommendedFonts() {
+        let theme = appSettings.visualTheme
+        var applied: [String] = []
+        var missing: [String] = []
+        if fontManager.isFamilyAvailable(theme.recommendedFont) {
+            appSettings.selectedFont = theme.recommendedFont; applied.append(theme.recommendedFont)
+        } else { missing.append(theme.recommendedFont) }
+        if fontManager.isFamilyAvailable(theme.recommendedMonoFont) {
+            appSettings.selectedMonoFont = theme.recommendedMonoFont; applied.append(theme.recommendedMonoFont)
+        } else { missing.append(theme.recommendedMonoFont) }
+        fontApplyMessage = missing.isEmpty ? "Applied: \(applied.joined(separator: " + "))" : "Not installed: \(missing.joined(separator: ", "))"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { fontApplyMessage = nil }
     }
 }
 
@@ -570,8 +447,9 @@ struct ThemePreviewCard: View {
         case .oceanic:
             return Color(red: 0.90, green: 0.95, blue: 0.98)
         case .noir:
-            // Slightly lighter in context so the card is visible against dark mode backgrounds
             return Color(white: 0.18)
+        case .retro:
+            return Color(red: 0.96, green: 0.93, blue: 0.88)
         }
     }
 
@@ -587,6 +465,8 @@ struct ThemePreviewCard: View {
             return Color(red: 0.12, green: 0.46, blue: 0.72)
         case .noir:
             return Color(white: 0.90)
+        case .retro:
+            return Color(red: 0.65, green: 0.42, blue: 0.18)
         }
     }
 
@@ -602,6 +482,8 @@ struct ThemePreviewCard: View {
             return Color(red: 0.12, green: 0.62, blue: 0.52)
         case .noir:
             return Color(white: 0.75)
+        case .retro:
+            return Color(red: 0.38, green: 0.55, blue: 0.28)
         }
     }
 
@@ -617,6 +499,8 @@ struct ThemePreviewCard: View {
             return Color(red: 0.36, green: 0.32, blue: 0.68)
         case .noir:
             return Color(white: 0.50)
+        case .retro:
+            return Color(red: 0.52, green: 0.35, blue: 0.55)
         }
     }
 }
@@ -629,7 +513,7 @@ struct IconPackPreviewCard: View {
     var body: some View {
         VStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(Theme.Surface.controlBackground)
                 .frame(width: 132, height: 76)
                 .overlay(
                     HStack(spacing: 12) {
@@ -673,7 +557,7 @@ struct FontPreviewCard: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 10)
-            .fill(Color(nsColor: .controlBackgroundColor))
+            .fill(Theme.Surface.controlBackground)
             .frame(maxWidth: .infinity)
             .frame(height: 90)
             .overlay(
@@ -736,60 +620,45 @@ struct MenuBarSettingsView: View {
     @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Show menu bar icon", isOn: $appSettings.showMenuBarIcon)
-                    .help("Show or hide the PortPilot icon in the menu bar")
+        ScrollView {
+            VStack(spacing: 14) {
+                LiquidCard(title: "Visibility", icon: "menubar.rectangle", footer: appSettings.showDockIcon || appSettings.showMenuBarIcon ? "The app stays running in the background when menu bar icon is shown." : nil) {
+                    Toggle("Show menu bar icon", isOn: $appSettings.showMenuBarIcon).font(.system(size: 13))
+                    Toggle("Show dock icon", isOn: $appSettings.showDockIcon).font(.system(size: 13))
 
-                Toggle("Show dock icon", isOn: $appSettings.showDockIcon)
-                    .help("Show or hide the PortPilot icon in the Dock")
+                    if appSettings.showMenuBarIcon {
+                        Toggle("Launch at login", isOn: $appSettings.launchAtLogin).font(.system(size: 13))
+                    }
 
-                if appSettings.showMenuBarIcon {
-                    Toggle("Launch at login", isOn: $appSettings.launchAtLogin)
-                        .help("Automatically start PortPilot when you log in")
+                    if !appSettings.showDockIcon && !appSettings.showMenuBarIcon {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(Theme.Status.warning)
+                            Text("Both icons hidden. You may not be able to access the app.")
+                                .font(.system(size: 11)).foregroundColor(Theme.Status.warning)
+                        }
+                    }
 
-                    Button {
-                        openTUI()
-                    } label: {
-                        HStack {
-                            Image(systemName: "terminal")
-                            Text("Open TUI")
+                    Button { openTUI() } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "terminal").font(.system(size: 12))
+                            Text("Open TUI").font(.system(size: 12))
                         }
                     }
                     .buttonStyle(.bordered)
-                    .help("Open the terminal-based user interface")
                 }
-            } header: {
-                Text("Visibility")
-            } footer: {
-                if !appSettings.showDockIcon && !appSettings.showMenuBarIcon {
-                    Label("Warning: Both dock and menu bar icons are hidden. You may not be able to access the app.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundColor(Theme.Status.warning)
-                } else {
-                    Text("When menu bar icon is shown, the app stays running in the background when you close the main window.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
 
-            Section {
-                Picker("Auto-refresh interval", selection: $appSettings.autoRefreshInterval) {
-                    Text("5 seconds").tag(5)
-                    Text("10 seconds").tag(10)
-                    Text("30 seconds").tag(30)
-                    Text("1 minute").tag(60)
+                LiquidCard(title: "Menu Bar Popover", icon: "clock", footer: "How often to refresh when the popover is open.") {
+                    Picker("Auto-refresh interval", selection: $appSettings.autoRefreshInterval) {
+                        Text("5 seconds").tag(5)
+                        Text("10 seconds").tag(10)
+                        Text("30 seconds").tag(30)
+                        Text("1 minute").tag(60)
+                    }
+                    .font(.system(size: 13))
                 }
-            } header: {
-                Text("Menu Bar Popover")
-            } footer: {
-                Text("How often to refresh the port list when the menu bar popover is open. Appearance, color theme, and icon pack live in Settings > Appearance.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .padding()
     }
 
     private func openTUI() {
@@ -844,86 +713,67 @@ struct MenuBarSettingsView: View {
 struct NotificationsSettingsView: View {
     @ObservedObject private var appSettings = AppSettings.shared
     @ObservedObject private var notificationManager = NotificationManager.shared
-
     @State private var newWatchPort: String = ""
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Enable notifications", isOn: $appSettings.showNotifications)
-                    .help("Show notifications when watched ports change state")
+        ScrollView {
+            VStack(spacing: 14) {
+                LiquidCard(title: "Notifications", icon: "bell") {
+                    Toggle("Enable notifications", isOn: $appSettings.showNotifications).font(.system(size: 13))
+                    Toggle("Background monitoring", isOn: $appSettings.backgroundMonitoring).font(.system(size: 13))
+                }
 
-                Toggle("Background monitoring", isOn: $appSettings.backgroundMonitoring)
-                    .help("Continue monitoring ports when the app is running in the menu bar")
-            } header: {
-                Text("Notifications")
-            }
+                LiquidCard(title: "Port Monitoring", icon: "antenna.radiowaves.left.and.right", footer: "Port monitoring runs in the background when enabled.") {
+                    Toggle(isOn: Binding(
+                        get: { notificationManager.isWatching },
+                        set: { _ in notificationManager.toggleWatching() }
+                    )) {
+                        HStack(spacing: 6) {
+                            Image(systemName: notificationManager.isWatching ? Theme.Icon.connected : "antenna.slash")
+                                .foregroundColor(notificationManager.isWatching ? Theme.Status.connected : .secondary)
+                            Text(notificationManager.isWatching ? "Monitoring Active" : "Monitoring Paused")
+                                .font(.system(size: 13))
+                        }
+                    }
+                }
 
-            Section {
-                Toggle(isOn: Binding(
-                    get: { notificationManager.isWatching },
-                    set: { _ in notificationManager.toggleWatching() }
-                )) {
+                LiquidCard(title: "Watched Ports", icon: "eye", footer: "You'll receive notifications when these ports change state.") {
                     HStack {
-                        Image(systemName: notificationManager.isWatching ? Theme.Icon.connected : "antenna.slash")
-                            .foregroundColor(notificationManager.isWatching ? Theme.Status.connected : .secondary)
-                        Text(notificationManager.isWatching ? "Monitoring Active" : "Monitoring Paused")
-                    }
-                }
-            } header: {
-                Text("Port Monitoring")
-            } footer: {
-                Text("Toggle monitoring on/off. Port monitoring runs in the background when enabled.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Section {
-                HStack {
-                    TextField("Port number", text: $newWatchPort)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                    Button("Add Port") {
-                        if let port = Int(newWatchPort), port > 0, port <= 65535 {
-                            notificationManager.addWatchedPort(port)
-                            newWatchPort = ""
-                        }
-                    }
-                    .disabled(newWatchPort.isEmpty || Int(newWatchPort) == nil)
-                }
-
-                if !notificationManager.watchedPorts.isEmpty {
-                    ForEach(notificationManager.watchedPorts, id: \.port) { watched in
-                        HStack {
-                            Circle()
-                                .fill(watched.lastKnownState == .available ? Theme.Status.connected : (watched.lastKnownState == .occupied ? Theme.Status.error : Color.gray))
-                                .frame(width: 8, height: 8)
-                            Text("Port \(watched.port)")
-                                .fontDesign(.monospaced)
-                            Spacer()
-                            Text(watched.lastKnownState == .available ? "Available" : (watched.lastKnownState == .occupied ? "Occupied" : "Unknown"))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Button(action: {
-                                notificationManager.removeWatchedPort(watched.port)
-                            }) {
-                                Image(systemName: Theme.Icon.clearSearch)
-                                    .foregroundColor(.secondary)
+                        TextField("Port number", text: $newWatchPort)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        Button("Add") {
+                            if let port = Int(newWatchPort), port > 0, port <= 65535 {
+                                notificationManager.addWatchedPort(port)
+                                newWatchPort = ""
                             }
-                            .buttonStyle(.borderless)
+                        }
+                        .disabled(newWatchPort.isEmpty || Int(newWatchPort) == nil)
+                    }
+
+                    if !notificationManager.watchedPorts.isEmpty {
+                        ForEach(notificationManager.watchedPorts, id: \.port) { watched in
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(watched.lastKnownState == .available ? Theme.Status.connected : (watched.lastKnownState == .occupied ? Theme.Status.error : Color.gray))
+                                    .frame(width: 8, height: 8)
+                                Text(verbatim: "Port \(watched.port)")
+                                    .font(.system(size: 13, design: .monospaced))
+                                Spacer()
+                                Text(watched.lastKnownState == .available ? "Available" : (watched.lastKnownState == .occupied ? "Occupied" : "Unknown"))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                Button { notificationManager.removeWatchedPort(watched.port) } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
                     }
                 }
-            } header: {
-                Text("Watched Ports")
-            } footer: {
-                Text("Add ports to watch. You'll receive notifications when these ports become available or occupied.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .padding()
     }
 }
 
@@ -936,93 +786,70 @@ struct ReservedPortsSettingsView: View {
     @State private var warningMessage: String = ""
 
     var body: some View {
-        Form {
-            Section {
-                Text("Reserved ports are protected from being accidentally killed. When a reserved port becomes occupied by an unknown process, you'll receive a warning notification.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } header: {
-                Text("About Reserved Ports")
-            }
-
-            Section {
-                HStack {
-                    TextField("Port number", text: $newReservedPort)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                    Button("Add Port") {
-                        if let port = Int(newReservedPort), port > 0, port <= 65535 {
-                            if !appSettings.reservedPorts.contains(port) {
-                                appSettings.reservedPorts.append(port)
-                                appSettings.reservedPorts.sort()
-                                newReservedPort = ""
+        ScrollView {
+            VStack(spacing: 14) {
+                LiquidCard(title: "Reserved Ports", icon: "lock.shield", footer: "Reserved ports are protected from accidental kills. Add ports that should stay protected.") {
+                    HStack {
+                        TextField("Port number", text: $newReservedPort)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        Button("Add") {
+                            if let port = Int(newReservedPort), port > 0, port <= 65535 {
+                                if !appSettings.reservedPorts.contains(port) {
+                                    appSettings.reservedPorts.append(port)
+                                    appSettings.reservedPorts.sort()
+                                    newReservedPort = ""
+                                }
                             }
                         }
+                        .disabled(newReservedPort.isEmpty || Int(newReservedPort) == nil)
                     }
-                    .disabled(newReservedPort.isEmpty || Int(newReservedPort) == nil)
-                }
 
-                if !appSettings.reservedPorts.isEmpty {
-                    ForEach(appSettings.reservedPorts, id: \.self) { port in
-                        HStack {
-                            Image(systemName: "lock.shield.fill")
-                                .foregroundColor(Theme.Status.warning)
-                                .font(.system(size: 12))
-                            Text("Port \(port)")
-                                .font(.system(size: 12, design: .monospaced))
-                            Spacer()
-
-                            // Show warning if port is occupied
-                            if let process = viewModel.ports.first(where: { $0.port == port }) {
-                                Text("Occupied by \(process.command)")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(Theme.Status.error)
-                            } else {
-                                Text("Available")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(Theme.Status.connected)
+                    if !appSettings.reservedPorts.isEmpty {
+                        ForEach(appSettings.reservedPorts, id: \.self) { port in
+                            HStack(spacing: 8) {
+                                Image(systemName: "lock.shield.fill")
+                                    .foregroundColor(Theme.Status.warning)
+                                    .font(.system(size: 12))
+                                Text(verbatim: "Port \(port)")
+                                    .font(.system(size: 12, design: .monospaced))
+                                Spacer()
+                                if let process = viewModel.ports.first(where: { $0.port == port }) {
+                                    Text(verbatim: "Occupied by \(process.command)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(Theme.Status.error)
+                                } else {
+                                    Text("Available")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(Theme.Status.connected)
+                                }
+                                Button { appSettings.reservedPorts.removeAll { $0 == port } } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.borderless)
                             }
-
-                            Button(action: {
-                                appSettings.reservedPorts.removeAll { $0 == port }
-                            }) {
-                                Image(systemName: Theme.Icon.clearSearch)
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.borderless)
                         }
-                    }
-                } else {
-                    Text("No reserved ports configured")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } header: {
-                Text("Reserved Ports")
-            } footer: {
-                Text("Add ports that should be protected. You can still manually kill processes on reserved ports.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Section {
-                Button("Check Reserved Ports") {
-                    let threatened = viewModel.checkReservedPorts()
-                    if threatened.isEmpty {
-                        warningMessage = "All reserved ports are available."
-                        showWarning = true
                     } else {
-                        let descriptions = threatened.map { "Port \($0.port): \($0.occupant)" }.joined(separator: "\n")
-                        warningMessage = "Warning: The following reserved ports are occupied:\n\(descriptions)"
+                        Text("No reserved ports configured")
+                            .font(.system(size: 12)).foregroundColor(.secondary)
+                    }
+                }
+
+                LiquidCard(title: "Status", icon: "checkmark.shield") {
+                    Button("Check Reserved Ports") {
+                        let threatened = viewModel.checkReservedPorts()
+                        if threatened.isEmpty {
+                            warningMessage = "All reserved ports are available."
+                        } else {
+                            let descriptions = threatened.map { "Port \($0.port): \($0.occupant)" }.joined(separator: "\n")
+                            warningMessage = "Warning:\n\(descriptions)"
+                        }
                         showWarning = true
                     }
                 }
-            } header: {
-                Text("Status")
             }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .padding()
         .alert("Reserved Ports Status", isPresented: $showWarning) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -1043,93 +870,82 @@ struct CustomProgramsSettingsView: View {
     @State private var newColorHex: String = "#007AFF"
     @State private var runningCounts: [UUID: Int] = [:]
 
-    private let availableIcons = [
-        "app.fill", "desktopcomputer", "server.rack", "cylinder.fill",
-        "square.stack.3d.up.fill", "leaf.fill", "chevron.left.forwardslash.chevron.right",
-        "shippingbox.fill", "film", "music.note", "gamecontroller.fill",
-        "brackets.curl", "terminal.fill", "hammer.fill", "wrench.and.screwdriver.fill"
-    ]
-
-    private let availableColors = [
-        "#007AFF", "#34C759", "#FF9500", "#FF3B30",
-        "#5856D6", "#AF52DE", "#00C7BE", "#FF2D55",
-        "#336791", "#DC382D", "#47A248", "#2496ED"
-    ]
-
     var body: some View {
-        Form {
-            Section {
-                Text("Custom programs let you track all PIDs for a program by its process name(s). Define which process names to track, then view and kill all processes from Settings or the main window.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } header: {
-                Text("About Custom Programs")
-            }
+        ScrollView {
+            VStack(spacing: 14) {
+                LiquidCard(title: "Custom Programs", icon: "app.fill", footer: "Track all PIDs for a program by its process name(s).") {
+                    if appSettings.customPrograms.isEmpty {
+                        Text("No custom programs configured")
+                            .font(.system(size: 12)).foregroundColor(.secondary)
+                    } else {
+                        ForEach(appSettings.customPrograms) { program in
+                            HStack(spacing: 10) {
+                                Image(systemName: program.icon)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(program.color)
+                                    .frame(width: 20)
 
-            Section {
-                if appSettings.customPrograms.isEmpty {
-                    Text("No custom programs configured")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(appSettings.customPrograms) { program in
-                        HStack(spacing: 12) {
-                            Image(systemName: program.icon)
-                                .font(.system(size: 16))
-                                .foregroundColor(program.color)
-                                .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(program.name).font(.system(size: 13, weight: .medium))
+                                    Text(program.processNames.joined(separator: ", "))
+                                        .font(.system(size: 10)).foregroundColor(.secondary).lineLimit(1)
+                                }
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(program.name)
-                                    .font(.system(size: 13, weight: .medium))
-                                Text(program.processNames.joined(separator: ", "))
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
+                                Spacer()
+
+                                if let count = runningCounts[program.id], count > 0 {
+                                    Text(verbatim: "\(count) running")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(Theme.Status.connected)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Theme.Badge.connectedBackground)
+                                        .cornerRadius(4)
+                                }
+
+                                Button {
+                                    editingProgram = program
+                                    newProgramName = program.name
+                                    newProcessNames = program.processNames.joined(separator: ", ")
+                                    newIcon = program.icon
+                                    newColorHex = program.colorHex
+                                    isAddingNew = false
+                                } label: {
+                                    Image(systemName: "pencil").font(.system(size: 11))
+                                }
+                                .buttonStyle(.borderless)
+
+                                Button {
+                                    appSettings.customPrograms.removeAll { $0.id == program.id }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill").font(.system(size: 11)).foregroundColor(Theme.Status.error)
+                                }
+                                .buttonStyle(.borderless)
                             }
-
-                            Spacer()
-
-                            if let count = runningCounts[program.id], count > 0 {
-                                Text("\(count) running")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundColor(Theme.Status.connected)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Theme.Badge.connectedBackground)
-                                    .cornerRadius(4)
-                            }
-
-                            Button(action: {
-                                editingProgram = program
-                                newProgramName = program.name
-                                newProcessNames = program.processNames.joined(separator: ", ")
-                                newIcon = program.icon
-                                newColorHex = program.colorHex
-                                isAddingNew = false
-                            }) {
-                                Image(systemName: "pencil")
-                                    .font(.system(size: 12))
-                            }
-                            .buttonStyle(.borderless)
-
-                            Button(action: {
-                                appSettings.customPrograms.removeAll { $0.id == program.id }
-                            }) {
-                                Image(systemName: Theme.Icon.clearSearch)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(Theme.Status.error)
-                            }
-                            .buttonStyle(.borderless)
                         }
                     }
+
+                    // Add new program button
+                    Button {
+                        isAddingNew = true
+                        newProgramName = ""
+                        newProcessNames = ""
+                        newIcon = "app.fill"
+                        newColorHex = "#007AFF"
+                        editingProgram = CustomProgram(name: "", processNames: [])
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(Theme.Liquid.accentPurple)
+                            Text("Add Program")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(.bordered)
                 }
-            } header: {
-                Text("Custom Programs")
             }
+            .padding(20)
         }
-        .formStyle(.grouped)
-        .padding()
         .task(id: appSettings.customPrograms.map(\.id).map(\.uuidString).joined(separator: ",")) {
             refreshRunningCounts()
         }
@@ -1300,41 +1116,85 @@ struct AboutSettingsView: View {
 
     private var copyrightText: String {
         Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String
-            ?? "Copyright © 2024–2026 Srinivas Pendela. All rights reserved."
+            ?? "Copyright \u{00A9} 2024\u{2013}2026 Srinivas Pendela. All rights reserved."
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "globe.americas.fill")
-                .font(.system(size: 64))
+        VStack(spacing: 20) {
+            Spacer()
+
+            // App icon
+            Image(systemName: "globe")
+                .font(.system(size: 56, weight: .light))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [Theme.Action.treeView, Theme.Section.kubernetes],
+                        colors: [Theme.Liquid.accentPurple, Theme.Section.kubernetes],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
+                .frame(width: 80, height: 80)
+                .background(
+                    Circle()
+                        .fill(Theme.Liquid.accentPurpleMuted)
+                )
 
-            Text("PortPilot")
-                .font(.title)
-                .fontWeight(.bold)
+            VStack(spacing: 6) {
+                Text("PortPilot")
+                    .font(.system(size: 28, weight: .bold))
 
-            Text("Version \(shortVersion)")
-                .foregroundColor(.secondary)
-
-            Text("Designed and built by Srinivas Pendela")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            if buildVersion != shortVersion {
-                Text("Build \(buildVersion)")
-                    .font(.caption2)
+                Text("Version \(shortVersion)")
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary)
+
+                if buildVersion != shortVersion {
+                    Text("Build \(buildVersion)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.6))
+                }
             }
 
+            // Author
+            VStack(spacing: 4) {
+                Text("Designed and built by")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text("Srinivas Pendela")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Theme.Liquid.accentPurple)
+            }
+            .padding(.top, 4)
+
+            // Sponsor button
+            Button {
+                if let url = URL(string: "https://github.com/sponsors/sriinnu") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 12))
+                    Text("Sponsor PortPilot")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [Theme.Action.sponsors, Theme.Action.sponsors.opacity(0.8)],
+                            startPoint: .leading, endPoint: .trailing
+                        ))
+                )
+            }
+            .buttonStyle(.plain)
+            .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+            .padding(.top, 4)
+
             Text(copyrightText)
-                .font(.caption2)
-                .foregroundColor(.secondary)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary.opacity(0.6))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 

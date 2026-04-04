@@ -33,17 +33,21 @@ Unlike basic `lsof` wrappers, PortPilot:
 
 ## Features
 
-### Menu Bar App
-- **Ports tab** — live port list grouped by connection type (Local, Database, SSH, K8s, Cloudflare)
-- **Sockets tab** — Unix socket processes with PID, classification badge, and socket path
-- **Connections tab** — all established outbound connections grouped by process, with blocklist detection
-- **Schedules tab** — cronjobs (user crontab + system cron) with next-run times
-- **CPU usage** — real-time per-process CPU % with color-coded badges (green/yellow/orange/red)
-- **Filter pills** — TCP / UDP / Unix protocol filters, connection type icons with counts, hide system toggle
-- **Process classification** — each process labeled as System, App, or Developer using `proc_pidpath`
-- **Tunnel detection** — SSH, Kubernetes, Cloudflare with smart name extraction
-- **Blocklist detection** — 🚨 markers for connections to blocklisted hosts (matches `~/.portpilot/blocklist.txt`)
-- **Inline actions** — kill, copy, stop tunnel — right from the dropdown
+### Menu Bar Dropdown (Liquid Display)
+A glass-panel dropdown anchored to the menu bar with a unified, theme-synced design:
+
+- **Header** — PortPilot branding with refresh, settings, and more actions
+- **Live stats** — Active ports, Sockets, and Connections counts with pulsing status dot
+- **Integrated search** — Filter by port number, PID, or process name (Cmd+F hint)
+- **Protocol filters** — All / TCP / UDP toggle chips
+- **Source filters** — Local / Database / OrbStack / Tunnels
+- **Top Activity** — Top ports ranked by CPU + memory usage with See All toggle
+- **List View** — Ports grouped by connection type (Local, Database, Kubernetes, Cloudflare, SSH)
+- **Tree View** — Ports grouped by process name with expandable sections showing individual ports
+- **Schedules** — Cronjobs (user + system) with schedule, command, next-run time
+- **Port rows** — Port number, protocol badge, process name, PID, memory/CPU badges, hover kill/copy actions
+- **More menu** — Refresh, Kill All (with confirmation), Settings, Quit
+- **Footer** — Open PortPilot App / Tree View toggle + Sponsor link with author credit
 - **No Dock icon** — pure menu bar accessory app
 
 ### Main Window
@@ -57,13 +61,14 @@ Open via menu bar → "Open PortPilot"
 - **Logs panel** — activity log with per-port filtering
 - **Favorites, history, custom programs, reserved ports**
 
-### Appearance & Fonts
-Fully customizable look and feel from Settings → Appearance:
+### Appearance & Themes
+Fully customizable look and feel — Settings uses the same Liquid card design as the dropdown:
 
-- **5 color themes** — Classic, Graphite, Sunset, Oceanic, Noir — each with a recommended font pairing
+- **6 color themes** — Classic, Graphite, Sunset, Oceanic, Noir, Retro — each with a recommended font pairing
+- **Theme sync** — dropdown, settings panel, and main window all use the same theme-derived colors
 - **Custom fonts** — pick any system font for UI and monospaced text, or drop `.ttf`/`.otf` files into the `Fonts/` folder
 - **Font size** — adjustable from 9px to 18px, applied consistently across all views
-- **Custom fonts folder** — `Fonts/` in the project root (next to `Sources/`), or `~/Library/Application Support/PortPilot/Fonts/`
+- **Settings panels** — Liquid glass card design with themed sections, accent-colored icons, and sponsor link
 
 | Theme | Character | Recommended Fonts |
 |-------|-----------|-------------------|
@@ -72,6 +77,7 @@ Fully customizable look and feel from Settings → Appearance:
 | Sunset | Warm and expressive | Avenir Next + Menlo |
 | Oceanic | Deep and focused | SF Pro Rounded + SF Mono |
 | Noir | Sharp and minimal | Helvetica Neue + Fira Code |
+| Retro | Warm and nostalgic | American Typewriter + Courier New |
 
 ### Native TCP Proxy
 Built on Apple's Network.framework (NWListener + NWConnection):
@@ -345,15 +351,15 @@ Sources/
 │   ├── ContentView.swift             # Main window layout
 │   ├── PortViewModel.swift           # State, filtering, tunnel detection
 │   ├── MenuBarController.swift       # Status item + panel management
-│   ├── MenuBarDropdownView.swift     # Dropdown with Ports/Sockets/Connections/Schedules tabs
+│   ├── MenuBarDropdownView.swift     # Liquid display dropdown (Top Activity, List/Tree View, Schedules)
 │   ├── MenuBarPanel.swift            # Floating NSPanel
 │   ├── PortListPanel.swift           # Port list with classification badges
 │   ├── ConfigurationPanel.swift      # Config + proxy controls
 │   ├── MainWindowToolbar.swift       # Toolbar with filter pills
 │   ├── LogsPanel.swift               # Activity logs
-│   ├── Theme.swift                   # 5 color themes
+│   ├── Theme.swift                   # 6 color themes + Liquid display tokens
 │   ├── FontManager.swift             # Custom font loading
-│   ├── SettingsView.swift            # Preferences (appearance, fonts, themes)
+│   ├── SettingsView.swift            # Liquid card settings (appearance, fonts, themes)
 │   └── AppSettings.swift             # UserDefaults + font/theme settings
 ├── TerminalTUI/                # Reusable TUI engine (zero dependencies)
 │   ├── Terminal.swift                # Raw mode, terminal size, cursor, alt screen

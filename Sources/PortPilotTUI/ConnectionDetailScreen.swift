@@ -54,7 +54,7 @@ struct ConnectionDetailScreen: TUIScreen {
         } else {
             items = [
                 StatusBar.Item(key: "Esc", label: "Back"),
-                StatusBar.Item(key: "k", label: "Kill Process"),
+                StatusBar.Item(key: "x", label: "Kill Process"),
             ]
         }
 
@@ -79,7 +79,7 @@ struct ConnectionDetailScreen: TUIScreen {
         switch key {
         case .escape, .char("q"), .char("Q"), .ctrlC:
             return .pop
-        case .char("k"), .char("K"):
+        case .char("x"), .char("X"):
             confirmingKill = true
         default:
             break

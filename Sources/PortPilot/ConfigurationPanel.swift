@@ -18,7 +18,7 @@ struct ConfigurationPanel: View {
                 Divider()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                         if let port = port {
                             connectionSection(port: port)
                             portMappingSection(port: port)
@@ -29,7 +29,7 @@ struct ConfigurationPanel: View {
                             noSelectionView
                         }
                     }
-                    .padding(16)
+                    .padding(Theme.Spacing.lg)
                 }
             }
         }
@@ -56,18 +56,18 @@ struct ConfigurationPanel: View {
 
     private var configHeader: some View {
         Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.Spacing.sm) {
                 Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(.secondary)
-                    .frame(width: 12)
+                    .frame(width: Theme.Spacing.md)
 
                 Text("Configuration")
                     .font(.system(size: 13, weight: .semibold))
 
                 if port != nil {
                     // Connected badge: green dot + pill
-                    HStack(spacing: 4) {
+                    HStack(spacing: Theme.Spacing.xs) {
                         Circle()
                             .fill(Theme.Status.connected)
                             .frame(width: Theme.Size.statusDotSmall, height: Theme.Size.statusDotSmall)
@@ -83,7 +83,7 @@ struct ConfigurationPanel: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Theme.Spacing.md)
             .padding(.vertical, 9)
             .background(Theme.Surface.headerTint)
             .contentShape(Rectangle())
@@ -94,16 +94,16 @@ struct ConfigurationPanel: View {
     // MARK: - No Selection
 
     private var noSelectionView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Theme.Spacing.md) {
             Image(systemName: "square.and.arrow.up")
                 .font(.system(size: 28))
-                .foregroundColor(.secondary.opacity(0.4))
+                .foregroundColor(.secondary.opacity(Theme.Opacity.disabled))
             Text("Select a port to view configuration")
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, Theme.Spacing.xxl)
     }
 
     // MARK: - Connection Section
@@ -127,7 +127,7 @@ struct ConfigurationPanel: View {
                 ConfigField(label: "Type", icon: Theme.Icon.type, iconColor: Theme.ConfigIcon.type) {
                     let type = viewModel.connectionType(for: port)
                     VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Theme.Spacing.xs) {
                             Image(systemName: type.icon)
                                 .font(.system(size: 11))
                                 .foregroundColor(type.color)
@@ -138,7 +138,7 @@ struct ConfigurationPanel: View {
                         if let detail = viewModel.tunnelDetail(for: port) {
                             Text(detail)
                                 .font(.system(size: 10))
-                                .foregroundColor(.secondary.opacity(0.7))
+                                .foregroundColor(.secondary.opacity(Theme.Opacity.subtle))
                         }
                     }
                 }
@@ -151,7 +151,7 @@ struct ConfigurationPanel: View {
                 }
 
                 ConfigField(label: "PID", icon: Theme.Icon.pid, iconColor: Theme.ConfigIcon.pid) {
-                    Text("\(port.pid)")
+                    Text("\(String(port.pid))")
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(.primary)
                 }
@@ -164,14 +164,14 @@ struct ConfigurationPanel: View {
 
                 let processType = viewModel.processType(for: port)
                 ConfigField(label: "Class", icon: processType.icon, iconColor: classificationColor(processType)) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Theme.Spacing.xs) {
                         Text(processType.rawValue)
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(.primary)
                         if let path = port.processPath {
                             Text(path)
                                 .font(.system(size: 10))
-                                .foregroundColor(.secondary.opacity(0.7))
+                                .foregroundColor(.secondary.opacity(Theme.Opacity.subtle))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -180,8 +180,8 @@ struct ConfigurationPanel: View {
 
                 if let ppid = port.parentPID, let parentName = viewModel.parentProcessName(for: port) {
                     ConfigField(label: "Parent", icon: Theme.Icon.ppid, iconColor: Theme.ConfigIcon.ppid) {
-                        HStack(spacing: 4) {
-                            Text("\(ppid)")
+                        HStack(spacing: Theme.Spacing.xs) {
+                            Text("\(String(ppid))")
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundColor(.primary)
                             Text("(\(parentName))")
@@ -218,16 +218,16 @@ struct ConfigurationPanel: View {
         let mapping = viewModel.portMappingInfo(for: port)
 
         return ConfigSection(title: "Port Mapping") {
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.Spacing.sm) {
                 // Remote box (only for tunnels)
                 if let remotePort = mapping.remotePort {
                     VStack(spacing: 2) {
                         Text("Remote")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.secondary)
-                        Text(":\(remotePort)")
+                        Text(":\(String(remotePort))")
                             .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, Theme.Spacing.md)
                             .padding(.vertical, 6)
                             .background(Theme.PortMapping.remoteFill)
                             .overlay(
@@ -247,9 +247,9 @@ struct ConfigurationPanel: View {
                     Text("Local")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.secondary)
-                    Text(":\(port.port)")
+                    Text(":\(String(port.port))")
                         .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, Theme.Spacing.md)
                         .padding(.vertical, 6)
                         .background(Theme.PortMapping.localFill)
                         .overlay(
@@ -270,7 +270,7 @@ struct ConfigurationPanel: View {
                         .foregroundColor(.secondary)
                     Text(port.protocolName.uppercased())
                         .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, Theme.Spacing.md)
                         .padding(.vertical, 6)
                         .background(Theme.PortMapping.protocolFill)
                         .overlay(
@@ -288,7 +288,7 @@ struct ConfigurationPanel: View {
 
     private func optionsSection(port: PortProcess) -> some View {
         ConfigSection(title: "Options") {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 ConfigToggle(label: "Auto Reconnect", isOn: .constant(false), disabled: true,
                              icon: Theme.Icon.autoReconnect, iconColor: Theme.OptionIcon.autoReconnect)
                 ConfigToggle(label: "Enabled", isOn: .constant(true), disabled: true,
@@ -310,11 +310,11 @@ struct ConfigurationPanel: View {
 
                 if let proxy = activeProxy {
                     // Active proxy info
-                    HStack(spacing: 8) {
+                    HStack(spacing: Theme.Spacing.sm) {
                         Circle()
                             .fill(Color.green)
-                            .frame(width: 8, height: 8)
-                        Text("Proxying :\(proxy.listenPort) \u{2192} \(proxy.targetHost):\(proxy.targetPort)")
+                            .frame(width: Theme.Size.statusDotLarge, height: Theme.Size.statusDotLarge)
+                        Text("Proxying :\(String(proxy.listenPort)) \u{2192} \(proxy.targetHost):\(String(proxy.targetPort))")
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.primary)
                         Spacer()
@@ -322,19 +322,19 @@ struct ConfigurationPanel: View {
                             Text("Stop")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(.white)
-                                .padding(.horizontal, 8)
+                                .padding(.horizontal, Theme.Spacing.sm)
                                 .padding(.vertical, 3)
                                 .background(Theme.Action.kill)
-                                .cornerRadius(6)
+                                .cornerRadius(Theme.Size.cornerRadius)
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(8)
+                    .padding(Theme.Spacing.sm)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.green.opacity(0.08))
+                        RoundedRectangle(cornerRadius: Theme.Size.cornerRadius)
+                            .fill(Color.green.opacity(Theme.Opacity.hover))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 6)
+                                RoundedRectangle(cornerRadius: Theme.Size.cornerRadius)
                                     .stroke(Color.green.opacity(0.3), lineWidth: 1)
                             )
                     )
@@ -359,14 +359,14 @@ struct ConfigurationPanel: View {
         let mapping = viewModel.portMappingInfo(for: port)
 
         return ConfigSection(title: "Port Flow") {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 // ASCII diagram
                 Text(asciiPortFlow(type: type, mapping: mapping, port: port))
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundColor(.secondary)
                     .padding(10)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: Theme.Size.cornerRadius)
                             .fill(Color(nsColor: .textBackgroundColor))
                     )
 
@@ -396,15 +396,15 @@ struct ConfigurationPanel: View {
             let remoteHost = mapping.remoteHost ?? "*"
             let remotePort = mapping.remotePort.map { String($0) } ?? "*"
             return """
-            [\(remoteHost):\(remotePort)] --> [:\(port.port)] --> [\(port.protocolName.uppercased())]
+            [\(remoteHost):\(remotePort)] --> [:\(String(port.port))] --> [\(port.protocolName.uppercased())]
             """
         case .database:
             return """
-            [:\(port.port)] --> [\(port.protocolName.uppercased())] --> [\(port.command)]
+            [:\(String(port.port))] --> [\(port.protocolName.uppercased())] --> [\(port.command)]
             """
         case .local:
             return """
-            [:\(port.port)] --> [\(port.protocolName.uppercased())]
+            [:\(String(port.port))] --> [\(port.protocolName.uppercased())]
             """
         }
     }
@@ -436,7 +436,7 @@ struct ConfigField<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
             if let icon = icon, let iconColor = iconColor {
                 Image(systemName: icon)
                     .font(.system(size: 11))
@@ -474,7 +474,7 @@ struct ConfigToggle: View {
                 .controlSize(.mini)
                 .font(.system(size: 12))
                 .disabled(disabled)
-                .opacity(disabled ? 0.6 : 1)
+                .opacity(disabled ? Theme.Opacity.secondary : 1)
         }
     }
 }
@@ -495,7 +495,7 @@ struct ProxyCreateForm: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             // Direction picker
             Picker("Direction", selection: $proxyDirection) {
                 ForEach(ProxyDirection.allCases, id: \.self) { dir in
@@ -505,8 +505,8 @@ struct ProxyCreateForm: View {
             .pickerStyle(.segmented)
             .font(.system(size: 11))
 
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: Theme.Spacing.sm) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                     Text("Target Host")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.secondary)
@@ -515,7 +515,7 @@ struct ProxyCreateForm: View {
                         .font(.system(size: 11, design: .monospaced))
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                     Text(proxyDirection == .fromPort ? "Target Port" : "Listen Port")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.secondary)
@@ -527,26 +527,26 @@ struct ProxyCreateForm: View {
             }
 
             Button(action: startProxy) {
-                HStack(spacing: 4) {
+                HStack(spacing: Theme.Spacing.xs) {
                     Image(systemName: "arrow.left.arrow.right.circle.fill")
                         .font(.system(size: 12))
                     Text("Start Proxy")
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, Theme.Spacing.md)
                 .padding(.vertical, 6)
                 .background(Theme.Section.ssh)
-                .cornerRadius(6)
+                .cornerRadius(Theme.Size.cornerRadius)
             }
             .buttonStyle(.plain)
             .disabled(!isValid)
-            .opacity(isValid ? 1.0 : 0.5)
+            .opacity(isValid ? 1.0 : Theme.Opacity.secondary)
         }
         .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Theme.Surface.headerTint.opacity(0.7))
+            RoundedRectangle(cornerRadius: Theme.Size.cornerRadius)
+                .fill(Theme.Surface.headerTint.opacity(Theme.Opacity.subtle))
         )
     }
 
@@ -605,7 +605,7 @@ struct DockerInfoRow: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                     HStack {
                         Text("Container ID:")
                             .font(.system(size: 10))
@@ -615,7 +615,7 @@ struct DockerInfoRow: View {
                             .foregroundColor(.secondary)
                     }
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: Theme.Spacing.sm) {
                         Button(action: stopContainer) {
                             Label("Stop", systemImage: "stop.fill")
                                 .font(.system(size: 10))
@@ -631,13 +631,13 @@ struct DockerInfoRow: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.leading, 20)
+                .padding(.leading, Theme.Spacing.xl)
             }
         }
-        .padding(8)
+        .padding(Theme.Spacing.sm)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Theme.Surface.headerTint.opacity(0.65))
+            RoundedRectangle(cornerRadius: Theme.Size.cornerRadius)
+                .fill(Theme.Surface.headerTint.opacity(Theme.Opacity.secondary))
         )
     }
 

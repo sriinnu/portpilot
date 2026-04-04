@@ -62,6 +62,9 @@ struct PortListScreen: TUIScreen {
     // Alert state
     private var alertState: AlertState = .normal
 
+    // Cached visible row count for PageUp/PageDown
+    private var cachedVisibleRows: Int = 15
+
     enum Tab: String, CaseIterable {
         case ports      = "Ports"
         case sockets    = "Sockets"
@@ -288,6 +291,7 @@ struct PortListScreen: TUIScreen {
 
         // Adjust scroll offset to keep selection visible
         let visibleRows = max(tableHeight - 2, 1)
+        cachedVisibleRows = visibleRows
         adjustScroll(visibleRows: visibleRows)
 
         if activeTab == .schedules {
@@ -446,10 +450,10 @@ struct PortListScreen: TUIScreen {
             if !filteredConnections.isEmpty, selectedIndex < filteredConnections.count {
                 let conn = filteredConnections[selectedIndex]
                 let isBlocklisted = conn.isBlocklisted
-                let blocklistMarker = isBlocklisted ? "🚨 BLOCKLISTED " : ""
+                let blocklistMarker = isBlocklisted ? "[!] BLOCKLISTED " : ""
 
                 // Build count message with alert indicator
-                let alertIndicator = alertState.isAlert ? " ⚠ " : " "
+                let alertIndicator = alertState.isAlert ? " [!] " : " "
                 let countMsg = "\(filteredConnections.count) connection(s)\(alertIndicator)"
                 screen.put(row: msgRow, col: 0, text: fitString(countMsg, width: countMsg.count), style: ANSI.dim)
 
@@ -470,7 +474,7 @@ struct PortListScreen: TUIScreen {
                     } else if !suspiciousProcesses.isEmpty {
                         let topSuspicious = suspiciousProcesses.max { $0.value.count < $1.value.count }
                         if let (name, conns) = topSuspicious {
-                            let alertMsg = " \(name):\(conns.count) ⚠"
+                            let alertMsg = " \(name):\(conns.count) [!]"
                             let alertStyle = ANSI.bold + ANSI.fg(.brightYellow)
                             screen.put(row: msgRow, col: max(0, width - alertMsg.count - 1), text: alertMsg, style: alertStyle)
                         }
@@ -530,10 +534,10 @@ struct PortListScreen: TUIScreen {
             moveSelection(by: 1)
 
         case .pageUp:
-            moveSelection(by: -10)
+            moveSelection(by: -max(cachedVisibleRows - 2, 5))
 
         case .pageDown:
-            moveSelection(by: 10)
+            moveSelection(by: max(cachedVisibleRows - 2, 5))
 
         case .home:
             selectedIndex = 0
@@ -599,7 +603,7 @@ struct PortListScreen: TUIScreen {
     }
 
     mutating func onResize(width: Int, height: Int) {
-        scrollOffset = 0
+        clampSelection()
     }
 
     // MARK: - Navigation
@@ -661,7 +665,9 @@ struct PortListScreen: TUIScreen {
             }
 
         case .char(let ch):
-            searchBuffer.append(ch)
+            if searchBuffer.count < 64 {
+                searchBuffer.append(ch)
+            }
 
         case .ctrlC:
             isSearching = false
@@ -765,7 +771,7 @@ struct PortListScreen: TUIScreen {
             ]
         } else if activeTab == .schedules {
             return [
-                TableColumn(title: "SCHEDULE", width: 18),
+                TableColumn(title: "SCHEDULE", width: 22),
                 TableColumn(title: "NEXT", width: 18),
                 TableColumn(title: "USER", width: 12),
                 TableColumn(title: "COMMAND", width: 25),
@@ -782,7 +788,7 @@ struct PortListScreen: TUIScreen {
         }
         return [
             TableColumn(title: "PORT", width: 6),
-            TableColumn(title: "PID", width: 7),
+            TableColumn(title: "PID", width: 10),
             TableColumn(title: "FRAMEWORK", width: 12),
             TableColumn(title: "PROJECT", width: 24),
             TableColumn(title: "UPTIME", width: 8),
@@ -889,7 +895,7 @@ struct PortListScreen: TUIScreen {
         switch column {
         case 0:
             let schedule = job.scheduleHuman ?? job.schedule
-            return (truncated(schedule, to: 17), ANSI.fg(.brightYellow))
+            return (truncated(schedule, to: 21), ANSI.fg(.brightYellow))
         case 1:
             if let nextRun = job.nextRun {
                 let formatter = DateFormatter()
@@ -945,18 +951,18 @@ struct PortListScreen: TUIScreen {
         if dockerNames.contains(where: { cmd.contains($0) }) {
             // Try to get container name from the full command
             if let full = process.fullCommand, let name = extractDockerContainer(full) {
-                return "🐳 \(name)"
+                return "[D] \(name)"
             }
-            return "🐳 docker"
+            return "[D] docker"
         }
 
         // Check if process runs inside a container (Linux /proc/pid/cgroup)
         if let cgroup = try? String(contentsOfFile: "/proc/\(process.pid)/cgroup", encoding: .utf8),
            cgroup.contains("docker") || cgroup.contains("containerd") || cgroup.contains("/lxc/") {
             if let name = extractContainerID(cgroup) {
-                return "🐳 \(name)"
+                return "[D] \(name)"
             }
-            return "🐳 container"
+            return "[D] container"
         }
 
         // Project directory

@@ -65,7 +65,7 @@ struct MainWindowToolbar: View {
                     RoundedRectangle(cornerRadius: Theme.Size.cornerRadius, style: .continuous)
                         .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
                 )
-                .cornerRadius(Theme.Size.cornerRadius)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Size.cornerRadius, style: .continuous))
                 .frame(maxWidth: 280)
 
                 Button(action: onSettings) {
@@ -75,9 +75,8 @@ struct MainWindowToolbar: View {
                 .buttonStyle(.borderless)
                 .help("Settings (\u{2318},)")
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 9)
-            .padding(.bottom, 7)
+            .padding(.horizontal, Theme.Spacing.sectionInset)
+            .padding(.vertical, Theme.Spacing.sm)
 
             // Main tabs row (Ports / Schedules)
             HStack(spacing: 8) {
@@ -103,8 +102,8 @@ struct MainWindowToolbar: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 4)
+            .padding(.horizontal, Theme.Spacing.sectionInset)
+            .padding(.bottom, Theme.Spacing.xs)
 
             // Source tabs row (only visible for Ports tab)
             if selectedMainTab == .ports {
@@ -133,8 +132,8 @@ struct MainWindowToolbar: View {
                             .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
                     )
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 4)
+                .padding(.horizontal, Theme.Spacing.sectionInset)
+                .padding(.bottom, Theme.Spacing.xs)
 
                 // Filter pills row
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -181,9 +180,8 @@ struct MainWindowToolbar: View {
 
                         Spacer()
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 3)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, Theme.Spacing.sectionInset)
+                    .padding(.vertical, Theme.Spacing.sm)
                 }
             }
         }
@@ -197,6 +195,7 @@ struct MainTabPill: View {
     let icon: String
     let isSelected: Bool
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
@@ -215,16 +214,24 @@ struct MainTabPill: View {
                     : Theme.Surface.chromeTint
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: Theme.Size.cornerRadiusLarge, style: .continuous)
                     .strokeBorder(
                         isSelected ? Color.white.opacity(0.16) : Color.primary.opacity(0.06),
                         lineWidth: 1
                     )
             )
-            .cornerRadius(12)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Size.cornerRadiusLarge, style: .continuous))
             .animation(toolbarSelectionSpring, value: isSelected)
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 }
 
@@ -249,7 +256,7 @@ struct ToolbarPortSummary: View {
             if portCount != totalCount {
                 Text("of \(totalCount)")
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.8))
+                    .foregroundColor(.secondary.opacity(Theme.Opacity.subtle))
             }
         }
     }
@@ -271,7 +278,7 @@ struct SourceTabPill: View {
                 if isSelected || source == .all {
                     Text("\(count)")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(isSelected ? .white.opacity(0.85) : .secondary.opacity(0.75))
+                        .foregroundColor(isSelected ? .white.opacity(Theme.Opacity.subtle) : .secondary.opacity(Theme.Opacity.secondary))
                 }
             }
             .foregroundColor(isSelected ? .white : .secondary)
@@ -347,7 +354,7 @@ struct CategoryPill: View {
                 if count > 0 && category != .all && isSelected {
                     Text("\(count)")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundColor(isSelected ? .white.opacity(0.8) : .secondary.opacity(0.7))
+                        .foregroundColor(isSelected ? .white.opacity(Theme.Opacity.subtle) : .secondary.opacity(Theme.Opacity.secondary))
                 }
             }
             .foregroundColor(isSelected ? .white : .secondary)
@@ -395,7 +402,7 @@ struct TogglePill: View {
 struct DividerPill: View {
     var body: some View {
         Rectangle()
-            .fill(Color.secondary.opacity(0.3))
+            .fill(Color.secondary.opacity(Theme.Opacity.disabled))
             .frame(width: 1, height: 18)
     }
 }
