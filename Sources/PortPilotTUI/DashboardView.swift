@@ -382,22 +382,16 @@ struct DashboardView {
     // MARK: - Data Helpers
 
     private func generateSparklineData() -> [Double] {
-        // Generate mock sparkline data (in real app, this would be historical data)
-        var data: [Double] = []
-        for _ in 0..<40 {
-            data.append(Double.random(in: 0...100) / 100.0)
-        }
-        return data
+        // Return a neutral placeholder until real historical samples are wired in.
+        // Avoid generating random values, which would imply unstable/fictional trends.
+        return Array(repeating: 0.0, count: 40)
     }
 
     private func generateActivityHistogram(width: Int = 80) -> String {
-        // Generate mock histogram (in real app, this would be real metrics)
-        let bars = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
-        var histogram = ""
-        for _ in 0..<width - 20 {
-            histogram += bars[Int.random(in: 0..<bars.count)]
-        }
-        return histogram
+        // Return an empty placeholder histogram instead of random activity bars.
+        // This avoids implying real network activity when no historical data exists.
+        let histogramWidth = max(0, width - 20)
+        return String(repeating: " ", count: histogramWidth)
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
