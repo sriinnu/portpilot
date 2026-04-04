@@ -71,6 +71,8 @@ private struct ThemePalette {
             return .oceanic
         case .noir:
             return .noir
+        case .retro:
+            return .retro
         }
     }
 
@@ -450,6 +452,81 @@ private struct ThemePalette {
             dark: NSColor(red: 0.60, green: 0.60, blue: 0.60, alpha: 0.50)
         )
     )
+
+    private static let retro = ThemePalette(
+        cloudflare: ThemeColorPair(
+            light: NSColor(red: 0.72, green: 0.45, blue: 0.20, alpha: 1),   // warm brown
+            dark: NSColor(red: 0.88, green: 0.62, blue: 0.35, alpha: 1)
+        ),
+        kubernetes: ThemeColorPair(
+            light: NSColor(red: 0.35, green: 0.52, blue: 0.42, alpha: 1),   // muted teal-green
+            dark: NSColor(red: 0.45, green: 0.68, blue: 0.55, alpha: 1)
+        ),
+        local: ThemeColorPair(
+            light: NSColor(red: 0.38, green: 0.55, blue: 0.28, alpha: 1),   // olive green
+            dark: NSColor(red: 0.50, green: 0.75, blue: 0.35, alpha: 1)     // phosphor green
+        ),
+        database: ThemeColorPair(
+            light: NSColor(red: 0.75, green: 0.50, blue: 0.25, alpha: 1),   // warm amber
+            dark: NSColor(red: 0.90, green: 0.65, blue: 0.35, alpha: 1)
+        ),
+        ssh: ThemeColorPair(
+            light: NSColor(red: 0.52, green: 0.35, blue: 0.55, alpha: 1),   // muted plum
+            dark: NSColor(red: 0.68, green: 0.50, blue: 0.72, alpha: 1)
+        ),
+        orbstack: ThemeColorPair(
+            light: NSColor(red: 0.40, green: 0.45, blue: 0.62, alpha: 1),   // dusty blue
+            dark: NSColor(red: 0.55, green: 0.62, blue: 0.80, alpha: 1)
+        ),
+        proxy: ThemeColorPair(
+            light: NSColor(red: 0.52, green: 0.35, blue: 0.55, alpha: 1),
+            dark: NSColor(red: 0.68, green: 0.50, blue: 0.72, alpha: 1)
+        ),
+        connected: ThemeColorPair(
+            light: NSColor(red: 0.35, green: 0.58, blue: 0.30, alpha: 1),   // forest green
+            dark: NSColor(red: 0.40, green: 0.78, blue: 0.32, alpha: 1)     // phosphor green
+        ),
+        connectedBackground: ThemeColorPair(
+            light: NSColor(red: 0.35, green: 0.58, blue: 0.30, alpha: 0.12),
+            dark: NSColor(red: 0.40, green: 0.78, blue: 0.32, alpha: 0.18)
+        ),
+        error: ThemeColorPair(
+            light: NSColor(red: 0.72, green: 0.22, blue: 0.18, alpha: 1),   // burnt red/burgundy
+            dark: NSColor(red: 0.90, green: 0.38, blue: 0.32, alpha: 1)
+        ),
+        warning: ThemeColorPair(
+            light: NSColor(red: 0.80, green: 0.55, blue: 0.15, alpha: 1),   // deep amber
+            dark: NSColor(red: 0.95, green: 0.72, blue: 0.28, alpha: 1)
+        ),
+        accent: ThemeColorPair(
+            light: NSColor(red: 0.65, green: 0.42, blue: 0.18, alpha: 1),   // warm brown accent
+            dark: NSColor(red: 0.85, green: 0.60, blue: 0.28, alpha: 1)     // amber accent
+        ),
+        sponsors: ThemeColorPair(
+            light: NSColor(red: 0.70, green: 0.32, blue: 0.38, alpha: 1),   // dusty rose
+            dark: NSColor(red: 0.88, green: 0.48, blue: 0.52, alpha: 1)
+        ),
+        treeView: ThemeColorPair(
+            light: NSColor(red: 0.45, green: 0.42, blue: 0.62, alpha: 1),   // muted indigo
+            dark: NSColor(red: 0.60, green: 0.58, blue: 0.82, alpha: 1)
+        ),
+        system: ThemeColorPair(
+            light: NSColor(red: 0.52, green: 0.48, blue: 0.42, alpha: 1),   // warm gray
+            dark: NSColor(red: 0.65, green: 0.60, blue: 0.55, alpha: 1)
+        ),
+        userApp: ThemeColorPair(
+            light: NSColor(red: 0.45, green: 0.42, blue: 0.62, alpha: 1),
+            dark: NSColor(red: 0.60, green: 0.58, blue: 0.82, alpha: 1)
+        ),
+        developerTool: ThemeColorPair(
+            light: NSColor(red: 0.75, green: 0.52, blue: 0.18, alpha: 1),   // golden amber
+            dark: NSColor(red: 0.92, green: 0.70, blue: 0.30, alpha: 1)
+        ),
+        other: ThemeColorPair(
+            light: NSColor(red: 0.52, green: 0.48, blue: 0.42, alpha: 0.6),
+            dark: NSColor(red: 0.65, green: 0.60, blue: 0.55, alpha: 0.6)
+        )
+    )
 }
 
 // MARK: - Theme
@@ -487,6 +564,16 @@ enum Theme {
         static var connected: Color { Theme.palette.connected.color }
         static var error: Color { Theme.palette.error.color }
         static var warning: Color { Theme.palette.warning.color }
+    }
+
+    // MARK: - Alert Colors
+
+    enum Alert {
+        static var criticalBackground: Color { Theme.palette.error.color }
+        static let criticalText = Color.white
+        static var dotActive: Color { Theme.palette.connected.color }
+        static var dotWarning: Color { Theme.palette.warning.color }
+        static var dotCritical: Color { Theme.palette.error.color }
     }
 
     // MARK: - Action Colors
@@ -735,10 +822,90 @@ enum Theme {
     enum Size {
         static let statusDotLarge: CGFloat = 8
         static let statusDotSmall: CGFloat = 6
-        static let cornerRadius: CGFloat = 6
+        static let cornerRadius: CGFloat = 8
         static let cornerRadiusSmall: CGFloat = 4
+        static let cornerRadiusLarge: CGFloat = 12
+        static let cornerRadiusPill: CGFloat = 99
         static let sectionIconSize: CGFloat = 14
         static let actionIconSize: CGFloat = 12
         static let badgeIconSize: CGFloat = 11
+        static let hitTargetMin: CGFloat = 24
+    }
+
+    // MARK: - Spacing (8pt grid)
+
+    enum Spacing {
+        static let xs: CGFloat = 4
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        static let lg: CGFloat = 16
+        static let xl: CGFloat = 20
+        static let xxl: CGFloat = 24
+
+        /// Standard content inset from panel/window edges
+        static let contentInset: CGFloat = 12
+        /// Section-level horizontal inset
+        static let sectionInset: CGFloat = 16
+    }
+
+    // MARK: - Opacity Tiers
+
+    enum Opacity {
+        /// Disabled / hidden elements
+        static let disabled: Double = 0.4
+        /// Secondary information
+        static let secondary: Double = 0.6
+        /// Subtle / de-emphasized
+        static let subtle: Double = 0.8
+        /// Hover overlay
+        static let hover: Double = 0.08
+    }
+
+    // MARK: - Liquid Display (Menu Bar Dropdown)
+    // All colors derive from the user's selected theme for consistency.
+
+    enum Liquid {
+        // Surfaces — derived from existing theme surfaces
+        static var panelBackground: Color { Surface.windowBackground }
+        static var cardBackground: Color { Surface.controlBackground }
+        static var cardBorder: Color { Surface.groupedStroke }
+        static var sectionBackground: Color { Surface.groupedFill }
+        static var searchBackground: Color { Surface.headerTint }
+        static var searchBorder: Color { Surface.groupedStroke }
+
+        // Filter chips — use theme accent
+        static var chipBackground: Color { Surface.groupedFill }
+        static var chipSelectedBackground: Color { Badge.accentBackground }
+        static var chipSelectedText: Color { Color.white }
+        static var chipBorder: Color { Surface.groupedStroke }
+
+        // Accent — use the theme's accent color
+        static var accentPurple: Color { Theme.palette.accent.color }
+        static var accentPurpleMuted: Color { Theme.palette.accent.color.opacity(0.12) }
+
+        // Header & branding — use theme accent for icon, primary for text
+        static var headerIcon: Color { Theme.palette.accent.color }
+        static var headerText: Color { Color.primary }
+        static var subtitleText: Color { Color.secondary }
+
+        // Stats
+        static var statLabel: Color { Color.secondary }
+        static var statValue: Color { Color.primary }
+
+        // Badges
+        static var badgeBackground: Color { Surface.headerTint }
+        static var badgeText: Color { Color.primary.opacity(0.8) }
+
+        // Footer
+        static var footerBackground: Color { Surface.chromeTint }
+        static var footerBorder: Color { Surface.groupedStroke }
+
+        // Separator
+        static var separator: Color { Color.primary.opacity(0.08) }
+
+        // Panel sizing
+        static let panelWidth: CGFloat = 420
+        static let panelHeight: CGFloat = 680
+        static let panelCornerRadius: CGFloat = 20
     }
 }

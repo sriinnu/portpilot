@@ -1,15 +1,57 @@
 import SwiftUI
 
-private let menuBarSelectionSpring = Animation.spring(response: 0.26, dampingFraction: 0.84, blendDuration: 0.1)
+private let liquidSpring = Animation.spring(response: 0.26, dampingFraction: 0.84, blendDuration: 0.1)
 
-// MARK: - Protocol Filter for Menu Bar
+private struct PointerButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1.0)
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+    }
+}
+
+/// Smooth heat-map: 0% teal → 50% amber → 100% red
+private func cpuHeatColor(_ usage: Double) -> Color {
+    let t = min(max(usage / 100.0, 0), 1)
+    let r: Double, g: Double, b: Double
+    if t < 0.25 {
+        let p = t / 0.25
+        r = 0.18 + p * 0.12;  g = 0.62 - p * 0.14;  b = 0.70 - p * 0.02
+    } else if t < 0.50 {
+        let p = (t - 0.25) / 0.25
+        r = 0.30 + p * 0.58;  g = 0.48 + p * 0.14;  b = 0.68 - p * 0.52
+    } else if t < 0.75 {
+        let p = (t - 0.50) / 0.25
+        r = 0.88 + p * 0.07;  g = 0.62 - p * 0.22;  b = 0.16 - p * 0.04
+    } else {
+        let p = (t - 0.75) / 0.25
+        r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
+    }
+    return Color(red: r, green: g, blue: b)
+}
+
+private func formatMemory(_ mb: Double) -> String {
+    if mb >= 1024 { return String(format: "%.1f GB", mb / 1024.0) }
+    if mb >= 10 { return String(format: "%.0f MB", mb) }
+    return String(format: "%.1f MB", mb)
+}
+
+// MARK: - Protocol Filter
 enum MenuBarProtocolFilter: String, CaseIterable {
     case all = "All"
     case tcp = "TCP"
     case udp = "UDP"
 }
 
-// MARK: - Menu Bar Dropdown View
+// MARK: - Alert State
+enum AlertState {
+    case normal, warning, critical
+    var isAlert: Bool { self != .normal }
+}
+
+// MARK: - Menu Bar Dropdown View (Liquid Display)
 struct MenuBarDropdownView: View {
     @ObservedObject var viewModel: PortViewModel
     @ObservedObject private var appSettings = AppSettings.shared
@@ -21,1280 +63,829 @@ struct MenuBarDropdownView: View {
 
     @State private var searchText = ""
     @State private var protocolFilter: MenuBarProtocolFilter = .all
-    @State private var showTreeView = false
-    @State private var hideSystemProcesses = false
     @State private var sourceFilter: PortSourceFilter = .all
-    @State private var connectionTypeFilter: ConnectionType? = nil
-    @State private var activeTab: MenuBarTab = .ports
+    @State private var showAllActivity = false
+    @State private var showTreeView = false
+    @State private var showMoreMenu = false
+    @State private var confirmingKillAll = false
 
-    enum MenuBarTab: String, CaseIterable {
-        case ports = "Ports"
-        case sockets = "Sockets"
-        case connections = "Connections"
-        case schedules = "Schedules"
-    }
-
-    private var searchablePorts: [PortProcess] {
-        var result = viewModel.ports
-
-        if hideSystemProcesses {
-            result = result.filter { !ProcessClassifier.shared.isSystemProcess(pid: $0.pid) }
-        }
-
-        if protocolFilter != .all {
-            result = result.filter {
-                $0.protocolName.lowercased() == protocolFilter.rawValue.lowercased()
-            }
-        }
-
-        if !searchText.isEmpty {
-            let query = searchText.lowercased()
-            result = result.filter {
-                $0.command.lowercased().contains(query) ||
-                String($0.port).contains(query) ||
-                String($0.pid).contains(query)
-            }
-        }
-
-        return result
-    }
+    // MARK: - Data
 
     private var filteredPorts: [PortProcess] {
-        var result = searchablePorts
-
+        var result = viewModel.ports.filter { !$0.isUnixSocket }
+        if protocolFilter != .all {
+            result = result.filter { $0.protocolName.lowercased() == protocolFilter.rawValue.lowercased() }
+        }
         if sourceFilter != .all {
             result = result.filter { viewModel.matchesSourceFilter(sourceFilter, for: $0) }
         }
-
-        if let typeFilter = connectionTypeFilter {
-            result = result.filter { viewModel.connectionType(for: $0) == typeFilter }
+        if !searchText.isEmpty {
+            let q = searchText.lowercased()
+            result = result.filter {
+                $0.command.lowercased().contains(q) ||
+                String($0.port).contains(q) ||
+                String($0.pid).contains(q)
+            }
         }
-
         return result
     }
 
-    private var networkPorts: [PortProcess] {
-        filteredPorts.filter { !$0.isUnixSocket }
+    private var socketCount: Int {
+        viewModel.ports.filter { $0.isUnixSocket }.count
     }
 
-    private var socketProcesses: [PortProcess] {
-        filteredPorts.filter { $0.isUnixSocket }
+    private var topActivity: [PortProcess] {
+        let sorted = filteredPorts.sorted { lhs, rhs in
+            let l = (lhs.cpuUsage ?? 0) + (lhs.memoryMB ?? 0)
+            let r = (rhs.cpuUsage ?? 0) + (rhs.memoryMB ?? 0)
+            return l > r
+        }
+        return showAllActivity ? sorted : Array(sorted.prefix(3))
     }
 
-    private var groupedPorts: [(process: String, ports: [PortProcess])] {
+    private var processGroups: [(process: String, ports: [PortProcess], pid: Int)] {
         let dict = Dictionary(grouping: filteredPorts, by: { $0.command })
-        return dict.sorted { $0.key < $1.key }.map { (process: $0.key, ports: $0.value) }
+        return dict
+            .sorted { $0.value.count > $1.value.count }
+            .map { (process: $0.key, ports: $0.value, pid: $0.value.first?.pid ?? 0) }
     }
 
-    private var groupedFilteredPorts: [ConnectionType: [PortProcess]] {
-        Dictionary(grouping: filteredPorts) { viewModel.connectionType(for: $0) }
-    }
+    private var alertState: AlertState { viewModel.alertState }
 
-    private var sourceCounts: [PortSourceFilter: Int] {
-        [
-            .all: searchablePorts.count,
-            .database: searchablePorts.filter { viewModel.matchesSourceFilter(.database, for: $0) }.count,
-            .orbstack: searchablePorts.filter { viewModel.matchesSourceFilter(.orbstack, for: $0) }.count,
-            .tunnels: searchablePorts.filter { viewModel.matchesSourceFilter(.tunnels, for: $0) }.count
-        ]
-    }
+    // MARK: - Body
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search bar + count badge
-            MenuBarSearchHeader(
-                searchText: $searchText
-            )
-
-            // Tab switcher: Ports | Sockets | Connections
-            HStack(spacing: 4) {
-                MenuBarTabButton(
-                    tab: .ports,
-                    count: networkPorts.count,
-                    isActive: activeTab == .ports,
-                    icon: Theme.Icon.portsTab,
-                    onTap: {
-                        withAnimation(menuBarSelectionSpring) { activeTab = .ports }
-                    }
-                )
-                MenuBarTabButton(
-                    tab: .sockets,
-                    count: socketProcesses.count,
-                    isActive: activeTab == .sockets,
-                    icon: Theme.Icon.socketsTab,
-                    onTap: {
-                        withAnimation(menuBarSelectionSpring) { activeTab = .sockets }
-                    }
-                )
-                MenuBarTabButton(
-                    tab: .connections,
-                    count: viewModel.allConnections.count,
-                    isActive: activeTab == .connections,
-                    icon: "network",
-                    onTap: {
-                        withAnimation(menuBarSelectionSpring) { activeTab = .connections }
-                        // Always refresh when switching to Connections tab to ensure fresh data
-                        viewModel.refreshAllConnections()
-                    }
-                )
-                MenuBarTabButton(
-                    tab: .schedules,
-                    count: viewModel.cronjobs.count,
-                    isActive: activeTab == .schedules,
-                    icon: "clock",
-                    onTap: {
-                        withAnimation(menuBarSelectionSpring) { activeTab = .schedules }
-                        // Refresh cronjobs when switching to Schedules tab
-                        viewModel.refreshCronjobs()
-                    }
-                )
+            headerView
+            statsView
+            searchView
+            filterView
+            separatorView
+            scrollContent
+            footerView
+        }
+        .frame(width: Theme.Liquid.panelWidth)
+        .overlay {
+            if showMoreMenu {
+                Color.black.opacity(0.001)
+                    .onTapGesture { showMoreMenu = false }
             }
-            .padding(5)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Theme.Surface.headerTint)
-            )
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
+        }
+        .overlay(alignment: .topTrailing) { moreMenuView }
+        .animation(.easeOut(duration: 0.15), value: showMoreMenu)
+    }
 
-            // Filter pills (only for Ports tab)
-            if activeTab == .ports {
-                MenuBarFilterBar(
-                    protocolFilter: $protocolFilter,
-                    sourceFilter: $sourceFilter,
-                    connectionTypeFilter: $connectionTypeFilter,
-                    hideSystemProcesses: $hideSystemProcesses,
-                    sourceCounts: sourceCounts,
-                    typeCounts: groupedFilteredPorts.mapValues { $0.count }
-                )
-            }
+    // MARK: - Header
 
-            Divider()
-                .padding(.top, 5)
-                .padding(.bottom, 7)
+    private var headerView: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "globe")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundColor(Theme.Liquid.headerIcon)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Theme.Liquid.accentPurpleMuted))
 
-            // Content based on tab
-            Group {
-                if activeTab == .ports {
-                    // Port sections
-                    if networkPorts.isEmpty {
-                        MenuBarEmptyState(
-                            hasSearch: !searchText.isEmpty
-                                || protocolFilter != .all
-                                || sourceFilter != .all
-                                || connectionTypeFilter != nil
-                                || hideSystemProcesses
-                        )
-                    } else if showTreeView {
-                        ScrollView {
-                            VStack(spacing: 2) {
-                                ForEach(groupedPorts.filter { $0.ports.contains(where: { !$0.isUnixSocket }) }, id: \.process) { group in
-                                    let netPorts = group.ports.filter { !$0.isUnixSocket }
-                                    if !netPorts.isEmpty {
-                                        MenuBarTreeSection(
-                                            processName: group.process,
-                                            ports: netPorts,
-                                            onKill: { port in viewModel.killPort(port) },
-                                            onCopy: { port in viewModel.copyPortInfo(port) }
-                                        )
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    } else {
-                        ScrollView {
-                            VStack(spacing: 2) {
-                                ForEach(ConnectionType.allCases) { type in
-                                    let portsForType = (groupedFilteredPorts[type] ?? []).filter { !$0.isUnixSocket }
-                                    if !portsForType.isEmpty {
-                                        MenuBarPortSection(
-                                            title: type.rawValue,
-                                            icon: type.icon,
-                                            iconColor: type.color,
-                                            ports: portsForType,
-                                            onKill: { port in viewModel.killPort(port) },
-                                            onCopy: { port in viewModel.copyPortInfo(port) },
-                                            tunnelDetailProvider: { port in viewModel.tunnelDetail(for: port) },
-                                            tunnelNameProvider: { port in viewModel.tunnelName(for: port) },
-                                            namespaceProvider: type == .kubernetes ? { port in viewModel.kubeNamespace(for: port) } : nil,
-                                            isLocalSection: type == .local,
-                                            statusColor: type.color
-                                        )
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    }
-                } else if activeTab == .connections {
-                    // Connections tab - show established connections grouped by process
-                    if viewModel.isLoadingAllConnections {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Scanning connections...")
-                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if viewModel.allConnections.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: "network")
-                                .font(.system(size: 24))
-                                .foregroundColor(.secondary)
-                            Text("No Active Connections")
-                                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
-                            Text("Active outbound connections appear here")
-                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        // Blocklist warning banner
-                        let blocklistedCount = viewModel.allConnections.filter { $0.isBlocklisted }.count
-                        if blocklistedCount > 0 {
-                            HStack(spacing: 6) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 12))
-                                Text("🚨 \(blocklistedCount) connection(s) to blocklisted host(s)")
-                                    .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
-                                Spacer()
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Theme.Action.kill.opacity(0.9))
-                            )
-                            .padding(.horizontal, 12)
-                            .padding(.top, 4)
-                        }
-                        ScrollView {
-                            VStack(spacing: 2) {
-                                ForEach(viewModel.connectionsGrouped, id: \.processName) { group in
-                                    MenuBarConnectionSection(
-                                        processName: group.processName,
-                                        connections: group.connections,
-                                        totalCount: group.totalCount,
-                                        onKill: { pid in viewModel.killProcess(pid: pid) }
-                                    )
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    }
-                } else if activeTab == .schedules {
-                    // Schedules tab - show cronjobs
-                    if viewModel.isLoadingCronjobs {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Scanning cronjobs...")
-                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if viewModel.cronjobs.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: "clock")
-                                .font(.system(size: 24))
-                                .foregroundColor(.secondary)
-                            Text("No Cronjobs Found")
-                                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
-                            Text("User and system cronjobs appear here")
-                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        ScrollView {
-                            VStack(spacing: 2) {
-                                ForEach(viewModel.cronjobs) { job in
-                                    MenuBarCronjobRow(cronjob: job)
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    }
-                } else {
-                    // Sockets tab - show Unix socket processes with PIDs
-                    if socketProcesses.isEmpty {
-                        VStack(spacing: 8) {
-                            Image(systemName: Theme.Icon.socketsTab)
-                                .font(.system(size: 24))
-                                .foregroundColor(.secondary)
-                            Text("No App Sockets")
-                                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
-                            Text("Local app daemons with Unix sockets appear here")
-                                .font(appSettings.appFont(size: appSettings.fontSize - 1))
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        ScrollView {
-                            VStack(spacing: 2) {
-                                ForEach(socketProcesses, id: \.id) { proc in
-                                    MenuBarSocketRow(
-                                        process: proc,
-                                        processType: ProcessClassifier.shared.classify(pid: proc.pid),
-                                        onKill: { viewModel.killPort(proc.port) },
-                                        onCopy: { viewModel.copyPortInfo(proc) }
-                                    )
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    }
+            Text("PortPilot")
+                .font(appSettings.appFont(size: 16, weight: .bold))
+                .foregroundColor(Theme.Liquid.headerText)
+
+            Spacer()
+
+            HStack(spacing: 2) {
+                headerBtn(icon: "arrow.clockwise") {
+                    viewModel.refreshPorts()
+                    viewModel.refreshAllConnections()
+                }
+                headerBtn(icon: "gearshape") {
+                    onDismiss()
+                    onOpenSettings()
+                }
+                headerBtn(icon: "ellipsis") {
+                    showMoreMenu.toggle()
                 }
             }
-            .frame(minHeight: 120, maxHeight: 280)
-
-            VStack(spacing: 10) {
-                // I keep command-style actions grouped so the bottom of the popover reads as one system.
-                MenuBarQuickActions(
-                    onRefresh: { viewModel.refreshPorts() },
-                    onToggleTreeView: { showTreeView.toggle() },
-                    isTreeView: showTreeView,
-                    onKillAll: {
-                        let allPorts = Set(viewModel.ports)
-                        viewModel.killSelectedPorts(allPorts)
-                    },
-                    hasActivePorts: !viewModel.ports.isEmpty
-                )
-
-                MenuBarBottomActions(
-                    onOpenMainWindow: {
-                        onDismiss()
-                        onOpenMainWindow()
-                    },
-                    onSettings: {
-                        onDismiss()
-                        onOpenSettings()
-                    },
-                    onQuit: onQuit
-                )
-
-                MenuBarFooterLink(
-                    label: "Sponsor PortPilot",
-                    icon: Theme.Icon.sponsors,
-                    action: {
-                        onDismiss()
-                        onSponsors()
-                    }
-                )
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 14)
         }
-        .frame(width: 380)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
     }
-}
 
-// MARK: - Filter Bar
-struct MenuBarFilterBar: View {
-    @Binding var protocolFilter: MenuBarProtocolFilter
-    @Binding var sourceFilter: PortSourceFilter
-    @Binding var connectionTypeFilter: ConnectionType?
-    @Binding var hideSystemProcesses: Bool
-    let sourceCounts: [PortSourceFilter: Int]
-    let typeCounts: [ConnectionType: Int]
+    private func headerBtn(icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Theme.Liquid.subtitleText)
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(PointerButtonStyle())
+    }
 
-    var body: some View {
+    // MARK: - Stats Line
+
+    private var statsView: some View {
+        HStack(spacing: 0) {
+            statItem(dot: statusDotColor, value: filteredPorts.count, label: "Active", showDot: true)
+            statSeparator
+            statItem(icon: "point.3.connected.trianglepath.dotted", value: socketCount, label: "Sockets")
+            statSeparator
+            statItem(icon: "globe", value: viewModel.allConnections.count, label: "Connections")
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+    }
+
+    private var statusDotColor: Color {
+        switch alertState {
+        case .normal: return Theme.Alert.dotActive
+        case .warning: return Theme.Alert.dotWarning
+        case .critical: return Theme.Alert.dotCritical
+        }
+    }
+
+    private func statItem(dot: Color? = nil, icon: String? = nil, value: Int, label: String, showDot: Bool = false) -> some View {
+        HStack(spacing: 4) {
+            if showDot, let dot = dot {
+                Circle().fill(dot).frame(width: 7, height: 7)
+                    .shadow(color: dot.opacity(0.5), radius: 3)
+            }
+            if let icon = icon {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Theme.Liquid.accentPurple)
+            }
+            Text(verbatim: "\(value)")
+                .font(appSettings.appFont(size: 13, weight: .bold))
+                .foregroundColor(Theme.Liquid.statValue)
+            Text(label)
+                .font(appSettings.appFont(size: 11))
+                .foregroundColor(Theme.Liquid.statLabel)
+        }
+    }
+
+    private var statSeparator: some View {
+        Text("  \u{2022}  ")
+            .font(.system(size: 6))
+            .foregroundColor(Theme.Liquid.statLabel.opacity(0.3))
+    }
+
+    // MARK: - Search
+
+    private var searchView: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Theme.Liquid.subtitleText)
+            TextField("Search ports, pid, process...", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(appSettings.appFont(size: 13))
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.Liquid.subtitleText)
+                }
+                .buttonStyle(PointerButtonStyle())
+            } else {
+                Text("\u{2318}F")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundColor(Theme.Liquid.subtitleText.opacity(0.5))
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.Liquid.chipBackground))
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.Liquid.searchBackground))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.Liquid.searchBorder, lineWidth: 0.5))
+        .padding(.horizontal, 14).padding(.bottom, 8)
+    }
+
+    // MARK: - Filters
+
+    private var filterView: some View {
         VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                filterChip("All", icon: "square.grid.2x2", selected: protocolFilter == .all) {
+                    withAnimation(liquidSpring) { protocolFilter = .all }
+                }
+                filterChip("TCP", selected: protocolFilter == .tcp) {
+                    withAnimation(liquidSpring) { protocolFilter = .tcp }
+                }
+                filterChip("UDP", selected: protocolFilter == .udp) {
+                    withAnimation(liquidSpring) { protocolFilter = .udp }
+                }
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(PortSourceFilter.allCases) { source in
-                        MenuBarSourceFilterChip(
-                            label: source.rawValue,
-                            count: sourceCounts[source] ?? 0,
-                            icon: source.icon,
-                            tint: source.color,
-                            isSelected: sourceFilter == source,
-                            action: {
-                                withAnimation(menuBarSelectionSpring) {
-                                    sourceFilter = source
-                                }
-                            }
-                        )
-                    }
-                }
-                .padding(.horizontal, 1)
-            }
-
-            HStack(spacing: 6) {
-                ForEach(MenuBarProtocolFilter.allCases, id: \.self) { filter in
-                    MenuBarProtocolFilterChip(
-                        label: filter.rawValue,
-                        isSelected: protocolFilter == filter,
-                        action: {
-                            withAnimation(menuBarSelectionSpring) {
-                                protocolFilter = filter
-                            }
+                    ForEach(PortSourceFilter.allCases) { src in
+                        sourceChip(src.rawValue, icon: src.icon, tint: src.color, selected: sourceFilter == src) {
+                            withAnimation(liquidSpring) { sourceFilter = src }
                         }
-                    )
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 4)
-        .padding(.bottom, 6)
-    }
-}
-
-// MARK: - Search Header
-struct MenuBarSearchHeader: View {
-    @Binding var searchText: String
-    @ObservedObject private var appSettings = AppSettings.shared
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: Theme.Icon.search)
-                .foregroundColor(.secondary)
-                .font(.system(size: 12))
-            TextField("Search ports...", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(appSettings.appFont(size: appSettings.fontSize + 1))
-            if !searchText.isEmpty {
-                Button(action: { searchText = "" }) {
-                    Image(systemName: Theme.Icon.clearSearch)
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 11))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Theme.Surface.headerTint)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
-        )
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
-    }
-}
-
-// MARK: - Port Section
-struct MenuBarPortSection: View {
-    let title: String
-    let icon: String
-    let iconColor: Color
-    let ports: [PortProcess]
-    let onKill: (Int) -> Void
-    let onCopy: (PortProcess) -> Void
-    var tunnelDetailProvider: ((PortProcess) -> String?)? = nil
-    var tunnelNameProvider: ((PortProcess) -> String?)? = nil
-    var namespaceProvider: ((PortProcess) -> String)? = nil
-    var isLocalSection: Bool = true
-    var statusColor: Color = Theme.Status.connected
-
-    @ObservedObject private var appSettings = AppSettings.shared
-    @State private var isExpanded = true
-
-    private var namespaceGroups: [(namespace: String, ports: [PortProcess])]? {
-        guard let provider = namespaceProvider else { return nil }
-        let grouped = Dictionary(grouping: ports, by: provider)
-        guard grouped.keys.count > 1 else { return nil }
-        return grouped.sorted { $0.key < $1.key }.map { (namespace: $0.key, ports: $0.value) }
-    }
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
-                HStack(spacing: 6) {
-                    Image(systemName: icon)
-                        .font(.system(size: Theme.Size.sectionIconSize, weight: .medium))
-                        .foregroundColor(iconColor)
-                    Text(title)
-                        .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.6))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                if let groups = namespaceGroups {
-                    ForEach(groups, id: \.namespace) { group in
-                        MenuBarNamespaceSubSection(
-                            namespace: group.namespace,
-                            ports: group.ports,
-                            onKill: onKill,
-                            onCopy: onCopy,
-                            tunnelDetailProvider: tunnelDetailProvider,
-                            tunnelNameProvider: tunnelNameProvider,
-                            isLocal: isLocalSection,
-                            statusColor: statusColor
-                        )
                     }
+                }
+            }
+        }
+        .padding(.horizontal, 14).padding(.bottom, 4)
+    }
+
+    private func filterChip(_ label: String, icon: String? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let icon = icon {
+                    Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+                }
+                Text(label).font(appSettings.appFont(size: 12, weight: .semibold))
+            }
+            .foregroundColor(selected ? .white : Theme.Liquid.subtitleText)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Theme.Liquid.chipSelectedBackground : Theme.Liquid.chipBackground))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Color.white.opacity(0.12) : Theme.Liquid.chipBorder, lineWidth: 0.5))
+        }
+        .buttonStyle(PointerButtonStyle())
+    }
+
+    private func sourceChip(_ label: String, icon: String, tint: Color, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 10, weight: .medium)).foregroundColor(selected ? .white : tint)
+                Text(label).font(appSettings.appFont(size: 11, weight: .medium))
+            }
+            .foregroundColor(selected ? .white : Theme.Liquid.statLabel)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? tint.opacity(0.8) : Theme.Liquid.chipBackground))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? tint.opacity(0.3) : Theme.Liquid.chipBorder, lineWidth: 0.5))
+        }
+        .buttonStyle(PointerButtonStyle())
+    }
+
+    // MARK: - Separator
+
+    private var separatorView: some View {
+        Theme.Liquid.separator.frame(height: 0.5).padding(.horizontal, 16).padding(.vertical, 6)
+    }
+
+    // MARK: - Scrollable Content
+
+    private var scrollContent: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 10) {
+                if showTreeView {
+                    processGroupsSection
                 } else {
-                    ForEach(ports, id: \.id) { port in
-                        MenuBarDropdownPortRow(
-                            port: port,
-                            onKill: { onKill(port.port) },
-                            onCopy: { onCopy(port) },
-                            tunnelDetail: tunnelDetailProvider?(port),
-                            tunnelName: tunnelNameProvider?(port),
-                            isLocal: isLocalSection,
-                            statusColor: statusColor
-                        )
+                    topActivitySection
+                    connectionTypeSection
+                }
+                schedulesSection
+                emptySection
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+        }
+        .frame(minHeight: 160, maxHeight: 340)
+        .onAppear { viewModel.refreshCronjobs() }
+    }
+
+    // MARK: Top Activity
+
+    @ViewBuilder
+    private var topActivitySection: some View {
+        let activity = topActivity
+        if !activity.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Theme.Liquid.accentPurple)
+                    Text("Top Activity")
+                        .font(appSettings.appFont(size: 13, weight: .semibold))
+                        .foregroundColor(Theme.Liquid.headerText)
+                    Spacer()
+                    Button {
+                        withAnimation(liquidSpring) { showAllActivity.toggle() }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(showAllActivity ? "Show Less" : "See All")
+                                .font(appSettings.appFont(size: 11, weight: .medium))
+                            Image(systemName: showAllActivity ? "chevron.up" : "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundColor(Theme.Liquid.accentPurple)
+                    }
+                    .buttonStyle(PointerButtonStyle())
+                }
+
+                ForEach(activity, id: \.id) { port in
+                    LiquidPortRow(
+                        port: port,
+                        onKill: { viewModel.killPort(port.port) },
+                        onCopy: { viewModel.copyPortInfo(port) }
+                    )
+                }
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.Liquid.sectionBackground))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.Liquid.cardBorder, lineWidth: 0.5))
+        }
+    }
+
+    // MARK: Connection Type Groups (List View)
+
+    @ViewBuilder
+    private var connectionTypeSection: some View {
+        let grouped = Dictionary(grouping: filteredPorts) { viewModel.connectionType(for: $0) }
+        ForEach(ConnectionType.allCases) { type in
+            let portsForType = grouped[type] ?? []
+            if !portsForType.isEmpty {
+                LiquidConnectionTypeSection(
+                    type: type,
+                    ports: portsForType,
+                    viewModel: viewModel
+                )
+            }
+        }
+    }
+
+    // MARK: Process Groups (Tree View)
+
+    @ViewBuilder
+    private var processGroupsSection: some View {
+        let groups = processGroups
+        if !groups.isEmpty {
+            LiquidProcessSection(
+                title: "Local Processes",
+                icon: "folder.fill",
+                groups: groups,
+                totalCount: filteredPorts.count,
+                viewModel: viewModel
+            )
+        }
+    }
+
+    // MARK: Schedules (Cronjobs)
+
+    @ViewBuilder
+    private var schedulesSection: some View {
+        if !viewModel.cronjobs.isEmpty {
+            LiquidSchedulesSection(
+                cronjobs: viewModel.cronjobs
+            )
+        }
+    }
+
+    // MARK: Empty State
+
+    @ViewBuilder
+    private var emptySection: some View {
+        if filteredPorts.isEmpty {
+            VStack(spacing: 10) {
+                Image(systemName: searchText.isEmpty && protocolFilter == .all && sourceFilter == .all ? "checkmark.circle" : "magnifyingglass")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundColor(searchText.isEmpty ? Theme.Alert.dotActive : Theme.Liquid.subtitleText)
+                Text(searchText.isEmpty && protocolFilter == .all && sourceFilter == .all ? "No Active Ports" : "No matching ports")
+                    .font(appSettings.appFont(size: 14, weight: .medium))
+                    .foregroundColor(Theme.Liquid.headerText)
+                Text(searchText.isEmpty && protocolFilter == .all && sourceFilter == .all ? "All ports are available" : "Try a different search or filter")
+                    .font(appSettings.appFont(size: 12))
+                    .foregroundColor(Theme.Liquid.subtitleText)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 30)
+        }
+    }
+
+    // MARK: - Footer
+
+    private var footerView: some View {
+        VStack(spacing: 0) {
+            // Open App + Tree View
+            HStack(spacing: 0) {
+                Button {
+                    onDismiss()
+                    onOpenMainWindow()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "macwindow").font(.system(size: 12, weight: .medium))
+                        Text("Open PortPilot App").font(appSettings.appFont(size: 12, weight: .medium))
+                        Text("\u{2318}O").font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundColor(Theme.Liquid.subtitleText.opacity(0.5))
+                    }
+                    .foregroundColor(Theme.Liquid.headerText)
+                    .frame(maxWidth: .infinity).padding(.vertical, 10)
+                }
+                .buttonStyle(PointerButtonStyle())
+
+                Theme.Liquid.separator.frame(width: 0.5, height: 20)
+
+                Button {
+                    withAnimation(liquidSpring) { showTreeView.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: showTreeView ? "list.bullet" : "list.bullet.indent")
+                            .font(.system(size: 12, weight: .medium))
+                        Text(showTreeView ? "List View" : "Tree View")
+                            .font(appSettings.appFont(size: 12, weight: .medium))
+                        Text("\u{2318}T").font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundColor(Theme.Liquid.subtitleText.opacity(0.5))
+                    }
+                    .foregroundColor(showTreeView ? Theme.Liquid.accentPurple : Theme.Liquid.headerText)
+                    .frame(maxWidth: .infinity).padding(.vertical, 10)
+                }
+                .buttonStyle(PointerButtonStyle())
+            }
+            .background(Theme.Liquid.footerBackground)
+            .overlay(alignment: .top) { Theme.Liquid.footerBorder.frame(height: 0.5) }
+
+            // Sponsor link
+            Button {
+                onDismiss()
+                onSponsors()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Theme.Action.sponsors)
+                    Text("Sponsor PortPilot")
+                        .font(appSettings.appFont(size: 12, weight: .medium))
+                        .foregroundColor(Theme.Action.sponsors)
+                    Spacer()
+                    Text("by Sriinnu")
+                        .font(appSettings.appFont(size: 11, weight: .medium))
+                        .foregroundColor(Theme.Liquid.headerText.opacity(0.6))
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+            }
+            .buttonStyle(PointerButtonStyle())
+        }
+    }
+
+    // MARK: - More Menu Overlay
+
+    @ViewBuilder
+    private var moreMenuView: some View {
+        if showMoreMenu {
+            VStack(spacing: 2) {
+                moreItem("Refresh", icon: "arrow.clockwise", shortcut: "R") {
+                    showMoreMenu = false
+                    viewModel.refreshPorts()
+                    viewModel.refreshAllConnections()
+                }
+                if !viewModel.ports.isEmpty {
+                    moreItem(confirmingKillAll ? "Confirm Kill All?" : "Kill All...", icon: confirmingKillAll ? "exclamationmark.triangle.fill" : "xmark.circle", shortcut: "K", tint: Theme.Action.kill) {
+                        if confirmingKillAll {
+                            confirmingKillAll = false
+                            showMoreMenu = false
+                            viewModel.killSelectedPorts(Set(viewModel.ports))
+                        } else {
+                            confirmingKillAll = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { confirmingKillAll = false }
+                        }
                     }
                 }
+                Divider().padding(.horizontal, 8).padding(.vertical, 2)
+                moreItem("Settings", icon: "gearshape", shortcut: ",") {
+                    showMoreMenu = false; onDismiss(); onOpenSettings()
+                }
+                Divider().padding(.horizontal, 8).padding(.vertical, 2)
+                moreItem("Quit", icon: "power", shortcut: "Q") { showMoreMenu = false; onQuit() }
             }
+            .padding(6).frame(width: 210)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Theme.Liquid.cardBackground)
+                    .shadow(color: .black.opacity(0.35), radius: 16, y: 4)
+            )
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.Liquid.cardBorder, lineWidth: 0.5))
+            .padding(.top, 48).padding(.trailing, 14)
+            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topTrailing)))
+            .zIndex(100)
         }
+    }
+
+    private func moreItem(_ label: String, icon: String, shortcut: String? = nil, tint: Color? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 12, weight: .medium))
+                    .foregroundColor(tint ?? Theme.Liquid.subtitleText).frame(width: 16)
+                Text(label).font(appSettings.appFont(size: 13)).foregroundColor(tint ?? Theme.Liquid.headerText)
+                Spacer()
+                if let s = shortcut {
+                    Text("\u{2318}\(s)").font(.system(size: 11, design: .rounded))
+                        .foregroundColor(Theme.Liquid.subtitleText.opacity(0.4))
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PointerButtonStyle())
     }
 }
 
-// MARK: - Namespace Sub-Section (K8s grouping)
-struct MenuBarNamespaceSubSection: View {
-    let namespace: String
-    let ports: [PortProcess]
-    let onKill: (Int) -> Void
-    let onCopy: (PortProcess) -> Void
-    var tunnelDetailProvider: ((PortProcess) -> String?)? = nil
-    var tunnelNameProvider: ((PortProcess) -> String?)? = nil
-    var isLocal: Bool = true
-    var statusColor: Color = Theme.Status.connected
+// MARK: - Port Row (with kill/copy actions)
 
-    @ObservedObject private var appSettings = AppSettings.shared
-    @State private var isExpanded = true
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(Theme.Section.kubernetes.opacity(0.7))
-                    Text(namespace)
-                        .font(appSettings.appFont(size: appSettings.fontSize - 2, weight: .medium))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.5))
-                }
-                .padding(.leading, 24)
-                .padding(.trailing, 12)
-                .padding(.vertical, 4)
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                ForEach(ports, id: \.id) { port in
-                    MenuBarDropdownPortRow(
-                        port: port,
-                        onKill: { onKill(port.port) },
-                        onCopy: { onCopy(port) },
-                        indent: true,
-                        tunnelDetail: tunnelDetailProvider?(port),
-                        tunnelName: tunnelNameProvider?(port),
-                        isLocal: isLocal,
-                        statusColor: statusColor
-                    )
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Tree Section (grouped by process)
-struct MenuBarTreeSection: View {
-    let processName: String
-    let ports: [PortProcess]
-    let onKill: (Int) -> Void
-    let onCopy: (PortProcess) -> Void
-
-    @ObservedObject private var appSettings = AppSettings.shared
-    @State private var isExpanded = true
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "app.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(Theme.Action.treeView)
-                    Text(processName)
-                        .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
-                        .lineLimit(1)
-                    Spacer()
-                    Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.6))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                ForEach(ports, id: \.id) { port in
-                    MenuBarDropdownPortRow(
-                        port: port,
-                        onKill: { onKill(port.port) },
-                        onCopy: { onCopy(port) },
-                        indent: true
-                    )
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Port Row
-struct MenuBarDropdownPortRow: View {
+private struct LiquidPortRow: View {
     let port: PortProcess
     let onKill: () -> Void
     let onCopy: () -> Void
-    var indent: Bool = false
-    var tunnelDetail: String? = nil
-    var tunnelName: String? = nil
-    var isLocal: Bool = true
-    var statusColor: Color = Theme.Status.connected
-
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
 
+    private var portStr: String { ":\(port.port)" }
+    private var pidStr: String { "PID \(port.pid)" }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
+            // Status dot
             Circle()
-                .fill(statusColor)
-                .frame(width: Theme.Size.statusDotLarge, height: Theme.Size.statusDotLarge)
+                .fill(Theme.Alert.dotActive)
+                .frame(width: 8, height: 8)
+                .shadow(color: Theme.Alert.dotActive.opacity(0.4), radius: 3)
 
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    if port.isUnixSocket {
-                        Text("PID \(port.pid)")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize, weight: .medium))
-                    } else {
-                        Text(":\(port.port)")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize, weight: .medium))
-                    }
+            // Port number — verbatim to avoid locale commas
+            Text(verbatim: portStr)
+                .font(appSettings.appMonoFont(size: 13, weight: .bold))
+                .foregroundColor(Theme.Liquid.headerText)
+                .lineLimit(1)
+                .fixedSize()
 
-                    Text(port.protocolName.uppercased())
-                        .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Theme.Surface.headerTint)
-                        .cornerRadius(3)
+            // Protocol badge
+            Text(port.protocolName.uppercased())
+                .font(appSettings.appMonoFont(size: 8, weight: .bold))
+                .foregroundColor(Theme.Liquid.subtitleText)
+                .padding(.horizontal, 4).padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 3).fill(Theme.Liquid.chipBackground))
+                .fixedSize()
 
-                    // CPU badge — always visible, heat-map pill for active, muted for idle
-                    if let cpu = port.cpuUsage {
-                        if cpu > 0.1 {
-                            Text(String(format: "%.1f%%", cpu))
-                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(cpuHeatColor(cpu)))
-                                .shadow(color: cpuHeatColor(cpu).opacity(0.35), radius: 3, y: 1)
-                        } else {
-                            Text("0%")
-                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                                .foregroundColor(.secondary.opacity(0.5))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
-                        }
-                    }
+            // Process name — truncate with more room
+            Text(port.command)
+                .font(appSettings.appFont(size: 11))
+                .foregroundColor(Theme.Liquid.subtitleText)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-                    // Memory badge
-                    if let mem = port.memoryMB {
-                        Text(formatMemory(mem))
-                            .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                            .foregroundColor(.secondary.opacity(0.7))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Capsule().strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1))
-                    }
+            Spacer(minLength: 4)
 
-                    if !indent {
-                        Text(tunnelName ?? port.command)
-                            .font(appSettings.appFont(size: appSettings.fontSize))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                }
+            // PID — verbatim
+            Text(verbatim: pidStr)
+                .font(appSettings.appMonoFont(size: 9))
+                .foregroundColor(Theme.Liquid.subtitleText.opacity(0.6))
+                .fixedSize()
 
-                if let detail = tunnelDetail {
-                    Text(detail)
-                        .font(appSettings.appFont(size: appSettings.fontSize - 2))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                } else if let socketPath = port.socketPath {
-                    Text(socketPath)
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+            // Memory badge
+            if let mem = port.memoryMB {
+                Text(verbatim: formatMemory(mem))
+                    .font(appSettings.appMonoFont(size: 9, weight: .medium))
+                    .foregroundColor(Theme.Liquid.badgeText)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.Liquid.badgeBackground))
+                    .fixedSize()
             }
 
-            Spacer()
-
-            if !isLocal {
-                // Always-visible red "Stop" pill for tunnel rows
-                Button(action: onKill) {
-                    Text("Stop")
-                        .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Theme.Action.kill)
-                        .cornerRadius(10)
-                }
-                .buttonStyle(.plain)
-            } else if isHovered {
-                Button(action: onCopy) {
-                    Image(systemName: Theme.Icon.copy)
-                        .font(.system(size: 11))
-                        .foregroundColor(Theme.Action.treeView)
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-
-                Button(action: onKill) {
-                    Image(systemName: Theme.Icon.kill)
-                        .font(.system(size: 12))
-                        .foregroundColor(Theme.Action.kill)
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-            } else {
-                Text("PID \(port.pid)")
-                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
-                    .foregroundColor(.secondary.opacity(0.7))
-            }
-        }
-        .padding(.leading, indent ? 26 : 14)
-        .padding(.trailing, 14)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isHovered ? Theme.Surface.hover : .clear)
-                .shadow(color: isHovered ? Color.black.opacity(0.07) : .clear, radius: 6, y: 2)
-        )
-        .contentShape(Rectangle())
-        .scaleEffect(isHovered ? 1.008 : 1.0)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.18)) { isHovered = hovering }
-        }
-    }
-
-    private func formatMemory(_ mb: Double) -> String {
-        if mb >= 1024 { return String(format: "%.1fG", mb / 1024.0) }
-        if mb >= 10 { return String(format: "%.0fM", mb) }
-        return String(format: "%.1fM", mb)
-    }
-
-    /// Smooth heat-map: 0% cool teal → 25% blue → 50% amber → 75% orange → 100% red
-    private func cpuHeatColor(_ usage: Double) -> Color {
-        let t = min(max(usage / 100.0, 0), 1)
-        let r: Double, g: Double, b: Double
-        if t < 0.25 {
-            // Teal → Blue
-            let p = t / 0.25
-            r = 0.18 + p * 0.12;  g = 0.62 - p * 0.14;  b = 0.70 - p * 0.02
-        } else if t < 0.50 {
-            // Blue → Amber
-            let p = (t - 0.25) / 0.25
-            r = 0.30 + p * 0.58;  g = 0.48 + p * 0.14;  b = 0.68 - p * 0.52
-        } else if t < 0.75 {
-            // Amber → Orange
-            let p = (t - 0.50) / 0.25
-            r = 0.88 + p * 0.07;  g = 0.62 - p * 0.22;  b = 0.16 - p * 0.04
-        } else {
-            // Orange → Red
-            let p = (t - 0.75) / 0.25
-            r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
-        }
-        return Color(red: r, green: g, blue: b)
-    }
-}
-
-// MARK: - Empty State
-struct MenuBarEmptyState: View {
-    let hasSearch: Bool
-    @ObservedObject private var appSettings = AppSettings.shared
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: hasSearch ? Theme.Icon.search : Theme.Icon.checkmark)
-                .font(.system(size: 24))
-                .foregroundColor(hasSearch ? .secondary : Theme.Status.connected)
-            Text(hasSearch ? "No matching ports" : "No Active Ports")
-                .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .medium))
-            Text(hasSearch ? "Try a different search or filter" : "All ports are available")
-                .font(appSettings.appFont(size: appSettings.fontSize - 1))
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Quick Actions
-struct MenuBarQuickActions: View {
-    let onRefresh: () -> Void
-    let onToggleTreeView: () -> Void
-    let isTreeView: Bool
-    let onKillAll: () -> Void
-    let hasActivePorts: Bool
-
-    @State private var confirmingKillAll = false
-
-    var body: some View {
-        MenuBarActionSection {
-            MenuBarActionButton(
-                label: "Refresh",
-                shortcut: "R",
-                icon: Theme.Icon.refresh,
-                iconColor: Theme.Action.refresh,
-                labelColor: .primary,
-                action: onRefresh
-            )
-
-            MenuBarActionDivider()
-
-            MenuBarActionButton(
-                label: isTreeView ? "List View" : "Tree View",
-                shortcut: "T",
-                icon: isTreeView ? "list.bullet" : Theme.Icon.treeView,
-                iconColor: Theme.Action.treeView,
-                labelColor: .primary,
-                action: onToggleTreeView
-            )
-
-            if hasActivePorts {
-                MenuBarActionDivider()
-
-                MenuBarActionButton(
-                    label: confirmingKillAll ? "Confirm Kill All?" : "Kill All",
-                    shortcut: confirmingKillAll ? "Y" : "K",
-                    icon: confirmingKillAll ? "exclamationmark.triangle.fill" : Theme.Icon.killAll,
-                    iconColor: confirmingKillAll ? .orange : Theme.Action.kill,
-                    labelColor: confirmingKillAll ? .orange : Theme.Action.kill,
-                    action: {
-                        if confirmingKillAll {
-                            confirmingKillAll = false
-                            onKillAll()
-                        } else {
-                            confirmingKillAll = true
-                            // Auto-cancel after 3 seconds
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                                confirmingKillAll = false
-                            }
-                        }
-                    }
-                )
-            }
-        }
-    }
-}
-
-// MARK: - Bottom Actions
-struct MenuBarBottomActions: View {
-    let onOpenMainWindow: () -> Void
-    let onSettings: () -> Void
-    let onQuit: () -> Void
-
-    var body: some View {
-        MenuBarActionSection {
-            MenuBarActionButton(
-                label: "Open PortPilot",
-                shortcut: "O",
-                icon: Theme.Icon.openWindow,
-                iconColor: Theme.Action.treeView,
-                labelColor: .primary,
-                action: onOpenMainWindow
-            )
-
-            MenuBarActionDivider()
-
-            MenuBarActionButton(
-                label: "Settings",
-                shortcut: ",",
-                icon: Theme.Icon.settings,
-                iconColor: .secondary,
-                labelColor: .primary,
-                action: onSettings
-            )
-
-            MenuBarActionButton(
-                label: "Quit",
-                shortcut: "Q",
-                icon: Theme.Icon.quit,
-                iconColor: .secondary,
-                labelColor: .primary,
-                action: onQuit
-            )
-        }
-    }
-}
-
-struct MenuBarSourceFilterChip: View {
-    let label: String
-    let count: Int
-    let icon: String
-    let tint: Color
-    let isSelected: Bool
-    let action: () -> Void
-    @ObservedObject private var appSettings = AppSettings.shared
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(isSelected ? .white : tint)
-                Text(label)
-                    .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
-                if isSelected || label == "All" {
-                    Text("\(count)")
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .bold))
-                        .foregroundColor(isSelected ? Color.white.opacity(0.8) : .secondary.opacity(0.72))
-                }
-            }
-            .foregroundColor(isSelected ? .white : .primary)
-            .padding(.horizontal, 9)
-            .frame(height: 28)
-            .background(isSelected ? Theme.Badge.accentBackground : Theme.Surface.groupedFill)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isSelected ? Color.white.opacity(0.14) : Theme.Surface.groupedStroke, lineWidth: 1)
-            )
-            .cornerRadius(10)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct MenuBarProtocolFilterChip: View {
-    let label: String
-    let isSelected: Bool
-    let action: () -> Void
-    @ObservedObject private var appSettings = AppSettings.shared
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
-                .foregroundColor(isSelected ? .white : .secondary)
-                .padding(.horizontal, 9)
-                .frame(height: 26)
-                .background(isSelected ? Theme.Badge.accentBackground : Theme.Surface.groupedFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(isSelected ? Color.white.opacity(0.14) : Theme.Surface.groupedStroke, lineWidth: 1)
-                )
-                .cornerRadius(9)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct MenuBarUtilityChip: View {
-    let label: String
-    let icon: String
-    let tint: Color
-    let isSelected: Bool
-    let action: () -> Void
-    @ObservedObject private var appSettings = AppSettings.shared
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
-                Text(label)
-                    .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
-            }
-            .foregroundColor(isSelected ? .white : tint)
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .background(isSelected ? tint : Theme.Surface.groupedFill)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isSelected ? Color.white.opacity(0.14) : Theme.Surface.groupedStroke, lineWidth: 1)
-            )
-            .cornerRadius(9)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct MenuBarClearChip: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: Theme.Icon.clearSearch)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.secondary)
-                .frame(width: 28, height: 28)
-                .background(Theme.Surface.groupedFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Theme.Surface.groupedStroke, lineWidth: 1)
-                )
-                .cornerRadius(9)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Action Button
-struct MenuBarActionButton: View {
-    let label: String
-    let shortcut: String
-    let icon: String
-    var iconColor: Color = .primary
-    var labelColor: Color = .primary
-    let action: () -> Void
-
-    @ObservedObject private var appSettings = AppSettings.shared
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: Theme.Size.actionIconSize))
-                    .foregroundColor(iconColor)
-                    .frame(width: 18)
-                Text(label)
-                    .font(appSettings.appFont(size: appSettings.fontSize + 1))
-                    .foregroundColor(labelColor)
-                Spacer()
-                Text("\u{2318}\(shortcut)")
-                    .font(appSettings.appFont(size: appSettings.fontSize - 1))
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 34)
-            .padding(.horizontal, 12)
-            .background(isHovered ? Theme.Surface.rowHover : .clear)
-            .cornerRadius(10)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
-        }
-    }
-}
-
-struct MenuBarActionSection<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(spacing: 0) {
-            content
-        }
-        .padding(5)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Theme.Surface.groupedFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Theme.Surface.groupedStroke, lineWidth: 0.5)
-        )
-    }
-}
-
-struct MenuBarActionDivider: View {
-    var body: some View {
-        Divider()
-            .padding(.leading, 42)
-            .padding(.trailing, 10)
-    }
-}
-
-struct MenuBarFooterLink: View {
-    let label: String
-    let icon: String
-    let action: () -> Void
-
-    @ObservedObject private var appSettings = AppSettings.shared
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
-                Text(label)
-                    .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .medium))
-            }
-            .foregroundColor(isHovered ? Theme.Action.sponsors : .secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 6)
-            .padding(.top, 2)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
-// MARK: - Socket Row (for Sockets tab)
-struct MenuBarSocketRow: View {
-    let process: PortProcess
-    let processType: ProcessType
-    let onKill: () -> Void
-    let onCopy: () -> Void
-
-    @ObservedObject private var appSettings = AppSettings.shared
-    @State private var isHovered = false
-
-    private var typeColor: Color {
-        switch processType {
-        case .system: return Theme.Classification.system
-        case .userApp: return Theme.Classification.userApp
-        case .developerTool: return Theme.Classification.developerTool
-        case .other: return Theme.Classification.other
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(typeColor)
-                .frame(width: Theme.Size.statusDotLarge, height: Theme.Size.statusDotLarge)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(process.command)
-                        .font(appSettings.appFont(size: appSettings.fontSize, weight: .medium))
-                        .lineLimit(1)
-
-                    Text("PID \(process.pid)")
-                        .font(appSettings.appMonoFont(size: 9, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(typeColor.opacity(0.8))
-                        .cornerRadius(4)
-
-                    Text(processType.rawValue)
-                        .font(appSettings.appFont(size: max(appSettings.fontSize - 4, 7), weight: .bold))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Theme.Surface.headerTint)
-                        .cornerRadius(3)
-
-                    if let cpu = process.cpuUsage {
-                        if cpu > 0.1 {
-                            Text(String(format: "%.1f%%", cpu))
-                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(socketCpuHeatColor(cpu)))
-                                .shadow(color: socketCpuHeatColor(cpu).opacity(0.35), radius: 3, y: 1)
-                        } else {
-                            Text("0%")
-                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                                .foregroundColor(.secondary.opacity(0.5))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
-                        }
-                    }
-                }
-
-                if let socketPath = process.socketPath {
-                    Text(socketPath)
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else if let fullCmd = process.fullCommand {
-                    Text(fullCmd)
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+            // CPU badge
+            if let cpu = port.cpuUsage {
+                Text(verbatim: String(format: "%.1f%%", cpu))
+                    .font(appSettings.appMonoFont(size: 9, weight: .bold))
+                    .foregroundColor(cpu > 0.5 ? .white : Theme.Liquid.badgeText)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(cpu > 0.5 ? cpuHeatColor(cpu) : Theme.Liquid.badgeBackground))
+                    .fixedSize()
             }
 
-            Spacer()
-
+            // Actions on hover
             if isHovered {
-                Button(action: onCopy) {
-                    Image(systemName: Theme.Icon.copy)
-                        .font(.system(size: 11))
-                        .foregroundColor(Theme.Action.treeView)
-                }
-                .buttonStyle(.plain)
+                HStack(spacing: 4) {
+                    Button(action: onCopy) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Theme.Liquid.accentPurple)
+                    }
+                    .buttonStyle(PointerButtonStyle())
 
-                Button(action: onKill) {
-                    Image(systemName: Theme.Icon.kill)
-                        .font(.system(size: 12))
-                        .foregroundColor(Theme.Action.kill)
+                    Button(action: onKill) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(Theme.Action.kill)
+                    }
+                    .buttonStyle(PointerButtonStyle())
                 }
-                .buttonStyle(.plain)
+                .transition(.opacity)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(isHovered ? Theme.Surface.hover : .clear)
-        .cornerRadius(Theme.Size.cornerRadiusSmall)
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(isHovered ? Theme.Surface.hover : .clear))
         .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
-        }
-    }
-
-    private func socketCpuHeatColor(_ usage: Double) -> Color {
-        let t = min(max(usage / 100.0, 0), 1)
-        let r: Double, g: Double, b: Double
-        if t < 0.25 {
-            let p = t / 0.25
-            r = 0.18 + p * 0.12;  g = 0.62 - p * 0.14;  b = 0.70 - p * 0.02
-        } else if t < 0.50 {
-            let p = (t - 0.25) / 0.25
-            r = 0.30 + p * 0.58;  g = 0.48 + p * 0.14;  b = 0.68 - p * 0.52
-        } else if t < 0.75 {
-            let p = (t - 0.50) / 0.25
-            r = 0.88 + p * 0.07;  g = 0.62 - p * 0.22;  b = 0.16 - p * 0.04
-        } else {
-            let p = (t - 0.75) / 0.25
-            r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
-        }
-        return Color(red: r, green: g, blue: b)
+        .onHover { h in withAnimation(.easeInOut(duration: 0.15)) { isHovered = h } }
     }
 }
 
-// MARK: - Cronjob Row (for Schedules tab)
-struct MenuBarCronjobRow: View {
-    let cronjob: CronjobEntry
+// MARK: - Process Group Section (expandable, shows ports)
 
+private struct LiquidProcessSection: View {
+    let title: String
+    let icon: String
+    let groups: [(process: String, ports: [PortProcess], pid: Int)]
+    let totalCount: Int
+    @ObservedObject var viewModel: PortViewModel
+    @ObservedObject private var appSettings = AppSettings.shared
+    @State private var isExpanded = true
+    @State private var expandedProcesses: Set<String> = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Section header
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Theme.Liquid.accentPurple)
+                    Text(title)
+                        .font(appSettings.appFont(size: 13, weight: .semibold))
+                        .foregroundColor(Theme.Liquid.headerText)
+                    Text(verbatim: "\(totalCount)")
+                        .font(appSettings.appMonoFont(size: 11, weight: .bold))
+                        .foregroundColor(Theme.Liquid.subtitleText)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Theme.Liquid.badgeBackground))
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Theme.Liquid.subtitleText.opacity(0.5))
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PointerButtonStyle())
+
+            if isExpanded {
+                VStack(spacing: 2) {
+                    ForEach(groups, id: \.process) { group in
+                        processGroupRow(group)
+                    }
+                }
+                .padding(.horizontal, 6).padding(.bottom, 8)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.Liquid.sectionBackground))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.Liquid.cardBorder, lineWidth: 0.5))
+    }
+
+    @ViewBuilder
+    private func processGroupRow(_ group: (process: String, ports: [PortProcess], pid: Int)) -> some View {
+        let expanded = expandedProcesses.contains(group.process)
+
+        VStack(spacing: 0) {
+            // Process header row
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if expanded { expandedProcesses.remove(group.process) }
+                    else { expandedProcesses.insert(group.process) }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(Theme.Liquid.subtitleText.opacity(0.5))
+                        .frame(width: 10)
+
+                    Text(group.process)
+                        .font(appSettings.appFont(size: 12, weight: .medium))
+                        .foregroundColor(Theme.Liquid.headerText)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Text(verbatim: "\(group.ports.count) port\(group.ports.count == 1 ? "" : "s")")
+                        .font(appSettings.appFont(size: 11))
+                        .foregroundColor(Theme.Liquid.subtitleText)
+
+                    Text(verbatim: "PID \(group.pid)")
+                        .font(appSettings.appMonoFont(size: 10))
+                        .foregroundColor(Theme.Liquid.subtitleText.opacity(0.6))
+                }
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PointerButtonStyle())
+
+            // Expanded: show individual ports
+            if expanded {
+                ForEach(group.ports, id: \.id) { port in
+                    LiquidPortRow(
+                        port: port,
+                        onKill: { viewModel.killPort(port.port) },
+                        onCopy: { viewModel.copyPortInfo(port) }
+                    )
+                    .padding(.leading, 16)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Connection Type Section (Local/Database/K8s/etc.)
+
+private struct LiquidConnectionTypeSection: View {
+    let type: ConnectionType
+    let ports: [PortProcess]
+    @ObservedObject var viewModel: PortViewModel
+    @ObservedObject private var appSettings = AppSettings.shared
+    @State private var isExpanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: type.icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(type.color)
+                    Text(type.rawValue)
+                        .font(appSettings.appFont(size: 13, weight: .semibold))
+                        .foregroundColor(Theme.Liquid.headerText)
+                    Text(verbatim: "\(ports.count)")
+                        .font(appSettings.appMonoFont(size: 11, weight: .bold))
+                        .foregroundColor(Theme.Liquid.subtitleText)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Theme.Liquid.badgeBackground))
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Theme.Liquid.subtitleText.opacity(0.5))
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PointerButtonStyle())
+
+            if isExpanded {
+                VStack(spacing: 2) {
+                    ForEach(ports, id: \.id) { port in
+                        LiquidPortRow(
+                            port: port,
+                            onKill: { viewModel.killPort(port.port) },
+                            onCopy: { viewModel.copyPortInfo(port) }
+                        )
+                    }
+                }
+                .padding(.horizontal, 4).padding(.bottom, 8)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.Liquid.sectionBackground))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.Liquid.cardBorder, lineWidth: 0.5))
+    }
+}
+
+// MARK: - Schedules Section
+
+private struct LiquidSchedulesSection: View {
+    let cronjobs: [CronjobEntry]
+    @ObservedObject private var appSettings = AppSettings.shared
+    @State private var isExpanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Theme.Liquid.accentPurple)
+                    Text("Schedules")
+                        .font(appSettings.appFont(size: 13, weight: .semibold))
+                        .foregroundColor(Theme.Liquid.headerText)
+                    Text(verbatim: "\(cronjobs.count)")
+                        .font(appSettings.appMonoFont(size: 11, weight: .bold))
+                        .foregroundColor(Theme.Liquid.subtitleText)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Theme.Liquid.badgeBackground))
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Theme.Liquid.subtitleText.opacity(0.5))
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PointerButtonStyle())
+
+            if isExpanded {
+                VStack(spacing: 2) {
+                    ForEach(cronjobs) { job in
+                        LiquidCronjobRow(cronjob: job)
+                    }
+                }
+                .padding(.horizontal, 6).padding(.bottom, 8)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.Liquid.sectionBackground))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.Liquid.cardBorder, lineWidth: 0.5))
+    }
+}
+
+private struct LiquidCronjobRow: View {
+    let cronjob: CronjobEntry
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
-
-    private var sourceColor: Color {
-        cronjob.source == "user" ? Theme.Classification.userApp : Theme.Classification.system
-    }
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -1302,112 +893,66 @@ struct MenuBarCronjobRow: View {
         return f
     }()
 
+    private var sourceColor: Color {
+        cronjob.source == "user" ? Theme.Classification.userApp : Theme.Classification.system
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            // Schedule info
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(cronjob.scheduleHuman ?? cronjob.schedule)
-                        .font(appSettings.appFont(size: appSettings.fontSize, weight: .medium))
-                        .foregroundColor(.yellow)
+                        .font(appSettings.appFont(size: 12, weight: .medium))
+                        .foregroundColor(Theme.Status.warning)
                         .lineLimit(1)
 
                     if let user = cronjob.user {
                         Text(user)
-                            .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                            .foregroundColor(.blue)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.blue.opacity(0.2))
+                            .font(appSettings.appFont(size: 9, weight: .medium))
+                            .foregroundColor(Theme.Liquid.accentPurple)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Theme.Liquid.accentPurpleMuted)
                             .cornerRadius(3)
                     }
+
+                    // Source badge
+                    Text(cronjob.source == "user" ? "user" : "sys")
+                        .font(appSettings.appFont(size: 8, weight: .bold))
+                        .foregroundColor(sourceColor)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(sourceColor.opacity(0.15))
+                        .cornerRadius(3)
                 }
 
                 Text(cronjob.command)
-                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
-                    .foregroundColor(.secondary)
+                    .font(appSettings.appMonoFont(size: 10))
+                    .foregroundColor(Theme.Liquid.subtitleText)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
 
             Spacer()
 
-            // Next run time
             if let nextRun = cronjob.nextRun {
-                VStack(alignment: .trailing, spacing: 2) {
+                VStack(alignment: .trailing, spacing: 1) {
                     Text("Next")
-                        .font(appSettings.appFont(size: max(appSettings.fontSize - 4, 7)))
-                        .foregroundColor(.secondary)
+                        .font(appSettings.appFont(size: 8))
+                        .foregroundColor(Theme.Liquid.subtitleText)
                     Text(Self.dateFormatter.string(from: nextRun))
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 1, weight: .medium))
-                        .foregroundColor(.cyan)
+                        .font(appSettings.appMonoFont(size: 10, weight: .medium))
+                        .foregroundColor(Theme.Liquid.accentPurple)
                 }
             }
-
-            // Source badge
-            Text(cronjob.source == "user" ? "user" : "sys")
-                .font(appSettings.appFont(size: max(appSettings.fontSize - 4, 7), weight: .bold))
-                .foregroundColor(sourceColor)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(sourceColor.opacity(0.2))
-                .cornerRadius(3)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(isHovered ? Theme.Surface.hover : .clear)
-        .cornerRadius(Theme.Size.cornerRadiusSmall)
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8).fill(isHovered ? Theme.Surface.hover : .clear))
         .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
-        }
+        .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { isHovered = h } }
     }
 }
 
-// MARK: - Tab Button
-struct MenuBarTabButton: View {
-    let tab: MenuBarDropdownView.MenuBarTab
-    let count: Int
-    let isActive: Bool
-    let icon: String
-    let onTap: () -> Void
+// MARK: - Connection Section (kept for compatibility)
 
-    @ObservedObject private var appSettings = AppSettings.shared
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(tab.rawValue)
-                    .font(appSettings.appFont(size: appSettings.fontSize + 1, weight: .semibold))
-                Text("\(count)")
-                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 1, weight: .bold))
-                    .foregroundColor(isActive ? .white.opacity(0.7) : .secondary.opacity(0.6))
-            }
-            .foregroundColor(isActive ? .white : .secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(
-                isActive
-                    ? Theme.Badge.accentBackground
-                    : Color.clear
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(
-                        isActive ? Color.white.opacity(0.14) : Color.clear,
-                        lineWidth: 1
-                    )
-            )
-            .cornerRadius(12)
-            .animation(menuBarSelectionSpring, value: isActive)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Connection Section (grouped by process)
 struct MenuBarConnectionSection: View {
     let processName: String
     let connections: [EstablishedConnection]
@@ -1417,63 +962,28 @@ struct MenuBarConnectionSection: View {
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isExpanded = true
 
-    private var isSuspicious: Bool { totalCount > 50 }
-    private var hasBlocklisted: Bool { connections.contains { $0.isBlocklisted } }
-
     var body: some View {
         VStack(spacing: 2) {
-            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
+            Button { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "network")
-                        .font(.system(size: 11))
-                        .foregroundColor(hasBlocklisted || isSuspicious ? Theme.Action.kill : Theme.Action.treeView)
-                    Text(processName)
-                        .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
-                        .foregroundColor(hasBlocklisted || isSuspicious ? Theme.Action.kill : .primary)
-                    if hasBlocklisted {
-                        Text("🚨 \(totalCount)")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Theme.Action.kill)
-                            .cornerRadius(8)
-                    } else if isSuspicious {
-                        Text("⚠️ \(totalCount)")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Theme.Action.kill)
-                            .cornerRadius(8)
-                    } else {
-                        Text("\(totalCount)")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
+                    Image(systemName: "network").font(.system(size: 11)).foregroundColor(Theme.Action.treeView)
+                    Text(processName).font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
+                    Text(verbatim: "\(totalCount)").font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .medium)).foregroundColor(.secondary)
                     Spacer()
-                    Image(systemName: isExpanded ? Theme.Icon.chevronDown : Theme.Icon.chevronRight)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.6))
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .medium)).foregroundColor(.secondary.opacity(0.6))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 12).padding(.vertical, 6)
             }
-            .buttonStyle(.plain)
-
+            .buttonStyle(PointerButtonStyle())
             if isExpanded {
                 ForEach(connections, id: \.id) { conn in
-                    MenuBarConnectionRow(
-                        connection: conn,
-                        onKill: { onKill(conn.pid) }
-                    )
+                    MenuBarConnectionRow(connection: conn, onKill: { onKill(conn.pid) })
                 }
             }
         }
     }
 }
 
-// MARK: - Connection Row
 struct MenuBarConnectionRow: View {
     let connection: EstablishedConnection
     let onKill: () -> Void
@@ -1483,65 +993,34 @@ struct MenuBarConnectionRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(connection.isBlocklisted ? Theme.Action.kill : Theme.Status.connected)
-                .frame(width: Theme.Size.statusDotLarge, height: Theme.Size.statusDotLarge)
-
+            Circle().fill(connection.isBlocklisted ? Theme.Action.kill : Theme.Status.connected).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(connection.remoteAddress)
                         .font(appSettings.appMonoFont(size: appSettings.fontSize, weight: connection.isBlocklisted ? .bold : .medium))
                         .foregroundColor(connection.isBlocklisted ? Theme.Action.kill : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    if connection.isBlocklisted {
-                        Text("🚨")
-                            .font(.system(size: 9, weight: .bold))
-                    }
-
+                        .lineLimit(1).truncationMode(.middle)
                     Text(connection.state)
                         .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Theme.Surface.headerTint)
-                        .cornerRadius(3)
+                        .foregroundColor(.secondary).padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(Theme.Surface.headerTint).cornerRadius(3)
                 }
-
-                HStack(spacing: 4) {
-                    Text("PID \(connection.pid)")
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .medium))
-                        .foregroundColor(.secondary)
-                    Text(connection.user)
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 2))
-                        .foregroundColor(.secondary.opacity(0.7))
-                }
+                Text(verbatim: "PID \(connection.pid)")
+                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .medium))
+                    .foregroundColor(.secondary)
             }
-
             Spacer()
-
             if isHovered {
                 Button(action: onKill) {
-                    Text("Kill")
-                        .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Theme.Action.kill)
-                        .cornerRadius(10)
+                    Text("Kill").font(appSettings.appFont(size: 9, weight: .semibold)).foregroundColor(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 3).background(Theme.Action.kill).cornerRadius(10)
                 }
-                .buttonStyle(.plain)
-                .transition(.opacity)
+                .buttonStyle(PointerButtonStyle()).transition(.opacity)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(isHovered ? Theme.Surface.hover : .clear)
-        .cornerRadius(Theme.Size.cornerRadiusSmall)
+        .padding(.horizontal, 14).padding(.vertical, 7)
+        .background(isHovered ? Theme.Surface.hover : .clear).cornerRadius(4)
         .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.18)) { isHovered = hovering }
-        }
+        .onHover { h in withAnimation(.easeInOut(duration: 0.18)) { isHovered = h } }
     }
 }

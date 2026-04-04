@@ -39,7 +39,7 @@ struct PortListPanel: View {
                                 processUptime: viewModel.processUptime(for: port),
                                 cpuUsage: port.cpuUsage
                             )
-                            Divider().padding(.leading, 12)
+                            Divider().padding(.leading, Theme.Spacing.contentInset)
                         }
                     }
                 }
@@ -50,7 +50,7 @@ struct PortListPanel: View {
             // Bottom buttons
             PortListFooter(onAdd: onAdd)
         }
-        .frame(minWidth: 220, idealWidth: 260)
+        .frame(minWidth: 300, idealWidth: 340)
         .background(Theme.Surface.controlBackground)
     }
 }
@@ -69,8 +69,8 @@ struct PortListHeader: View {
                 .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
                 .foregroundColor(.secondary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Theme.Spacing.contentInset)
+        .padding(.vertical, Theme.Spacing.sm)
         .background(Theme.Surface.headerTint)
     }
 }
@@ -119,7 +119,7 @@ struct PortListRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.Spacing.sm) {
             // Favorite button
             Button(action: onToggleFavorite) {
                 Image(systemName: isFavorite ? "star.fill" : "star")
@@ -127,8 +127,10 @@ struct PortListRow: View {
                     .foregroundColor(isFavorite ? .yellow : .gray)
             }
             .buttonStyle(.plain)
+            .frame(width: Theme.Size.hitTargetMin, height: Theme.Size.hitTargetMin)
+            .contentShape(Rectangle())
             .help(isFavorite ? "Remove from favorites" : "Add to favorites")
-            .opacity(isFavorite || isHovered || isSelected ? 1 : 0.24)
+            .opacity(isFavorite || isHovered || isSelected ? 1 : Theme.Opacity.disabled)
 
             // Type indicator
             Image(systemName: typeIcon)
@@ -136,26 +138,17 @@ struct PortListRow: View {
                 .foregroundColor(typeColor)
                 .frame(width: 14)
 
-            // Process type badge
-            Text(processType.rawValue)
-                .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .semibold))
-                .foregroundColor(processTypeColor(processType))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(processTypeColor(processType).opacity(0.14))
-                )
-
-            // Port info
+            // Port info — port number is the dominant element
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
+                HStack(spacing: Theme.Spacing.xs) {
                     if port.isUnixSocket {
-                        Text("PID \(port.pid)")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize + 1, weight: .semibold))
+                        Text("PID \(String(port.pid))")
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize + 2, weight: .bold))
+                            .fixedSize()
                     } else {
-                        Text(":\(port.port)")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize + 1, weight: .semibold))
+                        Text(":\(String(port.port))")
+                            .font(appSettings.appMonoFont(size: appSettings.fontSize + 2, weight: .bold))
+                            .fixedSize()
                     }
                     Text(port.protocolName.uppercased())
                         .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
@@ -163,45 +156,64 @@ struct PortListRow: View {
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(Theme.Surface.headerTint)
-                        .cornerRadius(3)
-
-                    // CPU badge — always visible
-                    if let cpu = cpuUsage {
-                        if cpu > 0.1 {
-                            Text(String(format: "%.1f%%", cpu))
-                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(cpuHeatColor(cpu)))
-                                .shadow(color: cpuHeatColor(cpu).opacity(0.35), radius: 3, y: 1)
-                        } else {
-                            Text("0%")
-                                .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                                .foregroundColor(.secondary.opacity(0.5))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
-                        }
-                    }
-
-                    // Memory badge
-                    if let mem = port.memoryMB {
-                        Text(formatMemory(mem))
-                            .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                            .foregroundColor(.secondary.opacity(0.7))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Capsule().strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1))
-                    }
+                        .cornerRadius(Theme.Size.cornerRadiusSmall)
+                        .fixedSize()
                 }
-                Text(tunnelName ?? port.socketPath ?? port.fullCommand ?? port.command)
-                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 1))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+
+                // Second line: process type badge + command name
+                HStack(spacing: Theme.Spacing.xs) {
+                    Text(processType.rawValue)
+                        .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .semibold))
+                        .foregroundColor(processTypeColor(processType))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.Size.cornerRadiusSmall)
+                                .fill(processTypeColor(processType).opacity(0.14))
+                        )
+
+                    Text(tunnelName ?? port.socketPath ?? port.fullCommand ?? port.command)
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 1))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
 
             Spacer()
+
+            // Stats — subtle, right-aligned
+            HStack(spacing: Theme.Spacing.xs) {
+                if let cpu = cpuUsage {
+                    if cpu > 0.1 {
+                        Text(String(format: "%.0f%%", cpu))
+                            .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(cpuHeatColor(cpu)))
+                            .fixedSize()
+                    } else {
+                        Text("0%")
+                            .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
+                            .fixedSize()
+                    }
+                }
+
+                if let mem = port.memoryMB {
+                    Text(formatMemory(mem))
+                        .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Capsule().strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1))
+                        .fixedSize()
+                }
+            }
 
             // Action buttons
             HStack(spacing: 6) {
@@ -210,7 +222,7 @@ struct PortListRow: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary.opacity(0.6))
                     .help(infoTooltip)
-                    .opacity(isHovered || isSelected ? 1 : 0.3)
+                    .opacity(isHovered || isSelected ? 1 : Theme.Opacity.disabled)
 
                 Button(action: onKill) {
                     Image(systemName: Theme.Icon.kill)
@@ -218,25 +230,29 @@ struct PortListRow: View {
                         .foregroundColor(Theme.Action.kill)
                 }
                 .buttonStyle(.plain)
+                .frame(width: Theme.Size.hitTargetMin, height: Theme.Size.hitTargetMin)
+                .contentShape(Rectangle())
                 .help("Kill process")
-
             }
-            .opacity(isHovered || isSelected ? 1 : 0.3)
+            .opacity(isHovered || isSelected ? 1 : Theme.Opacity.disabled)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.horizontal, Theme.Spacing.contentInset)
+        .padding(.vertical, Theme.Spacing.sm)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: Theme.Size.cornerRadius)
                 .fill(isSelected
                     ? Theme.Surface.selected
                     : (isHovered ? Theme.Surface.hover : .clear))
-                .shadow(color: isHovered && !isSelected ? Color.black.opacity(0.06) : .clear, radius: 3, y: 1)
         )
         .contentShape(Rectangle())
-        .scaleEffect(isHovered && !isSelected ? 1.005 : 1.0)
         .onTapGesture { onSelect() }
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.18)) { isHovered = hovering }
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
         }
     }
 
@@ -339,11 +355,11 @@ struct PortListFooter: View {
             }
             .buttonStyle(.plain)
             .help("Import configuration (coming soon)")
-            .opacity(0.72)
+            .opacity(Theme.Opacity.secondary)
 
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Theme.Spacing.contentInset)
+        .padding(.vertical, Theme.Spacing.sm)
     }
 }

@@ -164,6 +164,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         autoRefreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.sharedViewModel.refreshPorts()
+                self?.sharedViewModel.refreshAllConnections()
             }
         }
     }

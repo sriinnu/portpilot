@@ -1,12 +1,20 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Main Tab
+enum MainTab: String, CaseIterable {
+    case ports = "Ports"
+    case schedules = "Schedules"
+}
+
 // MARK: - Content View
 struct ContentView: View {
     @EnvironmentObject var viewModel: PortViewModel
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var showConfirmation = false
     @State private var portToKill: Int?
+    @State private var selectedMainTab: MainTab = .ports
+    @State private var selectedCronjob: CronjobEntry?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,49 +22,72 @@ struct ContentView: View {
             MainWindowToolbar(
                 searchText: $viewModel.searchText,
                 viewModel: viewModel,
-                onRefresh: { viewModel.refreshPorts() },
+                onRefresh: {
+                    if selectedMainTab == .schedules {
+                        viewModel.refreshCronjobs()
+                    } else {
+                        viewModel.refreshPorts()
+                    }
+                },
                 onSettings: {
                     if let delegate = NSApp.delegate as? AppDelegate {
                         delegate.openSettingsWindow()
                     }
                 },
-                isLoading: viewModel.isLoading,
+                isLoading: selectedMainTab == .schedules ? viewModel.isLoadingCronjobs : viewModel.isLoading,
                 portCount: viewModel.portCount,
-                totalCount: viewModel.totalCount
+                totalCount: viewModel.totalCount,
+                selectedMainTab: $selectedMainTab
             )
 
             Divider()
 
             // Main content: HSplitView
             HSplitView {
-                // Left: Port list
-                PortListPanel(
-                    viewModel: viewModel,
-                    selectedPort: $viewModel.selectedPort,
-                    onKill: { port in
-                        if appSettings.confirmBeforeKill {
-                            portToKill = port
-                            showConfirmation = true
-                        } else {
-                            viewModel.killPort(port)
-                        }
-                    },
-                    onAdd: {}
-                )
-                .frame(minWidth: 220, maxWidth: 350)
+                // Left: Port list or Cronjob list
+                if selectedMainTab == .schedules {
+                    CronjobListPanel(
+                        viewModel: viewModel,
+                        selectedCronjob: $selectedCronjob
+                    )
+                    .frame(minWidth: 300, maxWidth: 400)
+                } else {
+                    PortListPanel(
+                        viewModel: viewModel,
+                        selectedPort: $viewModel.selectedPort,
+                        onKill: { port in
+                            if appSettings.confirmBeforeKill {
+                                portToKill = port
+                                showConfirmation = true
+                            } else {
+                                viewModel.killPort(port)
+                            }
+                        },
+                        onAdd: {}
+                    )
+                    .frame(minWidth: 300, maxWidth: 400)
+                }
 
                 // Right: Config + Logs
                 VStack(spacing: 0) {
-                    ConfigurationPanel(
-                        port: viewModel.selectedPort,
-                        viewModel: viewModel
-                    )
+                    if selectedMainTab == .schedules {
+                        CronjobConfigurationPanel(cronjob: selectedCronjob)
+                    } else {
+                        ConfigurationPanel(
+                            port: viewModel.selectedPort,
+                            viewModel: viewModel
+                        )
+                    }
 
                     Divider()
 
-                    LogsPanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
+                    if selectedMainTab == .ports {
+                        LogsPanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
+                    } else {
+                        CronjobLogsPanel(viewModel: viewModel)
+                    }
                 }
-                .frame(minWidth: 400)
+                .frame(minWidth: 400, idealWidth: 500)
             }
         }
         .alert("Kill Process", isPresented: $showConfirmation) {
@@ -147,5 +178,5 @@ struct SuccessToast: View {
 #Preview {
     ContentView()
         .environmentObject(PortViewModel())
-        .frame(width: 900, height: 600)
+        .frame(width: 1000, height: 650)
 }
