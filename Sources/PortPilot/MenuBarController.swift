@@ -429,11 +429,11 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
         var body: String
 
         if blocklistedCount > 0 && suspiciousProcesses.isEmpty {
-            title = "Suspicious Connections Blocked"
-            body = "\(blocklistedCount) connection(s) from blocklisted hosts have been rejected"
+            title = "Blocklisted Connections Detected"
+            body = "\(blocklistedCount) connection(s) from blocklisted hosts have been detected"
         } else if blocklistedCount > 0 {
             title = "Security Alert"
-            body = "\(blocklistedCount) blocklisted + \(suspiciousProcesses.count) suspicious process(es) detected"
+            body = "\(blocklistedCount) blocklisted host match(es) + \(suspiciousProcesses.count) suspicious process(es) detected"
         } else if suspiciousProcesses.count == 1 {
             title = "Bot Activity Suspected"
             body = "\(suspiciousProcesses[0].processName) has \(suspiciousProcesses[0].connectionCount) connections - possible bot"
