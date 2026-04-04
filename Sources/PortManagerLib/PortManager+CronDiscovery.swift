@@ -229,31 +229,120 @@ extension PortManager {
         let monthPart = parts[3]
         let dowPart = parts[4]
 
-        var current = date
-        let maxIterations = 525600
+        let allowedMinutes = parseCronFieldValues(minPart, min: 0, max: 59)
+        let allowedHours = parseCronFieldValues(hourPart, min: 0, max: 23)
+        let allowedMonths = Set(parseCronFieldValues(monthPart, min: 1, max: 12))
 
-        for _ in 0..<maxIterations {
-            current = calendar.date(byAdding: .minute, value: 1, to: current)!
+        guard !allowedMinutes.isEmpty, !allowedHours.isEmpty, !allowedMonths.isEmpty else {
+            return nil
+        }
 
-            let components = calendar.dateComponents([.minute, .hour, .day, .month, .weekday], from: current)
+        guard let searchStart = calendar.date(byAdding: .minute, value: 1, to: date) else {
+            return nil
+        }
 
-            guard let min = components.minute, matchesCronField(min, pattern: minPart) else { continue }
-            guard let hour = components.hour, matchesCronField(hour, pattern: hourPart) else { continue }
-            guard let month = components.month, matchesCronField(month, pattern: monthPart) else { continue }
+        let startComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: searchStart)
+        guard
+            let normalizedStart = calendar.date(from: startComponents),
+            let startHour = startComponents.hour,
+            let startMinute = startComponents.minute
+        else {
+            return nil
+        }
 
-            let domMatches = domPart == "*" || matchesCronField(components.day ?? 0, pattern: domPart)
-            let dowMatches = dowPart == "*" || matchesCronField(components.weekday ?? 0, pattern: dowPart)
+        let startDay = calendar.startOfDay(for: normalizedStart)
+        let maxDaysToSearch = 366
 
-            if (domPart == "*" && dowPart == "*") || (domMatches && dowMatches) || (domMatches && dowPart == "*") || (domPart == "*" && dowMatches) {
-                var finalComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: current)
+        for dayOffset in 0..<maxDaysToSearch {
+            guard let candidateDay = calendar.date(byAdding: .day, value: dayOffset, to: startDay) else {
+                continue
+            }
+
+            let dayComponents = calendar.dateComponents([.year, .month, .day, .weekday], from: candidateDay)
+            guard
+                let year = dayComponents.year,
+                let month = dayComponents.month,
+                let day = dayComponents.day
+            else {
+                continue
+            }
+
+            guard allowedMonths.contains(month) else { continue }
+
+            let domMatches = domPart == "*" || matchesCronField(day, pattern: domPart)
+            let dowMatches = dowPart == "*" || matchesCronField(dayComponents.weekday ?? 0, pattern: dowPart)
+
+            if !((domPart == "*" && dowPart == "*") || (domMatches && dowMatches) || (domMatches && dowPart == "*") || (domPart == "*" && dowMatches)) {
+                continue
+            }
+
+            let isStartDay = calendar.isDate(candidateDay, inSameDayAs: normalizedStart)
+
+            for hour in allowedHours {
+                if isStartDay && hour < startHour { continue }
+
+                let minimumMinute = (isStartDay && hour == startHour) ? startMinute : 0
+                guard let minute = allowedMinutes.first(where: { $0 >= minimumMinute }) else {
+                    continue
+                }
+
+                var finalComponents = DateComponents()
+                finalComponents.year = year
+                finalComponents.month = month
+                finalComponents.day = day
+                finalComponents.hour = hour
+                finalComponents.minute = minute
                 finalComponents.second = 0
-                return calendar.date(from: finalComponents)
+
+                if let nextRun = calendar.date(from: finalComponents) {
+                    return nextRun
+                }
             }
         }
 
         return nil
     }
 
+    /// Parse a cron field into sorted allowed values (supports *, */n, n, n-m, n,m)
+    func parseCronFieldValues(_ pattern: String, min: Int, max: Int) -> [Int] {
+        guard min <= max else { return [] }
+
+        if pattern == "*" {
+            return Array(min...max)
+        }
+
+        if pattern.contains(",") {
+            let listParts = pattern.split(separator: ",").map(String.init)
+            let values = Set(listParts.flatMap { parseCronFieldValues($0, min: min, max: max) })
+            return values.sorted()
+        }
+
+        if pattern.hasPrefix("*/") {
+            guard let step = Int(String(pattern.dropFirst(2))), step > 0 else { return [] }
+            return stride(from: min, through: max, by: step).map { $0 }
+        }
+
+        if pattern.contains("-") {
+            let rangeParts = pattern.split(separator: "-").map(String.init)
+            guard rangeParts.count == 2,
+                  let lowerBound = Int(rangeParts[0]),
+                  let upperBound = Int(rangeParts[1]) else {
+                return []
+            }
+
+            let clampedLowerBound = Swift.max(lowerBound, min)
+            let clampedUpperBound = Swift.min(upperBound, max)
+            guard clampedLowerBound <= clampedUpperBound else { return [] }
+
+            return Array(clampedLowerBound...clampedUpperBound)
+        }
+
+        if let intValue = Int(pattern), intValue >= min, intValue <= max {
+            return [intValue]
+        }
+
+        return []
+    }
     /// Match a cron field value against a pattern (supports *, */n, n, n-m, n,m)
     func matchesCronField(_ value: Int, pattern: String) -> Bool {
         if pattern == "*" { return true }
