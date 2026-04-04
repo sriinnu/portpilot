@@ -75,7 +75,10 @@ extension PortManager {
         if fileManager.fileExists(atPath: dir + "/composer.json") { return "PHP" }
 
         // .NET/C#
-        if fileManager.fileExists(atPath: dir + "/.csproj") { return ".NET" }
+        if let entries = try? fileManager.contentsOfDirectory(atPath: dir),
+           entries.contains(where: { $0.hasSuffix(".csproj") || $0.hasSuffix(".fsproj") || $0.hasSuffix(".vbproj") }) {
+            return ".NET"
+        }
         if fileManager.fileExists(atPath: dir + "/Program.cs") { return ".NET" }
 
         // Laravel specific
