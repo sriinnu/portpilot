@@ -340,10 +340,38 @@ struct ProcessTreeView: TUIScreen {
         }
     }
 
+    private func toggleExpansionState(forPID pid: Int, in node: inout ProcessTreeNode) -> Bool {
+        if node.process.pid == pid {
+            guard !node.children.isEmpty else { return true }
+            node.isExpanded.toggle()
+            return true
+        }
+
+        for index in node.children.indices {
+            if toggleExpansionState(forPID: pid, in: &node.children[index]) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func toggleExpansionState(forPID pid: Int, in node: inout ProcessTreeNode?) -> Bool {
+        guard node != nil else { return false }
+        return toggleExpansionState(forPID: pid, in: &node!)
+    }
+
     private mutating func toggleExpansion() {
         guard selectedIndex < flattenedNodes.count else { return }
-        flattenedNodes[selectedIndex].isExpanded.toggle()
+
+        let selectedPID = flattenedNodes[selectedIndex].process.pid
+        guard toggleExpansionState(forPID: selectedPID, in: &rootNode) else { return }
+
         flattenTree()
+
+        if let updatedIndex = flattenedNodes.firstIndex(where: { $0.process.pid == selectedPID }) {
+            selectedIndex = updatedIndex
+        }
     }
 
     mutating func onResize(width: Int, height: Int) {
