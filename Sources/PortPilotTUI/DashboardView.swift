@@ -127,20 +127,22 @@ struct DashboardView {
         // ═══════════════════════════════════════════════════════════════
 
         let cardWidth = (width - 6) / 4
-        renderSummaryCard(into: &screen, row: row, col: 1, width: cardWidth,
-                         title: "PROCESSES", value: "\(metrics.totalProcesses)",
-                         icon: "◉", color: colors.primary)
-        renderSummaryCard(into: &screen, row: row, col: 2 + cardWidth, width: cardWidth,
-                         title: "PORTS", value: "\(metrics.totalPorts)",
-                         icon: "●", color: colors.secondary)
-        renderSummaryCard(into: &screen, row: row, col: 3 + cardWidth * 2, width: cardWidth,
-                         title: "CONNECTIONS", value: "\(metrics.totalConnections)",
-                         icon: "◆", color: colors.accent)
-        renderSummaryCard(into: &screen, row: row, col: 4 + cardWidth * 3, width: cardWidth,
-                         title: "SOCKETS", value: "\(metrics.totalSockets)",
-                         icon: "○", color: colors.success)
+        if cardWidth >= 2 {
+            renderSummaryCard(into: &screen, row: row, col: 1, width: cardWidth,
+                             title: "PROCESSES", value: "\(metrics.totalProcesses)",
+                             icon: "◉", color: colors.primary)
+            renderSummaryCard(into: &screen, row: row, col: 2 + cardWidth, width: cardWidth,
+                             title: "PORTS", value: "\(metrics.totalPorts)",
+                             icon: "●", color: colors.secondary)
+            renderSummaryCard(into: &screen, row: row, col: 3 + cardWidth * 2, width: cardWidth,
+                             title: "CONNECTIONS", value: "\(metrics.totalConnections)",
+                             icon: "◆", color: colors.accent)
+            renderSummaryCard(into: &screen, row: row, col: 4 + cardWidth * 3, width: cardWidth,
+                             title: "SOCKETS", value: "\(metrics.totalSockets)",
+                             icon: "○", color: colors.success)
 
-        row += 4
+            row += 4
+        }
 
         // ═══════════════════════════════════════════════════════════════
         // CPU & MEMORY USAGE BARS
