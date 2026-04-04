@@ -35,29 +35,72 @@ extension PortManager {
     func getSystemCronjobs() -> [CronjobEntry] {
         var entries: [CronjobEntry] = []
 
-        let cronDirs = ["/etc/crontab", "/etc/cron.d/", "/etc/cron.hourly/", "/etc/cron.daily/", "/etc/cron.weekly/", "/etc/cron.monthly/"]
+        if let content = try? String(contentsOfFile: "/etc/crontab", encoding: .utf8) {
+            entries.append(contentsOf: parseCrontab(output: content, source: "/etc/crontab", user: extractUserFromCrontab(fullPath: "/etc/crontab", line: nil)))
+        }
 
-        for cronPath in cronDirs {
-            if cronPath.hasSuffix("/") {
-                if let files = try? FileManager.default.contentsOfDirectory(atPath: cronPath) {
-                    for file in files {
-                        let fullPath = cronPath + file
-                        if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) {
-                            let source = fullPath
-                            entries.append(contentsOf: parseCrontab(output: content, source: source, user: extractUserFromCrontab(fullPath: fullPath, line: nil)))
-                        }
-                    }
-                }
-            } else {
-                if let content = try? String(contentsOfFile: cronPath, encoding: .utf8) {
-                    entries.append(contentsOf: parseCrontab(output: content, source: cronPath, user: extractUserFromCrontab(fullPath: cronPath, line: nil)))
-                }
+        entries.append(contentsOf: parseCronDirectory("/etc/cron.d/"))
+        entries.append(contentsOf: discoverPeriodicCronScripts(in: "/etc/cron.hourly/", schedule: "0 * * * *"))
+        entries.append(contentsOf: discoverPeriodicCronScripts(in: "/etc/cron.daily/", schedule: "0 0 * * *"))
+        entries.append(contentsOf: discoverPeriodicCronScripts(in: "/etc/cron.weekly/", schedule: "0 0 * * 0"))
+        entries.append(contentsOf: discoverPeriodicCronScripts(in: "/etc/cron.monthly/", schedule: "0 0 1 * *"))
+
+        return entries
+    }
+
+    private func parseCronDirectory(_ cronPath: String) -> [CronjobEntry] {
+        var entries: [CronjobEntry] = []
+
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: cronPath) else {
+            return entries
+        }
+
+        for file in files {
+            let fullPath = cronPath + file
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                continue
+            }
+
+            if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) {
+                entries.append(contentsOf: parseCrontab(output: content, source: fullPath, user: extractUserFromCrontab(fullPath: fullPath, line: nil)))
             }
         }
 
         return entries
     }
 
+    private func discoverPeriodicCronScripts(in cronPath: String, schedule: String) -> [CronjobEntry] {
+        var entries: [CronjobEntry] = []
+
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: cronPath) else {
+            return entries
+        }
+
+        let humanReadable = humanReadableSchedule(schedule)
+
+        for file in files {
+            let fullPath = cronPath + file
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                continue
+            }
+            guard FileManager.default.isExecutableFile(atPath: fullPath) else {
+                continue
+            }
+
+            entries.append(CronjobEntry(
+                command: fullPath,
+                schedule: schedule,
+                scheduleHuman: humanReadable,
+                nextRun: nextCronRun(after: Date(), schedule: schedule),
+                user: "root",
+                source: fullPath
+            ))
+        }
+
+        return entries
+    }
     /// Parse crontab output into CronjobEntry objects
     func parseCrontab(output: String, source: String, user: String?) -> [CronjobEntry] {
         var entries: [CronjobEntry] = []
