@@ -345,11 +345,38 @@ struct DashboardView {
         let colors = theme.colors
         let borders = theme.borders
 
-        let line = String(repeating: borders.horizontal, count: 3)
-        let paddedTitle = " \(title) "
-        let endLine = String(repeating: borders.horizontal, count: width - paddedTitle.count - 7)
+        guard width > 0 else { return }
 
-        screen.put(row: row, col: 0, text: line + paddedTitle + endLine + line, style: theme.fonts.mutedStyle + ANSI.fg(colors.border))
+        let style = theme.fonts.mutedStyle + ANSI.fg(colors.border)
+        let sideLineCount = 3
+        let sideLine = String(repeating: borders.horizontal, count: sideLineCount)
+        let minimumDecoratedWidth = (sideLineCount * 2) + 2 // 3 left + 3 right + spaces around title
+
+        if width < minimumDecoratedWidth {
+            screen.put(
+                row: row,
+                col: 0,
+                text: String(repeating: borders.horizontal, count: width),
+                style: style
+            )
+            return
+        }
+
+        let maxTitleCount = max(0, width - (sideLineCount * 2) - 2)
+        let displayTitle: String
+        if title.count <= maxTitleCount {
+            displayTitle = title
+        } else if maxTitleCount >= 3 {
+            displayTitle = String(title.prefix(maxTitleCount - 3)) + "..."
+        } else {
+            displayTitle = String(title.prefix(maxTitleCount))
+        }
+
+        let paddedTitle = " \(displayTitle) "
+        let endLineCount = max(0, width - paddedTitle.count - (sideLineCount * 2))
+        let endLine = String(repeating: borders.horizontal, count: endLineCount)
+
+        screen.put(row: row, col: 0, text: sideLine + paddedTitle + endLine + sideLine, style: style)
     }
 
     // MARK: - Data Helpers
