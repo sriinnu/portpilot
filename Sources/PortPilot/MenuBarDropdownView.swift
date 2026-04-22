@@ -51,6 +51,208 @@ enum AlertState {
     var isAlert: Bool { self != .normal }
 }
 
+// MARK: - Live Metrics History
+// I sample key counts on a short interval and keep a ring of recent values
+// per metric so the sparklines in the traffic strip (and per-row CPU trails)
+// always animate with real data instead of static placeholders.
+@MainActor
+final class LiveMetricsHistory: ObservableObject {
+    // Ring capacity — ~40 samples * 2s cadence = roughly 80 seconds of history.
+    private let capacity = 40
+    private let sampleInterval: TimeInterval = 2
+
+    @Published private(set) var active: [Double] = []
+    @Published private(set) var sockets: [Double] = []
+    @Published private(set) var connections: [Double] = []
+    @Published private(set) var cpu: [Double] = []
+    @Published private(set) var perPortCPU: [String: [Double]] = [:]
+
+    private weak var viewModel: PortViewModel?
+    private var timer: Timer?
+
+    func start(viewModel: PortViewModel) {
+        self.viewModel = viewModel
+        tick()
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: sampleInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// I snapshot the current viewModel state once and push it onto every ring.
+    private func tick() {
+        guard let vm = viewModel else { return }
+        let activePorts = vm.ports.filter { !$0.isUnixSocket }
+        let socketCount = vm.ports.filter { $0.isUnixSocket }.count
+        let connCount = vm.allConnections.count
+        let totalCPU = activePorts.reduce(0.0) { $0 + ($1.cpuUsage ?? 0) }
+
+        push(&active, Double(activePorts.count))
+        push(&sockets, Double(socketCount))
+        push(&connections, Double(connCount))
+        push(&cpu, totalCPU)
+
+        var updated = perPortCPU
+        var liveIDs = Set<String>()
+        for port in activePorts {
+            liveIDs.insert(port.id)
+            var history = updated[port.id] ?? []
+            push(&history, port.cpuUsage ?? 0)
+            updated[port.id] = history
+        }
+        // Evict history for ports that vanished so the dict doesn't grow forever.
+        for key in updated.keys where !liveIDs.contains(key) {
+            updated.removeValue(forKey: key)
+        }
+        perPortCPU = updated
+    }
+
+    private func push(_ ring: inout [Double], _ value: Double) {
+        ring.append(value)
+        if ring.count > capacity { ring.removeFirst(ring.count - capacity) }
+    }
+
+    func history(for port: PortProcess) -> [Double] {
+        perPortCPU[port.id] ?? []
+    }
+}
+
+// MARK: - Sparkline
+// A minimal, animated line + fill chart. I keep it dependency-free so it works
+// anywhere in the dropdown: tiles, rows, inspector flyout.
+struct Sparkline: View {
+    let values: [Double]
+    var stroke: Color = Theme.Liquid.sparklineStroke
+    var fill: Color = Theme.Liquid.sparklineFill
+    var lineWidth: CGFloat = 1.2
+    var showDot: Bool = true
+
+    var body: some View {
+        GeometryReader { geo in
+            let pts = points(in: geo.size)
+            ZStack {
+                if pts.count >= 2 {
+                    fillPath(pts, size: geo.size).fill(fill)
+                    linePath(pts).stroke(stroke, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+                    if showDot, let last = pts.last {
+                        Circle()
+                            .fill(stroke)
+                            .frame(width: 4, height: 4)
+                            .shadow(color: stroke.opacity(0.6), radius: 2)
+                            .position(last)
+                    }
+                } else {
+                    // Flat baseline for quiet metrics.
+                    Rectangle()
+                        .fill(stroke.opacity(0.3))
+                        .frame(height: 1)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                }
+            }
+        }
+    }
+
+    private func points(in size: CGSize) -> [CGPoint] {
+        guard !values.isEmpty else { return [] }
+        let minV = values.min() ?? 0
+        let maxV = values.max() ?? 1
+        let span = max(maxV - minV, 0.0001)
+        let stepX = values.count > 1 ? size.width / CGFloat(values.count - 1) : 0
+        return values.enumerated().map { idx, v in
+            let x = CGFloat(idx) * stepX
+            let y = size.height - (CGFloat((v - minV) / span) * size.height)
+            return CGPoint(x: x, y: y)
+        }
+    }
+
+    private func linePath(_ pts: [CGPoint]) -> Path {
+        var path = Path()
+        path.move(to: pts[0])
+        for p in pts.dropFirst() { path.addLine(to: p) }
+        return path
+    }
+
+    private func fillPath(_ pts: [CGPoint], size: CGSize) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: pts[0].x, y: size.height))
+        for p in pts { path.addLine(to: p) }
+        path.addLine(to: CGPoint(x: pts[pts.count - 1].x, y: size.height))
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - Live Traffic Strip
+// The top-of-panel monitoring tiles. Four compact cards, each a label / value
+// pair stacked over a sparkline, with a live pulse dot on the most active one.
+struct LiveTrafficStrip: View {
+    let active: Int
+    let sockets: Int
+    let connections: Int
+    let cpu: Double
+    let activeHistory: [Double]
+    let socketsHistory: [Double]
+    let connectionsHistory: [Double]
+    let cpuHistory: [Double]
+    let alertState: AlertState
+
+    @ObservedObject private var appSettings = AppSettings.shared
+
+    var body: some View {
+        HStack(spacing: 8) {
+            tile(label: "Active", value: "\(active)", history: activeHistory, pulse: true, dotColor: pulseDotColor)
+            tile(label: "Sockets", value: "\(sockets)", history: socketsHistory)
+            tile(label: "Conns", value: "\(connections)", history: connectionsHistory)
+            tile(label: "CPU", value: String(format: "%.0f%%", cpu), history: cpuHistory, accent: Theme.Status.warning)
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 10)
+    }
+
+    private var pulseDotColor: Color {
+        switch alertState {
+        case .normal: return Theme.Alert.dotActive
+        case .warning: return Theme.Alert.dotWarning
+        case .critical: return Theme.Alert.dotCritical
+        }
+    }
+
+    private func tile(label: String, value: String, history: [Double], pulse: Bool = false, dotColor: Color = Theme.Liquid.sparklinePulse, accent: Color? = nil) -> some View {
+        let stroke = accent ?? Theme.Liquid.sparklineStroke
+        let fill = (accent ?? Theme.Liquid.sparklineStroke).opacity(0.18)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                if pulse {
+                    Circle()
+                        .fill(dotColor)
+                        .frame(width: 5, height: 5)
+                        .shadow(color: dotColor.opacity(0.6), radius: 2)
+                }
+                Text(label)
+                    .font(appSettings.appFont(size: 9, weight: .semibold))
+                    .foregroundColor(Theme.Liquid.metricLabel)
+                    .textCase(.uppercase)
+                    .tracking(0.4)
+            }
+            Text(value)
+                .font(appSettings.appMonoFont(size: 15, weight: .bold))
+                .foregroundColor(Theme.Liquid.metricValue)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            Sparkline(values: history, stroke: stroke, fill: fill, lineWidth: 1.1)
+                .frame(height: 14)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.Liquid.metricTileBackground))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.Liquid.metricTileStroke, lineWidth: 0.5))
+    }
+}
+
 // MARK: - Menu Bar Dropdown View (Liquid Display)
 struct MenuBarDropdownView: View {
     @ObservedObject var viewModel: PortViewModel
@@ -68,6 +270,7 @@ struct MenuBarDropdownView: View {
     @State private var showTreeView = false
     @State private var showMoreMenu = false
     @State private var confirmingKillAll = false
+    @StateObject private var metrics = LiveMetricsHistory()
 
     // MARK: - Data
 
@@ -117,7 +320,7 @@ struct MenuBarDropdownView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerView
-            statsView
+            liveTrafficView
             searchView
             filterView
             separatorView
@@ -133,6 +336,24 @@ struct MenuBarDropdownView: View {
         }
         .overlay(alignment: .topTrailing) { moreMenuView }
         .animation(.easeOut(duration: 0.15), value: showMoreMenu)
+        .onAppear { metrics.start(viewModel: viewModel) }
+        .onDisappear { metrics.stop() }
+    }
+
+    // MARK: - Live Traffic Strip (replaces the flat stats line)
+
+    private var liveTrafficView: some View {
+        LiveTrafficStrip(
+            active: filteredPorts.count,
+            sockets: socketCount,
+            connections: viewModel.allConnections.count,
+            cpu: filteredPorts.reduce(0.0) { $0 + ($1.cpuUsage ?? 0) },
+            activeHistory: metrics.active,
+            socketsHistory: metrics.sockets,
+            connectionsHistory: metrics.connections,
+            cpuHistory: metrics.cpu,
+            alertState: alertState
+        )
     }
 
     // MARK: - Header
@@ -178,54 +399,6 @@ struct MenuBarDropdownView: View {
                 .frame(width: 30, height: 30)
         }
         .buttonStyle(PointerButtonStyle())
-    }
-
-    // MARK: - Stats Line
-
-    private var statsView: some View {
-        HStack(spacing: 0) {
-            statItem(dot: statusDotColor, value: filteredPorts.count, label: "Active", showDot: true)
-            statSeparator
-            statItem(icon: "point.3.connected.trianglepath.dotted", value: socketCount, label: "Sockets")
-            statSeparator
-            statItem(icon: "globe", value: viewModel.allConnections.count, label: "Connections")
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 10)
-    }
-
-    private var statusDotColor: Color {
-        switch alertState {
-        case .normal: return Theme.Alert.dotActive
-        case .warning: return Theme.Alert.dotWarning
-        case .critical: return Theme.Alert.dotCritical
-        }
-    }
-
-    private func statItem(dot: Color? = nil, icon: String? = nil, value: Int, label: String, showDot: Bool = false) -> some View {
-        HStack(spacing: 4) {
-            if showDot, let dot = dot {
-                Circle().fill(dot).frame(width: 7, height: 7)
-                    .shadow(color: dot.opacity(0.5), radius: 3)
-            }
-            if let icon = icon {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(Theme.Liquid.accentPurple)
-            }
-            Text(verbatim: "\(value)")
-                .font(appSettings.appFont(size: 13, weight: .bold))
-                .foregroundColor(Theme.Liquid.statValue)
-            Text(label)
-                .font(appSettings.appFont(size: 11))
-                .foregroundColor(Theme.Liquid.statLabel)
-        }
-    }
-
-    private var statSeparator: some View {
-        Text("  \u{2022}  ")
-            .font(.system(size: 6))
-            .foregroundColor(Theme.Liquid.statLabel.opacity(0.3))
     }
 
     // MARK: - Search
@@ -376,7 +549,8 @@ struct MenuBarDropdownView: View {
                     LiquidPortRow(
                         port: port,
                         onKill: { viewModel.killPort(port.port) },
-                        onCopy: { viewModel.copyPortInfo(port) }
+                        onCopy: { viewModel.copyPortInfo(port) },
+                        history: metrics.history(for: port)
                     )
                 }
             }
@@ -397,7 +571,8 @@ struct MenuBarDropdownView: View {
                 LiquidConnectionTypeSection(
                     type: type,
                     ports: portsForType,
-                    viewModel: viewModel
+                    viewModel: viewModel,
+                    metrics: metrics
                 )
             }
         }
@@ -414,7 +589,8 @@ struct MenuBarDropdownView: View {
                 icon: "folder.fill",
                 groups: groups,
                 totalCount: filteredPorts.count,
-                viewModel: viewModel
+                viewModel: viewModel,
+                metrics: metrics
             )
         }
     }
@@ -583,6 +759,7 @@ private struct LiquidPortRow: View {
     let port: PortProcess
     let onKill: () -> Void
     let onCopy: () -> Void
+    var history: [Double] = []
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
 
@@ -620,6 +797,19 @@ private struct LiquidPortRow: View {
                 .truncationMode(.tail)
 
             Spacer(minLength: 4)
+
+            // Inline activity trace — a quiet pulse of the row's recent CPU.
+            if history.count >= 2 {
+                Sparkline(
+                    values: history,
+                    stroke: Theme.Liquid.rowSparkline,
+                    fill: Theme.Liquid.rowSparkline.opacity(0.18),
+                    lineWidth: 1.0,
+                    showDot: false
+                )
+                .frame(width: 36, height: 12)
+                .opacity(isHovered ? 0.4 : 1.0)
+            }
 
             // PID — verbatim
             Text(verbatim: pidStr)
@@ -682,6 +872,7 @@ private struct LiquidProcessSection: View {
     let groups: [(process: String, ports: [PortProcess], pid: Int)]
     let totalCount: Int
     @ObservedObject var viewModel: PortViewModel
+    @ObservedObject var metrics: LiveMetricsHistory
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isExpanded = true
     @State private var expandedProcesses: Set<String> = []
@@ -771,7 +962,8 @@ private struct LiquidProcessSection: View {
                     LiquidPortRow(
                         port: port,
                         onKill: { viewModel.killPort(port.port) },
-                        onCopy: { viewModel.copyPortInfo(port) }
+                        onCopy: { viewModel.copyPortInfo(port) },
+                        history: metrics.history(for: port)
                     )
                     .padding(.leading, 16)
                 }
@@ -786,6 +978,7 @@ private struct LiquidConnectionTypeSection: View {
     let type: ConnectionType
     let ports: [PortProcess]
     @ObservedObject var viewModel: PortViewModel
+    @ObservedObject var metrics: LiveMetricsHistory
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isExpanded = true
 
@@ -822,7 +1015,8 @@ private struct LiquidConnectionTypeSection: View {
                         LiquidPortRow(
                             port: port,
                             onKill: { viewModel.killPort(port.port) },
-                            onCopy: { viewModel.copyPortInfo(port) }
+                            onCopy: { viewModel.copyPortInfo(port) },
+                            history: metrics.history(for: port)
                         )
                     }
                 }

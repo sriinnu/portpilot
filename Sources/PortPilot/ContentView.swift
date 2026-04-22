@@ -11,10 +11,12 @@ enum MainTab: String, CaseIterable {
 struct ContentView: View {
     @EnvironmentObject var viewModel: PortViewModel
     @ObservedObject private var appSettings = AppSettings.shared
+    @StateObject private var metrics = LiveMetricsHistory()
     @State private var showConfirmation = false
     @State private var portToKill: Int?
     @State private var selectedMainTab: MainTab = .ports
     @State private var selectedCronjob: CronjobEntry?
+    @State private var inspectorTab: InspectorTab = .overview
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +42,11 @@ struct ContentView: View {
                 selectedMainTab: $selectedMainTab
             )
 
+            // Live traffic strip — only meaningful on the ports tab for now.
+            if selectedMainTab == .ports {
+                MainTrafficStrip(viewModel: viewModel, metrics: metrics)
+            }
+
             Divider()
 
             // Main content: HSplitView
@@ -63,33 +70,46 @@ struct ContentView: View {
                                 viewModel.killPort(port)
                             }
                         },
-                        onAdd: {}
+                        onAdd: {},
+                        metrics: metrics
                     )
-                    .frame(minWidth: 300, maxWidth: 400)
+                    .frame(minWidth: 360, maxWidth: 460)
                 }
 
-                // Right: Config + Logs
+                // Right: Inspector (tabs → Overview | Metrics | Logs)
                 VStack(spacing: 0) {
                     if selectedMainTab == .schedules {
                         CronjobConfigurationPanel(cronjob: selectedCronjob)
-                    } else {
-                        ConfigurationPanel(
-                            port: viewModel.selectedPort,
-                            viewModel: viewModel
-                        )
-                    }
-
-                    Divider()
-
-                    if selectedMainTab == .ports {
-                        LogsPanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
-                    } else {
+                        Divider()
                         CronjobLogsPanel(viewModel: viewModel)
+                    } else {
+                        InspectorTabBar(selection: $inspectorTab)
+                        switch inspectorTab {
+                        case .overview:
+                            ConfigurationPanel(
+                                port: viewModel.selectedPort,
+                                viewModel: viewModel
+                            )
+                        case .metrics:
+                            InspectorMetricsPane(
+                                port: viewModel.selectedPort,
+                                metrics: metrics
+                            )
+                        case .logs:
+                            LogsPanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
+                        }
                     }
                 }
-                .frame(minWidth: 400, idealWidth: 500)
+                .frame(minWidth: 420, idealWidth: 520)
+            }
+
+            // Footer: live status bar — ports tab only, where the metrics mean something.
+            if selectedMainTab == .ports {
+                MainStatusBar(viewModel: viewModel)
             }
         }
+        .onAppear { metrics.start(viewModel: viewModel) }
+        .onDisappear { metrics.stop() }
         .alert("Kill Process", isPresented: $showConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Kill", role: .destructive) {

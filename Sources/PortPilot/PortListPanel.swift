@@ -7,10 +7,13 @@ struct PortListPanel: View {
     @Binding var selectedPort: PortProcess?
     let onKill: (Int) -> Void
     let onAdd: () -> Void
+    /// I accept a shared history source so per-row sparklines render live data.
+    /// Keeping this optional preserves existing call sites while letting ContentView inject it.
+    var metrics: LiveMetricsHistory?
 
     var body: some View {
         VStack(spacing: 0) {
-            // Column headers
+            // Column headers — richer Liquid Glass header with sparkline column
             PortListHeader()
 
             Divider()
@@ -22,7 +25,7 @@ struct PortListPanel: View {
                 })
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: 2) {
                         ForEach(viewModel.filteredPorts, id: \.id) { port in
                             PortListRow(
                                 port: port,
@@ -37,11 +40,12 @@ struct PortListPanel: View {
                                 tunnelName: viewModel.tunnelName(for: port),
                                 parentProcessName: viewModel.parentProcessName(for: port),
                                 processUptime: viewModel.processUptime(for: port),
-                                cpuUsage: port.cpuUsage
+                                cpuUsage: port.cpuUsage,
+                                history: metrics?.history(for: port) ?? []
                             )
-                            Divider().padding(.leading, Theme.Spacing.contentInset)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
             }
 
@@ -56,26 +60,50 @@ struct PortListPanel: View {
 }
 
 // MARK: - Column Headers
+// The deck-style header — narrow fixed columns on the right mirror the row
+// layout so the eye can scan Port → Process → Activity → Stats → Actions.
 struct PortListHeader: View {
     @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
-        HStack {
-            Text("Port")
-                .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
+        HStack(spacing: 6) {
+            Text("PORT")
+                .font(appSettings.appFont(size: 9, weight: .semibold))
+                .tracking(0.8)
+                .foregroundColor(.secondary)
+                .frame(width: 96, alignment: .leading)
+            Text("PROCESS")
+                .font(appSettings.appFont(size: 9, weight: .semibold))
+                .tracking(0.8)
                 .foregroundColor(.secondary)
             Spacer()
-            Text("Actions")
-                .font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
+            Text("ACTIVITY")
+                .font(appSettings.appFont(size: 9, weight: .semibold))
+                .tracking(0.8)
                 .foregroundColor(.secondary)
+                .frame(width: 56, alignment: .trailing)
+            Text("CPU")
+                .font(appSettings.appFont(size: 9, weight: .semibold))
+                .tracking(0.8)
+                .foregroundColor(.secondary)
+                .frame(width: 40, alignment: .trailing)
+            Text("MEM")
+                .font(appSettings.appFont(size: 9, weight: .semibold))
+                .tracking(0.8)
+                .foregroundColor(.secondary)
+                .frame(width: 40, alignment: .trailing)
+            Spacer().frame(width: 56)
         }
         .padding(.horizontal, Theme.Spacing.contentInset)
-        .padding(.vertical, Theme.Spacing.sm)
+        .padding(.vertical, 8)
         .background(Theme.Surface.headerTint)
     }
 }
 
 // MARK: - Port Row
+// Rebuilt for Concept 8's Liquid Glass Control Deck — fixed-column layout,
+// inline activity sparkline, soft hover chrome, and actions that fade in when
+// the row becomes the focus.
 struct PortListRow: View {
     let port: PortProcess
     let isSelected: Bool
@@ -90,6 +118,7 @@ struct PortListRow: View {
     var parentProcessName: String? = nil
     var processUptime: String? = nil
     var cpuUsage: Double? = nil
+    var history: [Double] = []
 
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
@@ -118,136 +147,167 @@ struct PortListRow: View {
         return lines.joined(separator: "\n")
     }
 
+    private var displayName: String {
+        tunnelName ?? port.socketPath ?? port.fullCommand ?? port.command
+    }
+
     var body: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            // Favorite button
-            Button(action: onToggleFavorite) {
-                Image(systemName: isFavorite ? "star.fill" : "star")
-                    .font(.system(size: 11))
-                    .foregroundColor(isFavorite ? .yellow : .gray)
-            }
-            .buttonStyle(.plain)
-            .frame(width: Theme.Size.hitTargetMin, height: Theme.Size.hitTargetMin)
-            .contentShape(Rectangle())
-            .help(isFavorite ? "Remove from favorites" : "Add to favorites")
-            .opacity(isFavorite || isHovered || isSelected ? 1 : Theme.Opacity.disabled)
-
-            // Type indicator
-            Image(systemName: typeIcon)
-                .font(.system(size: 10))
-                .foregroundColor(typeColor)
-                .frame(width: 14)
-
-            // Port info — port number is the dominant element
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: Theme.Spacing.xs) {
-                    if port.isUnixSocket {
-                        Text("PID \(String(port.pid))")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize + 2, weight: .bold))
-                            .fixedSize()
-                    } else {
-                        Text(":\(String(port.port))")
-                            .font(appSettings.appMonoFont(size: appSettings.fontSize + 2, weight: .bold))
-                            .fixedSize()
-                    }
-                    Text(port.protocolName.uppercased())
-                        .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Theme.Surface.headerTint)
-                        .cornerRadius(Theme.Size.cornerRadiusSmall)
-                        .fixedSize()
+        HStack(spacing: 6) {
+            // Status + favorite dot — a single 14-pt column, keeps the row quiet.
+            ZStack {
+                Circle()
+                    .fill(typeColor)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: typeColor.opacity(0.55), radius: 2)
+                    .opacity(isFavorite ? 0 : 1)
+                if isFavorite {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.yellow)
                 }
+            }
+            .frame(width: 14)
+            .onTapGesture { onToggleFavorite() }
+            .help(isFavorite ? "Remove from favorites" : "Add to favorites")
 
-                // Second line: process type badge + command name
-                HStack(spacing: Theme.Spacing.xs) {
+            // Port column — dominant typography, protocol chip sits right under it.
+            VStack(alignment: .leading, spacing: 2) {
+                if port.isUnixSocket {
+                    Text(verbatim: "PID \(port.pid)")
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize + 1, weight: .bold))
+                        .lineLimit(1)
+                } else {
+                    Text(verbatim: ":\(port.port)")
+                        .font(appSettings.appMonoFont(size: appSettings.fontSize + 2, weight: .bold))
+                        .lineLimit(1)
+                }
+                HStack(spacing: 4) {
+                    Image(systemName: typeIcon)
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundColor(typeColor)
+                    Text(port.protocolName.uppercased())
+                        .font(appSettings.appMonoFont(size: 8, weight: .semibold))
+                        .foregroundColor(typeColor)
+                }
+            }
+            .frame(width: 78, alignment: .leading)
+
+            // Process column — classification badge on top, command/tunnel underneath.
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
                     Text(processType.rawValue)
-                        .font(appSettings.appFont(size: max(appSettings.fontSize - 3, 8), weight: .semibold))
+                        .font(appSettings.appFont(size: 9, weight: .semibold))
                         .foregroundColor(processTypeColor(processType))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(
-                            RoundedRectangle(cornerRadius: Theme.Size.cornerRadiusSmall)
+                            RoundedRectangle(cornerRadius: 3)
                                 .fill(processTypeColor(processType).opacity(0.14))
                         )
-
-                    Text(tunnelName ?? port.socketPath ?? port.fullCommand ?? port.command)
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize - 1))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-
-            Spacer()
-
-            // Stats — subtle, right-aligned
-            HStack(spacing: Theme.Spacing.xs) {
-                if let cpu = cpuUsage {
-                    if cpu > 0.1 {
-                        Text(String(format: "%.0f%%", cpu))
-                            .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(cpuHeatColor(cpu)))
-                            .fixedSize()
-                    } else {
-                        Text("0%")
-                            .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                            .foregroundColor(.secondary.opacity(0.5))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Capsule().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1))
-                            .fixedSize()
+                    if let uptime = processUptime {
+                        Text(uptime)
+                            .font(appSettings.appMonoFont(size: 9))
+                            .foregroundColor(.secondary.opacity(0.7))
                     }
                 }
+                Text(displayName)
+                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 1))
+                    .foregroundColor(.primary.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-                if let mem = port.memoryMB {
-                    Text(formatMemory(mem))
-                        .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.7))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Capsule().strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1))
-                        .fixedSize()
+            // Activity sparkline — fixed-width lane so columns align cleanly.
+            Group {
+                if history.count >= 2 {
+                    Sparkline(
+                        values: history,
+                        stroke: Theme.Liquid.rowSparkline,
+                        fill: Theme.Liquid.rowSparkline.opacity(0.2),
+                        lineWidth: 1.0,
+                        showDot: true
+                    )
+                } else {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(height: 1)
+                        .frame(maxHeight: .infinity, alignment: .center)
                 }
             }
+            .frame(width: 56, height: 18)
 
-            // Action buttons
-            HStack(spacing: 6) {
-                // Info indicator with tooltip
+            // CPU chip — compact, colorised above the noise floor.
+            Group {
+                if let cpu = cpuUsage, cpu > 0.1 {
+                    Text(String(format: "%.0f%%", cpu))
+                        .font(appSettings.appMonoFont(size: 9, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Capsule().fill(cpuHeatColor(cpu)))
+                } else {
+                    Text("—")
+                        .font(appSettings.appMonoFont(size: 10, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.45))
+                }
+            }
+            .frame(width: 40, alignment: .trailing)
+
+            // Memory chip.
+            Group {
+                if let mem = port.memoryMB {
+                    Text(formatMemory(mem))
+                        .font(appSettings.appMonoFont(size: 9, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.85))
+                } else {
+                    Text("—")
+                        .font(appSettings.appMonoFont(size: 10, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.45))
+                }
+            }
+            .frame(width: 40, alignment: .trailing)
+
+            // Actions column — info tooltip + kill button, fade in on hover.
+            HStack(spacing: 4) {
                 Image(systemName: "info.circle")
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary.opacity(0.6))
+                    .foregroundColor(.secondary.opacity(0.7))
                     .help(infoTooltip)
-                    .opacity(isHovered || isSelected ? 1 : Theme.Opacity.disabled)
-
                 Button(action: onKill) {
                     Image(systemName: Theme.Icon.kill)
                         .font(.system(size: 13))
                         .foregroundColor(Theme.Action.kill)
                 }
                 .buttonStyle(.plain)
-                .frame(width: Theme.Size.hitTargetMin, height: Theme.Size.hitTargetMin)
-                .contentShape(Rectangle())
                 .help("Kill process")
             }
+            .frame(width: 56, alignment: .trailing)
             .opacity(isHovered || isSelected ? 1 : Theme.Opacity.disabled)
         }
         .padding(.horizontal, Theme.Spacing.contentInset)
-        .padding(.vertical, Theme.Spacing.sm)
+        .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: Theme.Size.cornerRadius)
-                .fill(isSelected
-                    ? Theme.Surface.selected
-                    : (isHovered ? Theme.Surface.hover : .clear))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(
+                    isSelected
+                        ? Theme.Surface.selected
+                        : (isHovered ? Theme.Surface.hover : Color.clear)
+                )
+                .padding(.horizontal, 4)
         )
+        .overlay(alignment: .leading) {
+            // A subtle type-colour rail on the selected row — a deck signature.
+            if isSelected {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(typeColor)
+                    .frame(width: 2)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 4)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.18)) { isHovered = hovering }
+            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
             if hovering {
                 NSCursor.pointingHand.push()
             } else {

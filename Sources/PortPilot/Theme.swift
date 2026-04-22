@@ -907,5 +907,15 @@ enum Theme {
         static let panelWidth: CGFloat = 420
         static let panelHeight: CGFloat = 680
         static let panelCornerRadius: CGFloat = 20
+
+        // Live traffic strip — tile + sparkline chrome for the new header
+        static var metricTileBackground: Color { Surface.groupedFill.opacity(0.85) }
+        static var metricTileStroke: Color { Surface.groupedStroke.opacity(1.1) }
+        static var metricValue: Color { Color.primary }
+        static var metricLabel: Color { Color.secondary }
+        static var sparklineStroke: Color { Theme.palette.accent.color.opacity(0.85) }
+        static var sparklineFill: Color { Theme.palette.accent.color.opacity(0.18) }
+        static var sparklinePulse: Color { Theme.palette.connected.color }
+        static var rowSparkline: Color { Theme.palette.connected.color.opacity(0.75) }
     }
 }
