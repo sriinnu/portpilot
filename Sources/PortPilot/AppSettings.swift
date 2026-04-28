@@ -20,6 +20,10 @@ enum VisualTheme: String, CaseIterable, Identifiable {
     case oceanic = "Oceanic"
     case noir = "Noir"
     case retro = "Retro"
+    case terminal = "Terminal"
+    case paperwhite = "Paperwhite"
+    case synthwave = "Synthwave"
+    case solarized = "Solarized"
 
     var id: String { rawValue }
 
@@ -32,6 +36,10 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .oceanic: return "SF Pro Rounded"
         case .noir: return "Helvetica Neue"
         case .retro: return "American Typewriter"
+        case .terminal: return "Menlo"
+        case .paperwhite: return "Helvetica Neue"
+        case .synthwave: return "Avenir Next"
+        case .solarized: return "System Default"
         }
     }
 
@@ -44,6 +52,10 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .oceanic: return "SF Mono"
         case .noir: return "Fira Code"
         case .retro: return "Courier New"
+        case .terminal: return "Menlo"
+        case .paperwhite: return "Menlo"
+        case .synthwave: return "Menlo"
+        case .solarized: return "Menlo"
         }
     }
 
@@ -56,6 +68,10 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .oceanic: return "Deep and focused"
         case .noir: return "Sharp and minimal"
         case .retro: return "Warm and nostalgic"
+        case .terminal: return "Phosphor green, CRT nights"
+        case .paperwhite: return "Crisp white, editorial calm"
+        case .synthwave: return "Magenta + cyan, late 1984"
+        case .solarized: return "Developer classic, warm cream"
         }
     }
 }

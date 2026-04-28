@@ -2,16 +2,6 @@ import SwiftUI
 
 private let liquidSpring = Animation.spring(response: 0.26, dampingFraction: 0.84, blendDuration: 0.1)
 
-private struct PointerButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.7 : 1.0)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
-    }
-}
-
 /// Smooth heat-map: 0% teal → 50% amber → 100% red
 private func cpuHeatColor(_ usage: Double) -> Color {
     let t = min(max(usage / 100.0, 0), 1)
@@ -45,11 +35,9 @@ enum MenuBarProtocolFilter: String, CaseIterable {
     case udp = "UDP"
 }
 
-// MARK: - Alert State
-enum AlertState {
-    case normal, warning, critical
-    var isAlert: Bool { self != .normal }
-}
+// AlertState, LiveMetricsHistory, Sparkline, LiveTrafficStrip, and
+// PointerButtonStyle now live under Sources/PortPilot/Liquid/ as modular
+// reusable components shared with the main window.
 
 // MARK: - Menu Bar Dropdown View (Liquid Display)
 struct MenuBarDropdownView: View {
@@ -68,6 +56,7 @@ struct MenuBarDropdownView: View {
     @State private var showTreeView = false
     @State private var showMoreMenu = false
     @State private var confirmingKillAll = false
+    @StateObject private var metrics = LiveMetricsHistory()
 
     // MARK: - Data
 
@@ -117,7 +106,7 @@ struct MenuBarDropdownView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerView
-            statsView
+            liveTrafficView
             searchView
             filterView
             separatorView
@@ -133,6 +122,24 @@ struct MenuBarDropdownView: View {
         }
         .overlay(alignment: .topTrailing) { moreMenuView }
         .animation(.easeOut(duration: 0.15), value: showMoreMenu)
+        .onAppear { metrics.start(viewModel: viewModel) }
+        .onDisappear { metrics.stop() }
+    }
+
+    // MARK: - Live Traffic Strip (replaces the flat stats line)
+
+    private var liveTrafficView: some View {
+        LiveTrafficStrip(
+            active: filteredPorts.count,
+            sockets: socketCount,
+            connections: viewModel.allConnections.count,
+            cpu: filteredPorts.reduce(0.0) { $0 + ($1.cpuUsage ?? 0) },
+            activeHistory: metrics.active,
+            socketsHistory: metrics.sockets,
+            connectionsHistory: metrics.connections,
+            cpuHistory: metrics.cpu,
+            alertState: alertState
+        )
     }
 
     // MARK: - Header
@@ -178,54 +185,6 @@ struct MenuBarDropdownView: View {
                 .frame(width: 30, height: 30)
         }
         .buttonStyle(PointerButtonStyle())
-    }
-
-    // MARK: - Stats Line
-
-    private var statsView: some View {
-        HStack(spacing: 0) {
-            statItem(dot: statusDotColor, value: filteredPorts.count, label: "Active", showDot: true)
-            statSeparator
-            statItem(icon: "point.3.connected.trianglepath.dotted", value: socketCount, label: "Sockets")
-            statSeparator
-            statItem(icon: "globe", value: viewModel.allConnections.count, label: "Connections")
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 10)
-    }
-
-    private var statusDotColor: Color {
-        switch alertState {
-        case .normal: return Theme.Alert.dotActive
-        case .warning: return Theme.Alert.dotWarning
-        case .critical: return Theme.Alert.dotCritical
-        }
-    }
-
-    private func statItem(dot: Color? = nil, icon: String? = nil, value: Int, label: String, showDot: Bool = false) -> some View {
-        HStack(spacing: 4) {
-            if showDot, let dot = dot {
-                Circle().fill(dot).frame(width: 7, height: 7)
-                    .shadow(color: dot.opacity(0.5), radius: 3)
-            }
-            if let icon = icon {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(Theme.Liquid.accentPurple)
-            }
-            Text(verbatim: "\(value)")
-                .font(appSettings.appFont(size: 13, weight: .bold))
-                .foregroundColor(Theme.Liquid.statValue)
-            Text(label)
-                .font(appSettings.appFont(size: 11))
-                .foregroundColor(Theme.Liquid.statLabel)
-        }
-    }
-
-    private var statSeparator: some View {
-        Text("  \u{2022}  ")
-            .font(.system(size: 6))
-            .foregroundColor(Theme.Liquid.statLabel.opacity(0.3))
     }
 
     // MARK: - Search
@@ -376,7 +335,8 @@ struct MenuBarDropdownView: View {
                     LiquidPortRow(
                         port: port,
                         onKill: { viewModel.killPort(port.port) },
-                        onCopy: { viewModel.copyPortInfo(port) }
+                        onCopy: { viewModel.copyPortInfo(port) },
+                        history: metrics.history(for: port)
                     )
                 }
             }
@@ -397,7 +357,8 @@ struct MenuBarDropdownView: View {
                 LiquidConnectionTypeSection(
                     type: type,
                     ports: portsForType,
-                    viewModel: viewModel
+                    viewModel: viewModel,
+                    metrics: metrics
                 )
             }
         }
@@ -414,7 +375,8 @@ struct MenuBarDropdownView: View {
                 icon: "folder.fill",
                 groups: groups,
                 totalCount: filteredPorts.count,
-                viewModel: viewModel
+                viewModel: viewModel,
+                metrics: metrics
             )
         }
     }
@@ -583,6 +545,7 @@ private struct LiquidPortRow: View {
     let port: PortProcess
     let onKill: () -> Void
     let onCopy: () -> Void
+    var history: [Double] = []
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isHovered = false
 
@@ -620,6 +583,19 @@ private struct LiquidPortRow: View {
                 .truncationMode(.tail)
 
             Spacer(minLength: 4)
+
+            // Inline activity trace — a quiet pulse of the row's recent CPU.
+            if history.count >= 2 {
+                Sparkline(
+                    values: history,
+                    stroke: Theme.Liquid.rowSparkline,
+                    fill: Theme.Liquid.rowSparkline.opacity(0.18),
+                    lineWidth: 1.0,
+                    showDot: false
+                )
+                .frame(width: 36, height: 12)
+                .opacity(isHovered ? 0.4 : 1.0)
+            }
 
             // PID — verbatim
             Text(verbatim: pidStr)
@@ -682,6 +658,7 @@ private struct LiquidProcessSection: View {
     let groups: [(process: String, ports: [PortProcess], pid: Int)]
     let totalCount: Int
     @ObservedObject var viewModel: PortViewModel
+    @ObservedObject var metrics: LiveMetricsHistory
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isExpanded = true
     @State private var expandedProcesses: Set<String> = []
@@ -771,7 +748,8 @@ private struct LiquidProcessSection: View {
                     LiquidPortRow(
                         port: port,
                         onKill: { viewModel.killPort(port.port) },
-                        onCopy: { viewModel.copyPortInfo(port) }
+                        onCopy: { viewModel.copyPortInfo(port) },
+                        history: metrics.history(for: port)
                     )
                     .padding(.leading, 16)
                 }
@@ -786,6 +764,7 @@ private struct LiquidConnectionTypeSection: View {
     let type: ConnectionType
     let ports: [PortProcess]
     @ObservedObject var viewModel: PortViewModel
+    @ObservedObject var metrics: LiveMetricsHistory
     @ObservedObject private var appSettings = AppSettings.shared
     @State private var isExpanded = true
 
@@ -822,7 +801,8 @@ private struct LiquidConnectionTypeSection: View {
                         LiquidPortRow(
                             port: port,
                             onKill: { viewModel.killPort(port.port) },
-                            onCopy: { viewModel.copyPortInfo(port) }
+                            onCopy: { viewModel.copyPortInfo(port) },
+                            history: metrics.history(for: port)
                         )
                     }
                 }

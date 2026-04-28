@@ -14,177 +14,102 @@ struct MainWindowToolbar: View {
     @Binding var selectedMainTab: MainTab
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Top row: refresh, count, search, settings
-            HStack(spacing: 10) {
-                Button(action: onRefresh) {
-                    if isLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        Image(systemName: Theme.Icon.refresh)
-                            .font(.system(size: 13))
-                            .foregroundColor(Theme.Action.refresh)
-                    }
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh (\u{2318}R)")
-
-                if selectedMainTab == .ports {
-                    ToolbarPortSummary(portCount: portCount, totalCount: totalCount)
+        // The sidebar owns section nav, protocol filters, and services. The
+        // toolbar stays focused on refresh, count, Hide System, search (with
+        // a ⌘K chip for the palette), and settings. No duplicate nav.
+        HStack(spacing: 10) {
+            Button(action: onRefresh) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 16, height: 16)
                 } else {
-                    Text("Schedules")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.primary)
-                }
-
-                Spacer()
-
-                // Search field
-                HStack(spacing: 6) {
-                    Image(systemName: Theme.Icon.search)
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 12))
-                    TextField(selectedMainTab == .ports ? "Search ports, processes..." : "Search cronjobs...", text: $searchText)
-                        .textFieldStyle(.plain)
+                    Image(systemName: Theme.Icon.refresh)
                         .font(.system(size: 13))
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: Theme.Icon.clearSearch)
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 11))
-                        }
-                        .buttonStyle(.plain)
-                    }
+                        .foregroundColor(Theme.Action.refresh)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Theme.Surface.chromeTint)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Size.cornerRadius, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Size.cornerRadius, style: .continuous))
-                .frame(maxWidth: 280)
-
-                Button(action: onSettings) {
-                    Image(systemName: Theme.Icon.settings)
-                        .font(.system(size: 13))
-                }
-                .buttonStyle(.borderless)
-                .help("Settings (\u{2318},)")
             }
-            .padding(.horizontal, Theme.Spacing.sectionInset)
-            .padding(.vertical, Theme.Spacing.sm)
+            .buttonStyle(.borderless)
+            .help("Refresh (\u{2318}R)")
 
-            // Main tabs row (Ports / Schedules)
-            HStack(spacing: 8) {
-                MainTabPill(
-                    label: "Ports",
-                    icon: "network",
-                    isSelected: selectedMainTab == .ports
-                ) {
-                    withAnimation(toolbarSelectionSpring) {
-                        selectedMainTab = .ports
-                    }
-                }
-
-                MainTabPill(
-                    label: "Schedules",
-                    icon: "clock",
-                    isSelected: selectedMainTab == .schedules
-                ) {
-                    withAnimation(toolbarSelectionSpring) {
-                        selectedMainTab = .schedules
-                    }
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, Theme.Spacing.sectionInset)
-            .padding(.bottom, Theme.Spacing.xs)
-
-            // Source tabs row (only visible for Ports tab)
             if selectedMainTab == .ports {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(PortSourceFilter.allCases) { source in
-                            SourceTabPill(
-                                source: source,
-                                count: viewModel.sourceCounts[source] ?? 0,
-                                isSelected: viewModel.selectedSourceFilter == source
-                            ) {
-                                withAnimation(toolbarSelectionSpring) {
-                                    viewModel.selectedSourceFilter = viewModel.selectedSourceFilter == source ? .all : source
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 15, style: .continuous)
-                            .fill(Theme.Surface.headerTint)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 15, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                    )
+                ToolbarPortSummary(portCount: portCount, totalCount: totalCount)
+            } else {
+                Text("Schedules")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.primary)
+            }
+
+            // Hide system processes — the one filter that isn't in the sidebar.
+            Button {
+                withAnimation(toolbarSelectionSpring) {
+                    viewModel.hideSystemProcesses.toggle()
                 }
-                .padding(.horizontal, Theme.Spacing.sectionInset)
-                .padding(.bottom, Theme.Spacing.xs)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: viewModel.hideSystemProcesses ? "eye.slash" : "eye")
+                        .font(.system(size: 11, weight: .medium))
+                    Text(viewModel.hideSystemProcesses ? "System hidden" : "Showing all")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(viewModel.hideSystemProcesses ? Theme.Status.warning : .secondary)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(viewModel.hideSystemProcesses ? Theme.Status.warning.opacity(0.15) : Color.clear)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Toggle system-process visibility")
 
-                // Filter pills row
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        // Protocol filters
-                        ProtocolPill(label: "TCP", isSelected: viewModel.selectedProtocol == .tcp) {
-                            withAnimation(toolbarSelectionSpring) {
-                                viewModel.selectedProtocol = viewModel.selectedProtocol == .tcp ? .all : .tcp
-                            }
-                        }
-                        ProtocolPill(label: "UDP", isSelected: viewModel.selectedProtocol == .udp) {
-                            withAnimation(toolbarSelectionSpring) {
-                                viewModel.selectedProtocol = viewModel.selectedProtocol == .udp ? .all : .udp
-                            }
-                        }
+            Spacer()
 
-                        DividerPill()
-
-                        // Category filters
-                        ForEach(FilterCategory.allCases) { cat in
-                            CategoryPill(
-                                category: cat,
-                                count: viewModel.categoryCounts[cat] ?? 0,
-                                isSelected: viewModel.selectedCategory == cat
-                            ) {
-                                withAnimation(toolbarSelectionSpring) {
-                                    viewModel.selectedCategory = viewModel.selectedCategory == cat ? .all : cat
-                                }
-                            }
-                        }
-
-                        DividerPill()
-
-                        // Hide system toggle
-                        TogglePill(
-                            label: "Hide System",
-                            icon: viewModel.hideSystemProcesses ? "eye.slash" : "eye",
-                            isActive: viewModel.hideSystemProcesses
-                        ) {
-                            withAnimation(toolbarSelectionSpring) {
-                                viewModel.hideSystemProcesses.toggle()
-                            }
-                        }
-
-                        Spacer()
+            // Search with a persistent ⌘K hint — command palette is the fast path.
+            HStack(spacing: 6) {
+                Image(systemName: Theme.Icon.search)
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                TextField(selectedMainTab == .ports ? "Search ports, processes..." : "Search cronjobs...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                if !searchText.isEmpty {
+                    Button(action: { searchText = "" }) {
+                        Image(systemName: Theme.Icon.clearSearch)
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 11))
                     }
-                    .padding(.horizontal, Theme.Spacing.sectionInset)
-                    .padding(.vertical, Theme.Spacing.sm)
+                    .buttonStyle(.plain)
+                } else {
+                    Text("\u{2318}K")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Theme.Surface.headerTint)
+                        )
+                        .help("Open Command Palette")
                 }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Theme.Surface.chromeTint)
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Size.cornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Size.cornerRadius, style: .continuous))
+            .frame(maxWidth: 280)
+
+            Button(action: onSettings) {
+                Image(systemName: Theme.Icon.settings)
+                    .font(.system(size: 13))
+            }
+            .buttonStyle(.borderless)
+            .help("Settings (\u{2318},)")
         }
+        .padding(.horizontal, Theme.Spacing.sectionInset)
+        .padding(.vertical, Theme.Spacing.sm)
         .background(Theme.Surface.windowBackground)
     }
 }
@@ -406,3 +331,4 @@ struct DividerPill: View {
             .frame(width: 1, height: 18)
     }
 }
+
