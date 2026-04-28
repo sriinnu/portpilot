@@ -1,6 +1,6 @@
 {
   "name": "@sriinnu/portpilot",
-  "version": "3.0.0",
+  "version": "3.0.2",
   "description": "Port management from your menu bar — monitor ports, discover daemons, proxy traffic, kill processes. macOS app + cross-platform CLI + rich terminal UI.",
   "scripts": {
     "prebuild": "which xcodegen > /dev/null 2>&1 && xcodegen generate || echo 'xcodegen not found, using existing project'",
@@ -81,9 +81,5 @@
     "darwin",
     "linux",
     "win32"
-  ],
-  "dependencies": {
-    "cli": "^1.0.1",
-    "swift": "^2.8.0"
-  }
+  ]
 }
