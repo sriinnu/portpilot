@@ -173,16 +173,23 @@ public struct CronjobEntry: Codable, Identifiable, Sendable {
     public let nextRun: Date?
     public let user: String?
     public let source: String
+    public let isPaused: Bool
 
-    public init(command: String, schedule: String, scheduleHuman: String? = nil, nextRun: Date? = nil, user: String? = nil, source: String) {
-        self.id = "\(source):\(command)".hashValue.description
+    public init(command: String, schedule: String, scheduleHuman: String? = nil, nextRun: Date? = nil, user: String? = nil, source: String, isPaused: Bool = false) {
+        // Stable across launches (unlike String.hashValue, which is randomized per process)
+        // so run-history keyed by id still lines up after a restart.
+        self.id = "\(source):\(command)"
         self.command = command
         self.schedule = schedule
         self.scheduleHuman = scheduleHuman
         self.nextRun = nextRun
         self.user = user
         self.source = source
+        self.isPaused = isPaused
     }
+
+    /// Only entries that live in the user's own crontab can be paused/resumed in place.
+    public var isEditable: Bool { source == "user" }
 }
 
 extension CronjobEntry: Hashable {

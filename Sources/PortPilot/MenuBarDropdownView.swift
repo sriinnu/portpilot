@@ -913,7 +913,11 @@ private struct LiquidCronjobRow: View {
 
             Spacer()
 
-            if let nextRun = cronjob.nextRun {
+            if cronjob.isPaused {
+                Text("Paused")
+                    .font(appSettings.appFont(size: 9, weight: .medium))
+                    .foregroundColor(Theme.Liquid.subtitleText)
+            } else if let nextRun = cronjob.nextRun {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text("Next")
                         .font(appSettings.appFont(size: 8))
@@ -924,6 +928,7 @@ private struct LiquidCronjobRow: View {
                 }
             }
         }
+        .opacity(cronjob.isPaused ? 0.55 : 1.0)
         .padding(.horizontal, 12).padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: 8).fill(isHovered ? Theme.Surface.hover : .clear))
         .contentShape(Rectangle())

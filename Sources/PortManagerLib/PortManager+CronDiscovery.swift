@@ -4,6 +4,10 @@ import Foundation
 
 extension PortManager {
 
+    /// Prefix PortPilot writes into the user's crontab in place of a real line to pause it,
+    /// while keeping the original schedule/command intact so resuming is lossless.
+    static let cronPauseMarker = "#PORTPILOT_PAUSED#"
+
     /// Get all cronjobs for the current user and system cron directories
     public func getCronjobs(userOnly: Bool = false, systemOnly: Bool = false) -> [CronjobEntry] {
         var entries: [CronjobEntry] = []
@@ -28,7 +32,10 @@ extension PortManager {
     /// Get cronjobs from the current user's crontab
     func getUserCronjobs() -> [CronjobEntry] {
         let output = runCommandQuiet("/usr/bin/crontab", arguments: ["-l"])
-        return parseCrontab(output: output, source: "user", user: currentUsername())
+        // A personal crontab (crontab -l) never has a user column — only /etc/crontab and
+        // /etc/cron.d/* do. Without this, a multi-word command like "/bin/echo hello" gets
+        // misparsed as user="/bin/echo" command="hello".
+        return parseCrontab(output: output, source: "user", user: currentUsername(), hasUserColumn: false)
     }
 
     /// Get cronjobs from system cron directories
@@ -101,39 +108,47 @@ extension PortManager {
 
         return entries
     }
-    /// Parse crontab output into CronjobEntry objects
-    func parseCrontab(output: String, source: String, user: String?) -> [CronjobEntry] {
+    /// Parse crontab output into CronjobEntry objects.
+    /// - Parameter hasUserColumn: true for system crontabs (`/etc/crontab`, `/etc/cron.d/*`),
+    ///   which include a user field between the schedule and the command; false for a personal
+    ///   crontab (`crontab -l`), which never does.
+    func parseCrontab(output: String, source: String, user: String?, hasUserColumn: Bool = true) -> [CronjobEntry] {
         var entries: [CronjobEntry] = []
         let lines = output.components(separatedBy: "\n")
 
         for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
-            guard !trimmed.hasPrefix("#") else { continue }
+
+            var isPaused = false
+            if trimmed.hasPrefix(Self.cronPauseMarker) {
+                isPaused = true
+                trimmed = String(trimmed.dropFirst(Self.cronPauseMarker.count)).trimmingCharacters(in: .whitespaces)
+            }
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") || isPaused else { continue }
 
             let components = trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
 
-            var scheduleWords: [String]
-            var command: String
-            var effectiveUser: String?
+            guard components.count >= 6 else { continue }
 
-            if components.count >= 7 {
-                scheduleWords = Array(components[0..<5])
+            let scheduleWords = Array(components[0..<5])
+            let command: String
+            let effectiveUser: String?
+
+            if hasUserColumn {
                 effectiveUser = components[5]
                 command = components.dropFirst(6).joined(separator: " ")
-            } else if components.count >= 6 {
-                scheduleWords = Array(components[0..<5])
+            } else {
                 command = components.dropFirst(5).joined(separator: " ")
                 effectiveUser = user
-            } else if components.count == 5 {
-                continue
-            } else {
-                continue
             }
+
+            guard !command.isEmpty else { continue }
 
             let schedule = scheduleWords.joined(separator: " ")
             let humanReadable = humanReadableSchedule(schedule)
-            let nextRunDate = nextCronRun(after: Date(), schedule: schedule)
+            // A paused job won't actually fire, so it has no meaningful next-run time.
+            let nextRunDate = isPaused ? nil : nextCronRun(after: Date(), schedule: schedule)
 
             entries.append(CronjobEntry(
                 command: command,
@@ -141,7 +156,8 @@ extension PortManager {
                 scheduleHuman: humanReadable,
                 nextRun: nextRunDate,
                 user: effectiveUser,
-                source: source
+                source: source,
+                isPaused: isPaused
             ))
         }
 

@@ -25,6 +25,7 @@
 		3CC8F08BC715035E95B24F96 /* InteractiveMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588D0EFE0FBD4393233E704D /* InteractiveMode.swift */; };
 		4177A14E74ABA483D93D2C48 /* PortListHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DED981D7AE195060FCB1A5B /* PortListHeader.swift */; };
 		45B63A44A1DCA31EF12C887F /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = A31E063060BCD5F12FF17B27 /* ArgumentParser */; };
+		4A96674D64553176446E5099 /* PortManager+CronControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */; };
 		4C9F138BAFE6A335A6E54185 /* FontManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4A615345FB63E8E282D8766 /* FontManager.swift */; };
 		53FADF13C4BE66641E932DA1 /* PortViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */; };
 		559D9C8BC5304235283C5518 /* LogsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774B16A739CCA03682C7791E /* LogsPanel.swift */; };
@@ -55,11 +56,14 @@
 		B897DFA2984AFA8DA0EF4370 /* TCPProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27629EA5FE623F463B619EAB /* TCPProxyManager.swift */; };
 		BA480F29F6C419D18820C9A2 /* MenuBarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */; };
 		BB0285020B57C85A45E9C530 /* CLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CE2A404599C5F45A843D7C /* CLI.swift */; };
+		CDB2B78CFF1B89257D44255F /* CronRunManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F711AA3C5F81B0E5670E2023 /* CronRunManager.swift */; };
 		D041B39F72B6B072D70BCB5D /* LiveMetricsHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6521C0289F50D4452A56A784 /* LiveMetricsHistory.swift */; };
+		D36F3790D2FAC34420C04A6B /* CronRunManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F711AA3C5F81B0E5670E2023 /* CronRunManager.swift */; };
 		DF5E4A8F751D7C40856D8F17 /* menubar_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 64AC2C24FB81D274ADBAA08D /* menubar_icon.png */; };
 		E1A03A464A6EAB4D026ED740 /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */; };
 		E1B9459CF5A0F9DA25B3B237 /* ThemeColorPair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53AC899CC04843CF4593F661 /* ThemeColorPair.swift */; };
 		E2851162D6E2FE56F6B01127 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306E20A02CAD6507A9EABC0D /* AppSettings.swift */; };
+		E9B1CE09E6468E7FA89BD554 /* PortManager+CronControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */; };
 		ED267D7980B6D77CD820D0BB /* Palettes+Character.swift in Sources */ = {isa = PBXBuildFile; fileRef = F513CD4DA916564130D1A2F8 /* Palettes+Character.swift */; };
 		ED36F456BF44A34D39E05933 /* PortForwardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97954318FFAD19EBB7495DBF /* PortForwardSheet.swift */; };
 		F35FDFC0E038FFECFB4BFB2C /* Sparkline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4817059CE1DE690B5A924FB /* Sparkline.swift */; };
@@ -70,6 +74,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+CronControl.swift"; sourceTree = "<group>"; };
 		0397B2DBB0086B28EA73306C /* portpilot */ = {isa = PBXFileReference; includeInIndex = 0; path = portpilot; sourceTree = BUILT_PRODUCTS_DIR; };
 		1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPilotApp.swift; sourceTree = "<group>"; };
 		2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationPanel.swift; sourceTree = "<group>"; };
@@ -122,6 +127,7 @@
 		F425A17AF5886E28CEAECA52 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		F513CD4DA916564130D1A2F8 /* Palettes+Character.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Palettes+Character.swift"; sourceTree = "<group>"; };
 		F708D4774546532BB8331A15 /* ThemePalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePalette.swift; sourceTree = "<group>"; };
+		F711AA3C5F81B0E5670E2023 /* CronRunManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CronRunManager.swift; sourceTree = "<group>"; };
 		F733C15C0B5CBBC3113949DD /* PortManager+CronDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+CronDiscovery.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -203,10 +209,12 @@
 		66F303C5E78C62B382C796F6 /* PortManagerLib */ = {
 			isa = PBXGroup;
 			children = (
+				F711AA3C5F81B0E5670E2023 /* CronRunManager.swift */,
 				950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */,
 				30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */,
 				B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */,
 				8D335FC05100CC2892A4101D /* PortManager+Connections.swift */,
+				029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */,
 				F733C15C0B5CBBC3113949DD /* PortManager+CronDiscovery.swift */,
 				EBDC13CC40C86EFD5D62334D /* PortManager+FrameworkDetector.swift */,
 				E856A016D49BF0EA323BF579 /* PortWatcher.swift */,
@@ -355,10 +363,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB0285020B57C85A45E9C530 /* CLI.swift in Sources */,
+				D36F3790D2FAC34420C04A6B /* CronRunManager.swift in Sources */,
 				6E28F1020175E3718E988818 /* FavoritesManager.swift in Sources */,
 				FBCDFFA1C78CC98B520C00DB /* HistoryManager.swift in Sources */,
 				3CC8F08BC715035E95B24F96 /* InteractiveMode.swift in Sources */,
 				8358201A85E771E3088A8713 /* PortManager+Connections.swift in Sources */,
+				E9B1CE09E6468E7FA89BD554 /* PortManager+CronControl.swift in Sources */,
 				107E6A3FAB6F82D6DF30C093 /* PortManager+CronDiscovery.swift in Sources */,
 				1B7317BE6839AE5547446F9B /* PortManager+FrameworkDetector.swift in Sources */,
 				A5C7B7031CBD15F652D56C54 /* PortManager.swift in Sources */,
@@ -377,6 +387,7 @@
 				37A3F492387C9A9C3933A55A /* CommandPalette.swift in Sources */,
 				0AE5E0C4D87AADF5DAFEB5D2 /* ConfigurationPanel.swift in Sources */,
 				5D7BACC7B281C23E9110B48B /* ContentView.swift in Sources */,
+				CDB2B78CFF1B89257D44255F /* CronRunManager.swift in Sources */,
 				301F6FF6EE69E86F41827C76 /* CronjobListPanel.swift in Sources */,
 				02424985B3D3D0153B71C2E8 /* FavoritesManager.swift in Sources */,
 				4C9F138BAFE6A335A6E54185 /* FontManager.swift in Sources */,
@@ -403,6 +414,7 @@
 				64CD01E9489530F2554BF1EE /* PortListPanel.swift in Sources */,
 				9D0659091FE30A823989DAAC /* PortListRow.swift in Sources */,
 				F438C3C737DDF89CC82661F9 /* PortManager+Connections.swift in Sources */,
+				4A96674D64553176446E5099 /* PortManager+CronControl.swift in Sources */,
 				353813B5D17A26BC4B6312FE /* PortManager+CronDiscovery.swift in Sources */,
 				873918D37E26D4E0006C8831 /* PortManager+FrameworkDetector.swift in Sources */,
 				090F6E3B429AC22F6E659A6A /* PortManager.swift in Sources */,
