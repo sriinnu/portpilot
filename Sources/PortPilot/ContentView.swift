@@ -169,7 +169,7 @@ struct ContentView: View {
                     // Right pane: inspector with tabs (Overview | Metrics | Logs)
                     VStack(spacing: 0) {
                         if selectedMainTab == .schedules {
-                            CronjobConfigurationPanel(cronjob: selectedCronjob)
+                            CronjobConfigurationPanel(cronjob: selectedCronjob, viewModel: viewModel)
                             Divider()
                             CronjobLogsPanel(viewModel: viewModel)
                         } else {

@@ -75,7 +75,11 @@ schemes:
     archive:
       config: Release
 
-  portpilot:
+  # Named distinctly from "PortPilot" (not just by case) because the .xcscheme files land on
+  # a case-insensitive APFS volume by default — "PortPilot.xcscheme" and "portpilot.xcscheme"
+  # collide to the same file on disk, so whichever scheme xcodegen writes second silently wins
+  # and the other's build target is lost.
+  PortPilotCLI:
     build:
       targets:
         portpilot: all

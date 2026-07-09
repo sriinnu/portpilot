@@ -148,6 +148,8 @@ class PortViewModel: ObservableObject {
     // Cronjobs (for Schedules tab)
     @Published var cronjobs: [CronjobEntry] = []
     @Published var isLoadingCronjobs: Bool = false
+    @Published var cronRunHistory: [String: CronRunRecord] = [:]
+    @Published var runningCronjobIDs: Set<String> = []
 
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
@@ -206,6 +208,7 @@ class PortViewModel: ObservableObject {
         loadConnectionNames()
         refreshPorts()
         setupProxyCallbacks()
+        setupCronRunCallbacks()
     }
 
     var portCount: Int { filteredPorts.count }
@@ -737,6 +740,95 @@ class PortViewModel: ObservableObject {
                 guard self.latestCronjobsRefreshID == refreshID else { return }
                 self.cronjobs = jobs
                 self.isLoadingCronjobs = false
+                for job in jobs {
+                    self.cronRunHistory[job.id] = CronRunManager.shared.record(for: job.id)
+                }
+                self.runningCronjobIDs = Set(jobs.map(\.id).filter { CronRunManager.shared.isRunning($0) })
+            }
+        }
+    }
+
+    // MARK: - Cronjob Control
+
+    /// Wire up CronRunManager's callbacks so "Run Now" progress/results surface in the UI and Activity log.
+    func setupCronRunCallbacks() {
+        CronRunManager.shared.onUpdate = { [weak self] jobID, record in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.cronRunHistory[jobID] = record
+                if record.isRunning {
+                    self.runningCronjobIDs.insert(jobID)
+                } else {
+                    self.runningCronjobIDs.remove(jobID)
+                }
+            }
+        }
+        CronRunManager.shared.onLog = { [weak self] message, isError in
+            DispatchQueue.main.async {
+                self?.addLog(source: "cron", message: message, level: isError ? .error : .success)
+            }
+        }
+    }
+
+    /// Trigger a cronjob's command immediately, outside of its schedule.
+    func runCronjobNow(_ job: CronjobEntry) {
+        let started = CronRunManager.shared.runNow(job: job)
+        if !started {
+            addLog(source: "cron", message: "\(job.command) is already running", level: .info)
+        }
+    }
+
+    /// Stop a cronjob run — whatever PortPilot started, plus a best-effort sweep for
+    /// matching processes the cron daemon may have kicked off independently.
+    func stopCronjob(_ job: CronjobEntry) {
+        let stoppedTracked = CronRunManager.shared.stop(jobID: job.id)
+        Task { [weak self] in
+            guard let self else { return }
+            let killedCount = self.portManager.stopRunningProcesses(matching: job.command)
+            await MainActor.run {
+                if stoppedTracked || killedCount > 0 {
+                    self.addLog(source: "cron", message: "Stopped \(job.command)", level: .info)
+                } else {
+                    self.addLog(source: "cron", message: "\(job.command) is not currently running", level: .info)
+                }
+            }
+        }
+    }
+
+    /// Pause a user crontab entry so the cron daemon skips it until resumed.
+    func pauseCronjob(_ job: CronjobEntry) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try self.portManager.pauseCronjob(job)
+                await MainActor.run {
+                    self.addLog(source: "cron", message: "Paused \(job.command)", level: .info)
+                    self.refreshCronjobs()
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.addLog(source: "cron", message: "Failed to pause \(job.command): \(error.localizedDescription)", level: .error)
+                }
+            }
+        }
+    }
+
+    /// Resume a paused user crontab entry.
+    func resumeCronjob(_ job: CronjobEntry) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try self.portManager.resumeCronjob(job)
+                await MainActor.run {
+                    self.addLog(source: "cron", message: "Started \(job.command)", level: .info)
+                    self.refreshCronjobs()
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.addLog(source: "cron", message: "Failed to start \(job.command): \(error.localizedDescription)", level: .error)
+                }
             }
         }
     }

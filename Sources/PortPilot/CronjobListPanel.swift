@@ -23,7 +23,8 @@ struct CronjobListPanel: View {
 
                 Spacer()
 
-                Text("\(viewModel.cronjobs.count) cronjobs")
+                let pausedCount = viewModel.cronjobs.filter(\.isPaused).count
+                Text(pausedCount > 0 ? "\(viewModel.cronjobs.count) cronjobs · \(pausedCount) paused" : "\(viewModel.cronjobs.count) cronjobs")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 
@@ -73,7 +74,11 @@ struct CronjobListPanel: View {
                             CronjobRowView(
                                 cronjob: job,
                                 isSelected: selectedCronjob?.id == job.id,
-                                isHovered: hoveredCronjobId == job.id
+                                isHovered: hoveredCronjobId == job.id,
+                                isRunning: viewModel.runningCronjobIDs.contains(job.id),
+                                onToggleSchedule: {
+                                    job.isPaused ? viewModel.resumeCronjob(job) : viewModel.pauseCronjob(job)
+                                }
                             )
                             .onTapGesture {
                                 selectedCronjob = job
@@ -96,6 +101,8 @@ struct CronjobRowView: View {
     let cronjob: CronjobEntry
     let isSelected: Bool
     let isHovered: Bool
+    let isRunning: Bool
+    let onToggleSchedule: () -> Void
 
     private var sourceColor: Color {
         cronjob.source == "user" ? Theme.Classification.userApp : Theme.Classification.system
@@ -103,25 +110,42 @@ struct CronjobRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Source indicator
-            Circle()
-                .fill(sourceColor)
-                .frame(width: 6, height: 6)
+            // Source / running indicator
+            if isRunning {
+                ProgressView()
+                    .scaleEffect(0.45)
+                    .frame(width: 6, height: 6)
+            } else {
+                Circle()
+                    .fill(cronjob.isPaused ? Color.secondary.opacity(0.4) : sourceColor)
+                    .frame(width: 6, height: 6)
+            }
 
             // Job info
             VStack(alignment: .leading, spacing: 2) {
                 Text(cronjob.scheduleHuman ?? cronjob.schedule)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.yellow)
+                    .foregroundColor(cronjob.isPaused ? .secondary : .yellow)
                     .lineLimit(1)
 
                 Text(cronjob.command)
                     .font(.system(size: 11))
-                    .foregroundColor(.primary)
+                    .foregroundColor(cronjob.isPaused ? .secondary : .primary)
                     .lineLimit(1)
+                    .strikethrough(cronjob.isPaused)
             }
 
             Spacer()
+
+            if cronjob.isPaused {
+                Text("Paused")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.15))
+                    .cornerRadius(4)
+            }
 
             // User badge
             if let user = cronjob.user {
@@ -132,6 +156,16 @@ struct CronjobRowView: View {
                     .padding(.vertical, 2)
                     .background(Color.blue.opacity(0.15))
                     .cornerRadius(4)
+            }
+
+            if cronjob.isEditable {
+                Button(action: onToggleSchedule) {
+                    Image(systemName: cronjob.isPaused ? "play.circle" : "pause.circle")
+                        .font(.system(size: 13))
+                        .foregroundColor(cronjob.isPaused ? Theme.Status.connected : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(cronjob.isPaused ? "Resume schedule" : "Pause schedule")
             }
         }
         .padding(.horizontal, 12)
@@ -158,7 +192,18 @@ struct CronjobRowView: View {
 // MARK: - Cronjob Configuration Panel
 struct CronjobConfigurationPanel: View {
     let cronjob: CronjobEntry?
+    @ObservedObject var viewModel: PortViewModel
     @ObservedObject private var appSettings = AppSettings.shared
+
+    private var isRunning: Bool {
+        guard let job = cronjob else { return false }
+        return viewModel.runningCronjobIDs.contains(job.id)
+    }
+
+    private var runRecord: CronRunRecord? {
+        guard let job = cronjob else { return nil }
+        return viewModel.cronRunHistory[job.id]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -175,13 +220,54 @@ struct CronjobConfigurationPanel: View {
 
                 Divider()
 
+                // Controls: start/pause the schedule, run now, stop an active run
+                HStack(spacing: 8) {
+                    if job.isEditable {
+                        Button(action: {
+                            job.isPaused ? viewModel.resumeCronjob(job) : viewModel.pauseCronjob(job)
+                        }) {
+                            Label(job.isPaused ? "Start" : "Pause", systemImage: job.isPaused ? "play.fill" : "pause.fill")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+
+                    Button(action: { viewModel.runCronjobNow(job) }) {
+                        Label("Run Now", systemImage: "bolt.fill")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isRunning)
+
+                    if isRunning {
+                        Button(action: { viewModel.stopCronjob(job) }) {
+                            Label("Stop", systemImage: "stop.fill")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(Theme.Action.kill)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+                Divider()
+
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        // Schedule
+                        // Status
+                        DetailRow(label: "Status", value: isRunning ? "Running now" : (job.isPaused ? "Paused" : "Active"))
+
+                        // Schedule — how often it runs
                         DetailRow(label: "Schedule", value: job.schedule)
 
                         if let human = job.scheduleHuman {
-                            DetailRow(label: "Human", value: human)
+                            DetailRow(label: "Frequency", value: human)
                         }
 
                         if let user = job.user {
@@ -192,6 +278,23 @@ struct CronjobConfigurationPanel: View {
 
                         if let nextRun = job.nextRun {
                             DetailRow(label: "Next Run", value: Self.dateFormatter.string(from: nextRun))
+                        }
+
+                        if let record = runRecord, let lastRunAt = record.lastRunAt {
+                            Divider()
+                                .padding(.vertical, 4)
+
+                            DetailRow(label: "Last Run", value: Self.dateFormatter.string(from: lastRunAt))
+
+                            if let duration = record.lastDuration {
+                                DetailRow(label: "Duration", value: Self.formattedDuration(duration))
+                            }
+
+                            if let exitCode = record.lastExitCode {
+                                DetailRow(label: "Result", value: exitCode == 0 ? "Success" : "Failed (exit \(exitCode))")
+                            }
+
+                            DetailRow(label: "Run Count", value: "\(record.runCount) (via PortPilot)")
                         }
 
                         Divider()
@@ -232,6 +335,15 @@ struct CronjobConfigurationPanel: View {
         f.dateFormat = "MM-dd HH:mm"
         return f
     }()
+
+    private static func formattedDuration(_ interval: TimeInterval) -> String {
+        if interval < 60 {
+            return String(format: "%.2fs", interval)
+        }
+        let minutes = Int(interval) / 60
+        let seconds = Int(interval) % 60
+        return "\(minutes)m \(seconds)s"
+    }
 }
 
 // MARK: - Detail Row

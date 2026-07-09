@@ -2,6 +2,21 @@
 
 All notable changes to PortPilot will be documented in this file.
 
+## [3.1.0] - 2026-07-09
+
+### Added
+- I added a Pause/Resume toggle for cronjobs in the Schedules tab. Personal crontab entries can be paused (commented out with a recoverable `#PORTPILOT_PAUSED#` marker) and resumed without losing the original schedule or command; system cronjobs stay read-only.
+- I added a Run Now button to trigger a cronjob's command immediately, and a Stop button to kill an in-flight run — tracked live with a spinner on the row.
+- I added run history per cronjob: last run time, duration, exit code, and run count, persisted across restarts and shown in the cronjob detail panel and Activity log.
+
+### Fixed
+- I fixed a crontab parser bug where multi-word personal crontab commands (e.g. `/bin/echo hello`) were misparsed as `user=/bin/echo command=hello`. The parser assumed the user-column format used by `/etc/crontab` and `/etc/cron.d` even for personal `crontab -l` output, which never has a user column.
+- I fixed a scheme name collision in the Xcode project: `PortPilot` and `portpilot` schemes wrote to the same filename on case-insensitive filesystems, so regenerating the project with `xcodegen` could silently repoint the shared build scheme at the wrong target. Renamed the CLI scheme to `PortPilotCLI`.
+- I fixed `crontab` writes silently failing on long temp file paths — macOS's `crontab` binary truncates file path arguments past ~100 bytes, and `FileManager.temporaryDirectory` resolves to a long per-app path. Cronjob pause/resume now writes to a short `/tmp` path instead.
+
+### Chore
+- I cleaned up stale Xcode DerivedData build products so Spotlight only shows one PortPilot.app instead of three.
+
 ## [Unreleased]
 
 ### Added
