@@ -7,7 +7,7 @@
 <h3 align="center">Port management from your menu bar — and your terminal</h3>
 
 <p align="center">
-  Monitor ports, discover local app daemons, proxy traffic, and kill processes — from the macOS menu bar <strong>or</strong> a rich terminal UI on any platform. With first-class support for SSH, Kubernetes, and Cloudflare tunnels.
+  Monitor ports, discover local app daemons, proxy traffic, and kill processes — from the macOS menu bar <strong>or</strong> a terminal UI on any platform. Detects SSH forwards, Kubernetes port-forwards, and Cloudflare tunnels.
 </p>
 
 <p align="center">
@@ -20,16 +20,14 @@
 
 ---
 
-## Why PortPilot?
+## Overview
 
-Port conflicts kill developer flow. PortPilot gives you instant visibility into every listening port **and** every local app daemon on your machine.
-
-Unlike basic `lsof` wrappers, PortPilot:
-- **Classifies processes** as System, App, or Developer Tool — so you see what matters
-- **Detects tunnels** — SSH forwards, `kubectl port-forward`, Cloudflare tunnels with meaningful names
+PortPilot inspects listening ports and local app daemons on the machine. Compared to a plain `lsof` wrapper, it:
+- **Classifies processes** as System, App, or Developer Tool
+- **Detects tunnels** — SSH forwards, `kubectl port-forward`, Cloudflare tunnels
 - **Discovers Unix sockets** — local daemons like databases, dev servers, custom services
 - **Proxies traffic** — native TCP proxy built on Apple's Network.framework
-- **Lives in your menu bar** — no Dock icon, zero distraction
+- **Runs as a menu bar accessory** on macOS (no Dock icon) with a terminal UI and CLI on every platform
 
 ## Features
 
@@ -223,8 +221,14 @@ SCHEDULE          NEXT RUN        USER     COMMAND                        SOURCE
 
 ## Installation
 
+### Homebrew (macOS app only)
+```bash
+brew install --cask sriinnu/tap/portpilot
+```
+Installs `PortPilot.app` to `/Applications`. Cask source: [sriinnu/homebrew-tap](https://github.com/sriinnu/homebrew-tap). This installs only the menu bar app — for the CLI/TUI, build from source below.
+
 ### Download from GitHub Releases
-For end users, the easiest path is the Releases page:
+Manual install from the Releases page:
 
 - Download `PortPilot-macOS-app.zip`
 - Unzip it
@@ -236,7 +240,7 @@ The release currently attaches:
 - `portpilot-macos-cli`
 - `SHA256SUMS.txt`
 
-### macOS (App + CLI + TUI)
+### macOS (App + CLI + TUI, build from source)
 ```bash
 git clone https://github.com/sriinnu/portpilot.git
 cd portpilot
@@ -344,61 +348,7 @@ npm run clean            # Remove build artifacts
 
 ## Architecture
 
-```
-Sources/
-├── PortPilot/                  # macOS menu bar app (SwiftUI + AppKit)
-│   ├── PortPilotApp.swift            # Pure AppKit entry (no Dock icon)
-│   ├── ContentView.swift             # Main window layout
-│   ├── PortViewModel.swift           # State, filtering, tunnel detection
-│   ├── MenuBarController.swift       # Status item + panel management
-│   ├── MenuBarDropdownView.swift     # Liquid display dropdown (Top Activity, List/Tree View, Schedules)
-│   ├── MenuBarPanel.swift            # Floating NSPanel
-│   ├── PortListPanel.swift           # Port list with classification badges
-│   ├── ConfigurationPanel.swift      # Config + proxy controls
-│   ├── MainWindowToolbar.swift       # Toolbar with filter pills
-│   ├── LogsPanel.swift               # Activity logs
-│   ├── Theme.swift                   # 6 color themes + Liquid display tokens
-│   ├── FontManager.swift             # Custom font loading
-│   ├── SettingsView.swift            # Liquid card settings (appearance, fonts, themes)
-│   └── AppSettings.swift             # UserDefaults + font/theme settings
-├── TerminalTUI/                # Reusable TUI engine (zero dependencies)
-│   ├── Terminal.swift                # Raw mode, terminal size, cursor, alt screen
-│   ├── ANSI.swift                    # Escape codes — 16/256/TrueColor, styles
-│   ├── KeyEvent.swift                # Key reading — arrows, ctrl, UTF-8, escape seqs
-│   ├── Screen.swift                  # Double-buffered diff renderer
-│   ├── Widget.swift                  # Widget protocol + geometry types
-│   ├── Box.swift                     # Bordered container (4 border styles)
-│   ├── Table.swift                   # Scrollable table with columns + selection
-│   ├── StatusBar.swift               # Bottom bar with keybinding hints
-│   └── App.swift                     # TUIApp event loop + screen stack
-├── PortPilotTUI/               # Terminal UI app (macOS + Linux + WSL)
-│   ├── main.swift                    # Entry point
-│   ├── PortListScreen.swift          # Port/Socket/Connection/Schedule tables, search, kill
-│   ├── PortDetailScreen.swift        # Process info + connections
-│   ├── ConnectionDetailScreen.swift  # Connection remote details, kill option
-│   └── CronjobDetailScreen.swift    # Cronjob schedule info, next run
-├── PortManagerLib/             # Shared library (all platforms)
-│   ├── PortManager.swift             # Port + socket + connection + cronjob discovery
-│   ├── ProcessClassifier.swift       # proc_pidpath classification
-│   ├── TCPProxyManager.swift         # Network.framework TCP proxy
-│   ├── PortWatcher.swift             # Port monitoring
-│   ├── FavoritesManager.swift        # Favorites
-│   └── HistoryManager.swift          # Kill history (thread-safe)
-├── PortKillerCLI/              # CLI tool
-│   ├── CLI.swift                     # Argument parsing
-│   └── InteractiveMode.swift         # Basic interactive mode
-└── Fonts/                      # Drop .ttf/.otf here for custom fonts
-```
-
-## Tech Stack
-
-- **Swift 5.9** + **SwiftUI** — native macOS UI
-- **AppKit** — menu bar, NSWindow management
-- **TerminalTUI** — custom zero-dependency TUI engine (ANSI rendering, key handling, widget system)
-- **Network.framework** — TCP proxy (NWListener + NWConnection)
-- **CoreText** — runtime font registration from custom font files
-- **proc_pidpath** — process classification via executable path (with bounds-checked buffer)
-- **Thread safety** — NSLock on shared caches; process execution with 10s timeout
+Four Swift targets: `PortPilot` (macOS menu bar app), `TerminalTUI` (zero-dependency TUI engine), `PortPilotTUI` (the TUI app built on it), and `PortManagerLib` (shared port/socket/connection/cronjob discovery used by app, TUI, and CLI). Full source tree and tech stack: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Using TerminalTUI in Your Own Project
 
