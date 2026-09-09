@@ -1108,6 +1108,21 @@ extension PortViewModel {
 
 // MARK: - Alert Detection
 extension PortViewModel {
+    /// True while any known port process is SIGSTOPped — the menubar icon
+    /// switches to a paused glyph so a frozen server isn't forgotten.
+    var hasFrozenProcess: Bool {
+        allPortsCache.contains { $0.isStopped }
+    }
+
+    /// Bound/released events since `date` — the menubar's "changed since
+    /// you last looked" count. Resets when the dropdown opens.
+    func timelineChangeCount(since date: Date) -> Int {
+        activityLog.entries.filter { entry in
+            guard let event = entry.event, entry.timestamp > date else { return false }
+            return event == .bound || event == .freed
+        }.count
+    }
+
     /// Count of blocklisted connections
     var blocklistedCount: Int {
         allConnections.filter { $0.isBlocklisted }.count
