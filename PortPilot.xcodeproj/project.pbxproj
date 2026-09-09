@@ -21,6 +21,7 @@
 		26999AF338528CD53D3631D3 /* PortGuardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64593295B71E797F707FD40 /* PortGuardPolicy.swift */; };
 		301F6FF6EE69E86F41827C76 /* CronjobListPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551B6B3A16BDE43795CD16A /* CronjobListPanel.swift */; };
 		353813B5D17A26BC4B6312FE /* PortManager+CronDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F733C15C0B5CBBC3113949DD /* PortManager+CronDiscovery.swift */; };
+		366BC85BC26DBF7E78069FCF /* TimelinePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D881FD3BE12BC7A446A8494 /* TimelinePanel.swift */; };
 		36BBA1CD6F505249CD1D6184 /* TCPProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27629EA5FE623F463B619EAB /* TCPProxyManager.swift */; };
 		37A3F492387C9A9C3933A55A /* CommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A2620EEA2B1F7EF6DA8433 /* CommandPalette.swift */; };
 		3CC8F08BC715035E95B24F96 /* InteractiveMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588D0EFE0FBD4393233E704D /* InteractiveMode.swift */; };
@@ -84,6 +85,7 @@
 		029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+CronControl.swift"; sourceTree = "<group>"; };
 		0397B2DBB0086B28EA73306C /* portpilot */ = {isa = PBXFileReference; includeInIndex = 0; path = portpilot; sourceTree = BUILT_PRODUCTS_DIR; };
 		057B2F82640E81DB6A406249 /* TunnelInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelInspector.swift; sourceTree = "<group>"; };
+		0D881FD3BE12BC7A446A8494 /* TimelinePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelinePanel.swift; sourceTree = "<group>"; };
 		13BC97BB25FC01A457B34DBF /* CronjobController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CronjobController.swift; sourceTree = "<group>"; };
 		1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPilotApp.swift; sourceTree = "<group>"; };
 		2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationPanel.swift; sourceTree = "<group>"; };
@@ -190,6 +192,7 @@
 				29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */,
 				73849239FC92C331256E34F8 /* SettingsView.swift */,
 				D852C65A93061DC605B8E880 /* Theme.swift */,
+				0D881FD3BE12BC7A446A8494 /* TimelinePanel.swift */,
 				057B2F82640E81DB6A406249 /* TunnelInspector.swift */,
 				AA03C81365CB15F3C665535A /* Liquid */,
 				F5C9E25E96FD666260DD744D /* Stores */,
@@ -460,6 +463,7 @@
 				8C3BCB5E2BDD443952126871 /* Theme.swift in Sources */,
 				E1B9459CF5A0F9DA25B3B237 /* ThemeColorPair.swift in Sources */,
 				A6E31A0536890687E7989409 /* ThemePalette.swift in Sources */,
+				366BC85BC26DBF7E78069FCF /* TimelinePanel.swift in Sources */,
 				73AD957EA436D2D12E9191A1 /* TunnelInspector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

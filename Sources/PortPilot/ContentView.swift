@@ -200,6 +200,8 @@ struct ContentView: View {
                                 )
                             case .logs:
                                 LogsPanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
+                            case .timeline:
+                                TimelinePanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
                             }
                         }
                     }

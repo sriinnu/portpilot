@@ -395,6 +395,7 @@ class PortViewModel: ObservableObject {
 
                 dockerInfoCache.removeAll()
                 parentProcessNameCache = snapshot.parentProcessNames
+                let previousPorts = allPortsCache
                 allPortsCache = snapshot.processes.sorted {
                     // I keep network ports ahead of sockets so the main list stays stable.
                     if $0.isUnixSocket != $1.isUnixSocket { return !$0.isUnixSocket }
@@ -404,6 +405,12 @@ class PortViewModel: ObservableObject {
                 ports = allPortsCache
                 connectionTypeCache.removeAll()
                 lastRefresh = Date()
+                // Only full scans feed the timeline — a ranged refresh would
+                // read as mass frees (everything outside the range), then a
+                // storm of binds when the range clears.
+                if startPort == nil && endPort == nil {
+                    emitTimelineEvents(previous: previousPorts, current: allPortsCache)
+                }
                 applyFilters()
                 // Clear stale selection if the selected port no longer exists
                 if let sel = selectedPort, !filteredPorts.contains(where: { $0.id == sel.id }) {
@@ -427,6 +434,51 @@ class PortViewModel: ObservableObject {
                 )
             }
         }
+    }
+
+    /// Timeline: flips after the first snapshot lands so the initial
+    /// population doesn't fire a storm of "bound" events.
+    private var hasPortBaseline = false
+
+    /// Diff two port snapshots into timeline events. Network ports only —
+    /// Unix sockets churn constantly and would bury the signal.
+    private func emitTimelineEvents(previous: [PortProcess], current: [PortProcess]) {
+        guard hasPortBaseline else {
+            hasPortBaseline = true
+            return
+        }
+
+        let previousKeys = Set(previous.filter { !$0.isUnixSocket }.map(Self.timelineKey))
+        let currentKeys = Set(current.filter { !$0.isUnixSocket }.map(Self.timelineKey))
+
+        for process in current where !process.isUnixSocket {
+            if !previousKeys.contains(Self.timelineKey(process)) {
+                addLog(
+                    source: "timeline",
+                    message: "\(process.command) bound :\(process.port)",
+                    level: .success,
+                    port: process.port,
+                    event: .bound
+                )
+            }
+        }
+        for process in previous where !process.isUnixSocket {
+            if !currentKeys.contains(Self.timelineKey(process)) {
+                addLog(
+                    source: "timeline",
+                    message: "\(process.command) released :\(process.port)",
+                    level: .info,
+                    port: process.port,
+                    event: .freed
+                )
+            }
+        }
+    }
+
+    /// A process instance on the wire: same port held by a new pid is a
+    /// release + a bind, which is exactly the story the timeline should tell.
+    private static func timelineKey(_ process: PortProcess) -> String {
+        "\(process.port):\(process.protocolName):\(process.pid)"
     }
 
     /// I keep shell and process discovery off the main actor and return one UI-ready snapshot.
@@ -641,7 +693,7 @@ class PortViewModel: ObservableObject {
             let killed = await killTask.value
             if killed {
                 successMessage = "Killed \(port.command) on port \(port.port)"
-                addLog(source: "kill", message: "Killed pid \(pid) (\(port.command)) on port \(port.port)", level: .success, port: port.port)
+                addLog(source: "kill", message: "Killed pid \(pid) (\(port.command)) on port \(port.port)", level: .success, port: port.port, event: .killed)
             } else {
                 raiseError("Failed to kill \(port.command) (pid \(pid))")
                 isLoading = false
@@ -682,7 +734,7 @@ class PortViewModel: ObservableObject {
             if delivered {
                 let verb = signal == "pause" ? "Paused" : "Resumed"
                 successMessage = "\(verb) \(process.command) on port \(process.port)"
-                addLog(source: signal, message: "\(verb) pid \(pid) (\(process.command)) on port \(process.port)", level: .success, port: process.port)
+                addLog(source: signal, message: "\(verb) pid \(pid) (\(process.command)) on port \(process.port)", level: .success, port: process.port, event: signal == "pause" ? .paused : .resumed)
             } else {
                 raiseError("Failed to \(signal) \(process.command) (pid \(pid))")
                 addLog(source: signal, message: "Failed to \(signal) pid \(pid) on port \(process.port)", level: .error, port: process.port)
@@ -727,7 +779,7 @@ class PortViewModel: ObservableObject {
             let killedCount = targets.count - failures.count
             if killedCount > 0 {
                 successMessage = "Killed \(killedCount) port(s)"
-                addLog(source: "kill", message: "Killed \(killedCount) process(es)", level: .success)
+                addLog(source: "kill", message: "Killed \(killedCount) process(es)", level: .success, event: .killed)
             }
             refreshPorts()
         }
