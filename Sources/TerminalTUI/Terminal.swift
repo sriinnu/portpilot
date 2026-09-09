@@ -30,11 +30,11 @@ public enum Terminal {
         savedTermios = raw
 
         // Disable echo, canonical mode, and signal generation
-        raw.c_lflag &= ~tcflag_t(ECHO | ICANON | ISIG | IEXTEN)
-        // Input processing off: IXON makes Ctrl+S freeze output at the tty
-        // layer (the app looks hung until Ctrl+Q); ICRNL mangles CR into NL.
-        raw.c_iflag &= ~tcflag_t(IXON | ICRNL | INLCR | IGNCR | ISTRIP | IEXTEN)
-        // OPOST stays on: positioning is cursor-absolute anyway, and CR
+// Disable echo, canonical mode, and signal generation
+raw.c_lflag &= ~tcflag_t(ECHO | ICANON | ISIG | IEXTEN)
+// Input processing off: IXON makes Ctrl+S freeze output at the tty
+// layer (the app looks hung until Ctrl+Q); ICRNL mangles CR into NL.
+raw.c_iflag &= ~tcflag_t(IXON | ICRNL | INLCR | IGNCR | ISTRIP)
         // translation keeps any stray literal newline from staircasing.
 
         // Set VMIN=0 (don't block), VTIME=1 (100ms timeout) for non-blocking reads.
