@@ -1,132 +1,168 @@
-# PortPilot Skill
+# PortPilot Usage Reference
 
-> This document describes PortPilot as a learnable skill for humans and AI agents. Use it to understand, operate, and integrate PortPilot into workflows.
+Operational reference for PortPilot: the `portpilot` CLI, the `portpilot-tui` terminal UI, and the macOS menu bar app. Covers common tasks, exact commands, and integration patterns for scripts, CI, and agents.
 
-## What is PortPilot?
-
-PortPilot is a macOS menu bar app and cross-platform CLI that monitors network ports, discovers local app daemons (Unix sockets), classifies processes, proxies TCP traffic, and kills processes. It replaces manual `lsof`, `kill`, `ss`, and `netstat` commands with a single tool.
+Build and installation instructions: [README.md](README.md). Source tree and internals: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## When to use PortPilot
 
-- **Port conflict**: "something is already running on port 3000" → find and kill it
-- **Process discovery**: "what's listening on my machine?" → see all ports + sockets
-- **Tunnel management**: "which kubectl port-forwards are active?" → grouped view
-- **Traffic forwarding**: "proxy port 8080 to port 9090" → native TCP proxy
-- **Daemon inspection**: "is my local service running?" → check sockets tab for PID + socket path
+| Task | Command |
+|------|---------|
+| Port conflict: find and kill what holds a port | `portpilot kill 3000` |
+| List everything listening (ports + Unix sockets) | `portpilot list` / TUI Sockets tab |
+| Find active tunnels (SSH forwards, kubectl, Cloudflare) | TUI Ports tab (TYPE column); menu bar dropdown List View groups by connection type |
+| Check whether a local daemon is running | TUI Sockets tab (PID + socket path) |
+| Inspect established connections by process | `portpilot connections` |
+| Free a port range before starting services | `portpilot find --start 8000 --end 8999` |
 
-## CLI Reference
+## CLI reference
 
 ### List ports
+
 ```bash
-# All listening ports
-portpilot list
-
-# Filter by range
-portpilot list --start 3000 --end 9999
-
-# Filter by protocol
-portpilot list --proto tcp
-
-# JSON output (for piping to jq, scripts, AI agents)
-portpilot list --json
+portpilot list                          # all listening ports
+portpilot list --start 3000 --end 9999  # port range
+portpilot list --proto tcp              # protocol filter (tcp/udp)
+portpilot list --json                   # JSON output
 ```
 
-**Output fields** (JSON): `port`, `protocolName`, `pid`, `user`, `command`, `fullCommand`, `parentPID`, `startTime`, `workingDirectory`, `processPath`, `socketPath`
+`--json` fields: `port`, `protocolName`, `pid`, `user`, `command`, `fullCommand`, `parentPID`, `startTime`, `workingDirectory`, `processPath`, `socketPath`, `cpuUsage`, `memoryMB`.
 
 ### Kill processes
+
 ```bash
-# Kill by port number
-portpilot kill 3000
-
-# Force kill (SIGKILL instead of SIGTERM)
-portpilot kill 3000 --force
-
-# Colon prefix syntax
-portpilot kill :8080
+portpilot kill 3000            # SIGTERM the process on the port
+portpilot kill 3000 --force    # SIGKILL
+portpilot kill :8080           # colon prefix accepted
+portpilot kill-all             # every listed process
 ```
 
-### Get PIDs
-```bash
-# Single port
-portpilot pid 8080
-# → 12345
+`kill` exits non-zero if processes survive SIGKILL (`partialKill` error lists the surviving PIDs).
 
-# Multiple ports
-portpilot pids 3000 3001 3002
-# → 3000: 12345
-# → 3001: 12346
-# → 3002: 12347
+### Get PIDs
+
+```bash
+portpilot pid 8080            # "Port 8080 -> PID 12345"
+portpilot pid -q 8080         # "12345" only (--quiet)
+portpilot pids 3000 3001 3002 # one "Port <port> -> PID <pid>" line per port
+```
+
+When no process is found, `pid` prints "No process found listening on port N" (nothing with `--quiet`) and exits 1, which makes it usable as a shell test.
+
+### Find free ports
+
+```bash
+portpilot find --start 8000 --end 8999
+```
+
+### Connections
+
+```bash
+portpilot connections               # established connections grouped by process
+portpilot connections --suspect     # only processes with >50 connections
+portpilot connections --blocklist   # only blocklisted remote hosts
+portpilot connections --kill 12345  # kill by PID
+portpilot connections --json
+```
+
+### Cronjobs
+
+```bash
+portpilot cronjobs                 # user crontab + system cron
+portpilot cronjobs --user-only
+portpilot cronjobs --system-only
+portpilot cronjobs --json
+```
+
+### Programs and Docker
+
+```bash
+portpilot program-pids --program node
+portpilot program-kill --program node
+portpilot docker                   # Docker containers behind ports
 ```
 
 ### SOCKS proxy
+
 ```bash
-portpilot proxy --user myuser --host remote-server --port 1080
+portpilot proxy --port 1080 --ssh user@host
 ```
 
-### Interactive mode
+Wraps `ssh -D 1080 -N user@host`. `--pid-file <path>` writes the SSH PID; `--verbose` passes SSH output through. Stops on Ctrl+C.
+
+### Interactive modes
+
 ```bash
-portpilot interactive
+portpilot interactive   # basic interactive kill mode
+portpilot tui           # full TUI (same as portpilot-tui)
 ```
 
-## GUI Operations (macOS)
+## TUI
 
-### Menu bar dropdown
-| Action | How |
-|--------|-----|
-| Open dropdown | Click menu bar icon (top-right) |
-| Switch tabs | Click "Ports" or "Sockets" tab |
-| Filter by protocol | Click TCP / UDP / Unix pills |
-| Filter by type | Click Local / DB / K8s / CF / SSH icons |
-| Hide system processes | Click "Sys" toggle |
-| Kill a process | Hover row → click stop/kill icon |
-| Copy port info | Hover row → click copy icon |
-| Open main window | Click "Open PortPilot" at bottom |
-| Refresh | Click "Refresh" or Cmd+R |
-
-### Main window
-| Action | How |
-|--------|-----|
-| Select port | Click in left panel |
-| View config | Selected port details appear in right panel |
-| Start proxy | In config panel → "Quick Proxy" → set target → "Start Proxy" |
-| Stop proxy | Click "Stop" on active proxy, or "Stop All" in bottom-right overlay |
-| Filter | Use pill buttons in toolbar |
-| Kill process | Click kill icon on port row |
-| Search | Type in search field |
-
-## Integration Patterns
-
-### For AI agents
 ```bash
-# Get structured port data
+portpilot-tui
+```
+
+Tabs: Ports, Sockets, Schedules, Connections.
+
+| Key | Action |
+|-----|--------|
+| `↑↓` / `j` `k` | Navigate |
+| `Enter` | Kill process (confirmation prompt: `y`/`n`) |
+| `/` | Search / clear filter |
+| `Tab` | Switch tab |
+| `i` | Process detail view (info + connections) |
+| `r` | Refresh |
+| `q` | Quit |
+
+Requires a POSIX terminal (macOS, Linux, WSL). Not supported on native Windows.
+
+## macOS app operations
+
+Menu bar dropdown:
+
+| Action | How |
+|--------|-----|
+| Open dropdown | Click the menu bar icon |
+| Filter by protocol | All / TCP / UDP chips |
+| Switch grouping | List View (by connection type) / Tree View (by process) toggle |
+| View cronjobs | Schedules section (read-only list) |
+| Kill a process | Hover a row, click the kill action |
+| Open main window | "Open PortPilot App" at the bottom |
+
+Main window:
+
+| Action | How |
+|--------|-----|
+| Select port | Click a row in the port list |
+| Inspect process | Configuration panel shows PID, path, working directory, CPU, uptime, connections |
+| Start/stop TCP proxy | Configuration panel → Quick Proxy → set target port → Start/Stop |
+| Filter | Protocol and type filters in the sidebar; system-process toggle in the toolbar |
+| Kill process | Kill action on the selected port |
+| Cronjob controls | Schedules section: pause/resume (personal crontab only, stored with a recoverable marker), Run Now, Stop, run history. System cron entries are read-only. |
+
+## Integration patterns
+
+### Agents and scripts
+
+```bash
+# Structured port data
 portpilot list --json | jq '.[] | select(.port == 3000)'
 
-# Check if a port is in use before starting a server
+# Test whether a port is in use before starting a server
 portpilot pid 3000 && echo "Port 3000 is occupied" || echo "Port 3000 is free"
 
 # Kill and verify
-portpilot kill 3000 && sleep 1 && portpilot pid 3000 || echo "Port freed"
+portpilot kill 3000 && sleep 1 && (portpilot pid 3000 || echo "Port freed")
 
-# Find what's using a port range
+# What occupies a port range
 portpilot list --start 8000 --end 8999 --json | jq '.[].command'
 ```
 
-### For shell scripts
-```bash
-#!/bin/bash
-# Free up dev ports before starting services
-for port in 3000 3001 5173 8080; do
-  if portpilot pid $port > /dev/null 2>&1; then
-    echo "Killing process on port $port"
-    portpilot kill $port
-  fi
-done
-echo "All dev ports free"
-```
+### CI
 
-### For CI/CD
 ```bash
-# Verify no leftover processes after test suite
+# Fail if test servers survived the suite
 leftover=$(portpilot list --start 3000 --end 9999 --json | jq length)
 if [ "$leftover" -gt 0 ]; then
   echo "WARNING: $leftover ports still occupied after tests"
@@ -135,7 +171,8 @@ if [ "$leftover" -gt 0 ]; then
 fi
 ```
 
-### For Makefiles
+### Makefile
+
 ```makefile
 .PHONY: dev clean-ports
 
@@ -147,75 +184,40 @@ dev: clean-ports
 	npm run dev
 ```
 
-## Process Classification Logic
+## Behavior notes
 
-PortPilot classifies processes using executable path heuristics:
+### Process classification
 
-```
-/System/*, /usr/libexec/*, /usr/sbin/*, /sbin/*  →  System
-/opt/homebrew/*, /usr/local/bin/*                  →  Developer
-/Applications/*, *.app/*                           →  App
-~/*, /Users/*/                                     →  App
-everything else                                    →  Other
-```
+Processes are classified from the executable path (`proc_pidpath` on macOS), evaluated in this order:
 
-Known developer commands: `node`, `python`, `ruby`, `java`, `go`, `docker`, `kubectl`, `postgres`, `redis-server`, `nginx`, `ssh`, `cloudflared`, etc.
+1. Basename in the known system-daemon set (`launchd`, `WindowServer`, `mDNSResponder`, ...) → System
+2. Basename in the known dev-command set (`node`, `python3`, `go`, `docker`, `kubectl`, `postgres`, `redis-server`, `nginx`, `ssh`, `cloudflared`, ...) → Developer. Checked before path prefixes so dev tools living in `/usr/bin` are not classified as System.
+3. Path prefix `/opt/homebrew/`, `/usr/local/bin/`, `/usr/local/opt/`, `/usr/local/Cellar/` → Developer
+4. Path prefix `/System/`, `/usr/libexec/`, `/usr/sbin/`, `/sbin/`, `/usr/bin/`, `/Library/Apple/` → System
+5. Path contains `.app/` or starts with `/Applications/` → App
+6. Path starts with the user's home directory → App
+7. Otherwise → Other
 
-## Port Discovery Methods
+### Port and connection discovery
 
-| Platform | Command | Parser |
-|----------|---------|--------|
-| macOS (TCP/UDP) | `lsof -iTCP -iUDP -sTCP:LISTEN -P -n` | Custom field parser |
-| macOS (Unix sockets) | `lsof -U -P -n` | Socket path extractor |
-| macOS (process path) | `proc_pidpath()` | Darwin C API |
-| macOS (full command) | `ps -p <pids> -o pid=,ppid=,lstart=,cwd=,args=` | Multi-field parser |
-| Linux / WSL | `ss -tlnp` | Regex parser |
-| Windows | `netstat -ano` + `tasklist /FO CSV` | PID cross-reference |
+| Platform | Source |
+|----------|--------|
+| macOS, TCP/UDP listeners | `lsof -iTCP -iUDP -sTCP:LISTEN -P -n` |
+| macOS, Unix sockets | `lsof -U -P -n` |
+| macOS, process path | `proc_pidpath()` |
+| macOS, full command / parent / start time | `ps -p <pids> -o pid=,ppid=,lstart=,args=` |
+| macOS, working directory | `lsof -w -a -p <pids> -d cwd -F pn` |
+| Linux / WSL | `ss -tulnp` |
+| Windows | `netstat -ano` + `tasklist /FO CSV /NH` |
 
-## TCP Proxy Architecture
+Process execution has a 10-second timeout; shared caches are NSLock-guarded.
 
-Built on Apple's Network.framework:
+### Blocklist
 
-```
-Client → NWListener (listen port) → NWConnection (inbound)
-                                          ↕ relay()
-                               NWConnection (outbound) → Target (host:port)
-```
-
-- Bidirectional data relay with 64KB buffer
-- Byte counting per session
-- Thread-safe with NSLock on all shared state
-- Callbacks dispatched to main thread for UI
-
-## File Structure
-
-```
-Sources/
-├── PortManagerLib/           # Core library (no UI dependency)
-│   ├── PortManager.swift           # lsof/ss/netstat + Unix socket discovery
-│   ├── ProcessClassifier.swift     # proc_pidpath + path heuristics
-│   ├── TCPProxyManager.swift       # Network.framework proxy
-│   ├── PortWatcher.swift           # Poll-based port monitoring
-│   ├── HistoryManager.swift        # Kill history persistence
-│   └── FavoritesManager.swift      # Favorites persistence
-├── PortPilot/                # macOS GUI
-│   ├── PortPilotApp.swift          # AppKit entry (NSApplication.run)
-│   ├── PortViewModel.swift         # State + business logic
-│   ├── MenuBarController.swift     # NSStatusItem management
-│   ├── MenuBarDropdownView.swift   # Ports/Sockets tabs
-│   ├── ConfigurationPanel.swift    # Detail view + proxy controls
-│   └── ...
-└── PortKillerCLI/            # Cross-platform CLI
-    ├── CLI.swift                   # swift-argument-parser commands
-    └── InteractiveMode.swift       # Terminal UI
-```
+`~/.portpilot/blocklist.txt`, one entry per line: domain, domain suffix (leading `.` matches subdomains), IP, IPv6 prefix, or CIDR range. Matching connections are flagged by `portpilot connections`, the TUI Connections tab, and the menu bar app. The file is cached for 60 seconds.
 
 ## Requirements
 
-- **macOS app**: macOS 13.0+, Xcode 15+, Swift 5.9+
-- **CLI**: Swift 5.9+ (any platform)
-- **npm scripts**: Node.js 18+
-
----
-
-© Srinivas Pendela 2024–2026. All rights reserved.
+- macOS app: macOS 13.0+, Xcode 15+, Swift 5.9+
+- CLI / TUI: Swift 5.9+ on any supported platform
+- npm scripts: Node.js 18+
