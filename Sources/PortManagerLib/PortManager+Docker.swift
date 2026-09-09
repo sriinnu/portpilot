@@ -37,9 +37,13 @@ extension PortManager {
             let parts = line.split(separator: "|")
             guard parts.count >= 4 else { continue }
 
-            let containerId = String(parts[0])
-            if let ports = dockerRun(["port", containerId]),
-               ports.contains(":\(port)") || ports.contains("\(port)/") {
+let containerId = String(parts[0])
+if let ports = dockerRun(["port", containerId]),
+   ports.split(separator: "\n").contains(where: { line in
+       guard let r = line.range(of: ":\(port)") else { return false }
+       let after = line[r.upperBound...]
+       return after.isEmpty || !after.first!.isNumber
+   }) || ports.contains("\(port)/") {
                 return DockerInfo(
                     containerId: containerId,
                     containerName: String(parts[1]),
