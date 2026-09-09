@@ -60,7 +60,11 @@ jobs:
       - name: Setup Swift
         uses: swift-actions/setup-swift@v2
         with:
-          swift-version: "5.9"
+          # 5.9 has no Ubuntu 24.04 build (ubuntu-latest is 24.04) — the
+          # setup action 404s resolving it. 6.1 is the oldest line with
+          # full 24.04 support and matches the macOS job's toolchain
+          # generation; the package is tools-5.9 and builds in v5 mode.
+          swift-version: "6.1"
 
       - name: Run tests
         run: swift test
