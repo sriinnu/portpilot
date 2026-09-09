@@ -115,20 +115,19 @@ extension PortKiller {
 
         func run() throws {
             let portManager = PortManager()
-            let portNumber = parsePort(port)
 
-            guard portNumber > 0 else {
-                print("Invalid port number: \(port)")
+            guard let portNumber = parsePortInput(port) else {
+                print("Invalid port number: \(port) (expected 1-65535)")
                 throw ExitCode(1)
             }
 
-            try portManager.killProcessOnPort(portNumber, force: force, timeout: timeout)
-            print("✅ Process on port \(portNumber) has been terminated.")
-        }
-
-        private func parsePort(_ input: String) -> Int {
-            let cleaned = input.hasPrefix(":") ? String(input.dropFirst()) : input
-            return Int(cleaned) ?? 0
+            do {
+                try portManager.killProcessOnPort(portNumber, force: force, timeout: TimeInterval(timeout) / 1000.0)
+                print("✅ Process on port \(portNumber) has been terminated.")
+            } catch PortManagerError.partialKill(let survivors) {
+                print("⚠️  Port \(portNumber): pid(s) \(survivors.map(String.init).joined(separator: ", ")) survived SIGKILL.")
+                throw ExitCode(1)
+            }
         }
     }
 }
@@ -210,8 +209,16 @@ extension PortKiller {
                 return
             }
 
-            try portManager.killAllProcesses(startPort: start, endPort: end, force: force, pattern: pattern)
-            print("✅ All matching processes have been terminated.")
+            // Kill exactly the PIDs listed above — re-resolving by port range
+            // or pattern could sweep in processes that started after the
+            // listing was printed. --force means SIGKILL now, no TERM wait.
+            let survivors = portManager.killProcess(pids: processes.map(\.pid), force: force)
+            if survivors.isEmpty {
+                print("✅ All matching processes have been terminated.")
+            } else {
+                print("⚠️  \(survivors.count) process(es) survived SIGKILL: \(survivors.map(String.init).joined(separator: ", "))")
+                throw ExitCode(1)
+            }
         }
     }
 }
@@ -231,10 +238,9 @@ extension PortKiller {
 
         func run() throws {
             let portManager = PortManager()
-            let portNumber = parsePort(port)
 
-            guard portNumber > 0 else {
-                print("Invalid port number: \(port)")
+            guard let portNumber = parsePortInput(port) else {
+                print("Invalid port number: \(port) (expected 1-65535)")
                 throw ExitCode(1)
             }
 
@@ -250,11 +256,6 @@ extension PortKiller {
             } else {
                 print("Port \(portNumber) -> PID \(pid)")
             }
-        }
-
-        private func parsePort(_ input: String) -> Int {
-            let cleaned = input.hasPrefix(":") ? String(input.dropFirst()) : input
-            return Int(cleaned) ?? 0
         }
     }
 }
@@ -277,11 +278,14 @@ extension PortKiller {
 
         func run() throws {
             let portManager = PortManager()
-            let portNumbers = ports.map { parsePort($0) }
 
-            guard !portNumbers.contains(0) else {
-                print("Invalid port number in input")
-                throw ExitCode(1)
+            var portNumbers: [Int] = []
+            for input in ports {
+                guard let port = parsePortInput(input) else {
+                    print("Invalid port number: \(input) (expected 1-65535)")
+                    throw ExitCode(1)
+                }
+                portNumbers.append(port)
             }
 
             let results = portManager.getPIDs(forPorts: portNumbers)
@@ -309,11 +313,6 @@ extension PortKiller {
                 print(String(repeating: "─", count: 40))
                 print("\nFound \(results.count) port(s) in use")
             }
-        }
-
-        private func parsePort(_ input: String) -> Int {
-            let cleaned = input.hasPrefix(":") ? String(input.dropFirst()) : input
-            return Int(cleaned) ?? 0
         }
     }
 }
@@ -526,8 +525,15 @@ extension PortKiller {
                 return
             }
 
-            try portManager.killAllProcesses(named: [program], force: force)
-            print("✅ All \(processes.count) process(es) for program '\(program)' have been terminated.")
+            // PID-direct: kill what was listed, not a fresh name lookup.
+            // --force means SIGKILL now, no TERM wait.
+            let survivors = portManager.killProcess(pids: processes.map(\.pid), force: force)
+            if survivors.isEmpty {
+                print("✅ All \(processes.count) process(es) for program '\(program)' have been terminated.")
+            } else {
+                print("⚠️  \(survivors.count) process(es) survived SIGKILL: \(survivors.map(String.init).joined(separator: ", "))")
+                throw ExitCode(1)
+            }
         }
     }
 }
@@ -578,12 +584,15 @@ extension PortKiller {
                 task.standardError = outputPipe
             }
 
-            if let pidFile = pidFile {
-                try "\(task.processIdentifier)".write(toFile: pidFile, atomically: true, encoding: .utf8)
-            }
-
             do {
                 try task.run()
+
+                // processIdentifier is -1 before run() — the old order wrote
+                // a useless pid file every single time.
+                if let pidFile = pidFile {
+                    try "\(task.processIdentifier)".write(toFile: pidFile, atomically: true, encoding: .utf8)
+                }
+
                 task.waitUntilExit()
             } catch {
                 print("❌ Failed to start SSH tunnel: \(error.localizedDescription)")
@@ -605,6 +614,7 @@ extension PortKiller {
             let selfDir = (selfPath as NSString).deletingLastPathComponent
             let candidates = [
                 "\(selfDir)/portpilot-tui",
+                "/opt/homebrew/bin/portpilot-tui",  // Apple Silicon Homebrew default
                 "/usr/local/bin/portpilot-tui",
             ]
 
@@ -851,9 +861,21 @@ extension PortKiller {
         }
 
         private func killProcess(_ pid: Int) throws {
+            guard pid > 1 else {
+                // killProcess refuses to signal pid <= 1 and would report an
+                // empty survivor list — which read as success for a no-op.
+                print("⚠️  Refusing to signal pid \(pid) — pids below 2 can't be killed.")
+                throw ExitCode(1)
+            }
             let portManager = PortManager()
-            try portManager.killProcessByPID(pid, force: true)
-            print("✅ Process \(pid) has been terminated.")
+            // TERM→KILL escalation — this used to be an instant force-kill.
+            let survivors = portManager.killProcess(pids: [pid])
+            if survivors.isEmpty {
+                print("✅ Process \(pid) has been terminated.")
+            } else {
+                print("⚠️  Process \(pid) survived SIGKILL.")
+                throw ExitCode(1)
+            }
         }
     }
 }
@@ -881,6 +903,14 @@ extension String {
         }
         return String(self.prefix(length - 3)) + "..."
     }
+}
+
+/// Parse ":8080"/"8080"-style port input shared by the port-taking
+/// subcommands. nil when not a number or outside 1-65535.
+func parsePortInput(_ input: String) -> Int? {
+    let cleaned = input.hasPrefix(":") ? String(input.dropFirst()) : input
+    guard let port = Int(cleaned), (1...65535).contains(port) else { return nil }
+    return port
 }
 
 /// Shorten an absolute path to just the project name (last 2-3 meaningful components)

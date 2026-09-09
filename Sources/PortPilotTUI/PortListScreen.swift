@@ -17,6 +17,13 @@ enum AlertState {
     var isAlert: Bool { self != .normal }
 }
 
+/// Cached alert rollup — computed when connections load, not re-scanned
+/// on every rendered frame.
+struct AlertSummary {
+    var blocklistedCount = 0
+    var topSuspicious: (name: String, count: Int)?
+}
+
 /// Format memory in human-readable units (MB/GB) — shared across screens
 func formatMemory(_ mb: Double) -> String {
     if mb >= 1024 { return String(format: "%.1fG", mb / 1024.0) }
@@ -31,6 +38,7 @@ struct PortListScreen: TUIScreen {
     // MARK: - State
 
     private let portManager = PortManager()
+    private let refresher: ListRefresher
     private var processes: [PortProcess] = []
     private var filtered: [PortProcess] = []
     private var selectedIndex: Int = 0
@@ -41,12 +49,19 @@ struct PortListScreen: TUIScreen {
     private var searchQuery: String = ""
     private var searchBuffer: String = ""
 
-    // Kill confirmation state
+    // Kill confirmation state — the target is captured when Enter is pressed,
+    // so a background refresh between confirm and 'y' can't retarget the kill
+    // at whatever slid under the cursor.
     private var confirmingKill: Bool = false
+    private var pendingKill: PortProcess?
 
-    // Status message (shown temporarily after actions)
+    // Status message (expires a few seconds after the action)
     private var statusMessage: String?
     private var statusStyle: String = ANSI.fg(.green)
+    private var statusExpiresAt: Date?
+
+    // Alert rollup, cached at load time
+    private var alertSummary = AlertSummary()
 
     // Tab state
     private var activeTab: Tab = .ports
@@ -75,12 +90,18 @@ struct PortListScreen: TUIScreen {
     // MARK: - Init
 
     init() {
-        refresh()
+        self.refresher = ListRefresher(manager: portManager)
+        // First load runs in the background — init stays instant so the app
+        // enters raw mode and paints a frame without a lsof-shaped stall.
+        refresher.start(tab: activeTab)
     }
 
     // MARK: - Data
 
-    /// Reload process list from the system
+    /// Reload the current tab synchronously. Used only for user-initiated
+    /// actions (refresh key, tab switch, after a kill) where a short beat of
+    /// blocking beats staring at a stale table — the auto-refresh loop
+    /// (`onTick`) never calls this; it goes through `ListRefresher`.
     private mutating func refresh() {
         do {
             switch activeTab {
@@ -114,28 +135,55 @@ struct PortListScreen: TUIScreen {
             }
             applyFilter()
             clampSelection()
-            statusMessage = nil
         } catch {
-            processes = []
-            filtered = []
-            cronjobs = []
-            filteredCronjobs = []
-            connections = []
-            filteredConnections = []
-            alertState = .normal
+            // Keep the last good data — a transient lsof failure shouldn't
+            // blank a table the user was reading.
             showStatus("Error: \(error.localizedDescription)", style: ANSI.fg(.red))
         }
     }
 
-    /// Update alert state based on current connections
+    /// Swap in whatever the background refresh produced. Called at the top of
+    /// render — every tick, keypress, and resize funnels through there.
+    private mutating func absorbRefreshResult() {
+        guard let result = refresher.takeResult() else { return }
+        // A result for a tab we've since left is stale — switchTab already
+        // loaded the new tab synchronously.
+        guard result.tab == activeTab else { return }
+
+        if let error = result.error {
+            showStatus("Error: \(error)", style: ANSI.fg(.red))
+            return
+        }
+
+        switch result.tab {
+        case .ports, .sockets:
+            processes = result.processes
+        case .schedules:
+            cronjobs = result.cronjobs
+        case .connections:
+            connections = result.connections
+            updateAlertState()
+        }
+        applyFilter()
+        clampSelection()
+    }
+
+    /// Update alert state and the cached rollup based on current connections
     private mutating func updateAlertState() {
         let blocklistedCount = connections.filter { $0.isBlocklisted }.count
         let groupedConnections = Dictionary(grouping: connections, by: { $0.processName })
-        let suspiciousCount = groupedConnections.filter { $0.value.count > 50 }.count
+        let suspicious = groupedConnections.filter { $0.value.count > 50 }
+
+        alertSummary = AlertSummary(
+            blocklistedCount: blocklistedCount,
+            topSuspicious: suspicious
+                .max { $0.value.count < $1.value.count }
+                .map { (name: $0.key, count: $0.value.count) }
+        )
 
         if blocklistedCount > 0 {
             alertState = .critical
-        } else if suspiciousCount > 0 {
+        } else if !suspicious.isEmpty {
             alertState = .warning
         } else {
             alertState = .normal
@@ -200,15 +248,27 @@ struct PortListScreen: TUIScreen {
         }
     }
 
-    /// Set a temporary status message
+    /// Set a temporary status message. Expires on its own — before, a status
+    /// lived until the next action replaced it (usually forever).
     private mutating func showStatus(_ message: String, style: String = ANSI.fg(.green)) {
         statusMessage = message
         statusStyle = style
+        statusExpiresAt = Date().addingTimeInterval(5)
+    }
+
+    private mutating func expireStatusIfNeeded() {
+        if let expiry = statusExpiresAt, Date() >= expiry {
+            statusMessage = nil
+            statusExpiresAt = nil
+        }
     }
 
     // MARK: - Rendering
 
     mutating func render(into screen: inout Screen) {
+        absorbRefreshResult()
+        expireStatusIfNeeded()
+
         let w = screen.width
         let h = screen.height
         guard h >= 4 else { return }  // Need minimum height for header + 1 row
@@ -426,9 +486,11 @@ struct PortListScreen: TUIScreen {
         if isSearching {
             let prompt = "Search: \(searchBuffer)_"
             screen.put(row: msgRow, col: 0, text: fitString(prompt, width: width), style: ANSI.bold + ANSI.fg(.yellow))
-        } else if confirmingKill, activeTab != .connections, !filtered.isEmpty, selectedIndex < filtered.count {
-            let proc = filtered[selectedIndex]
-            let msg = "Kill \(proc.command) on port \(proc.port) (pid \(proc.pid))? [y/n]"
+        } else if confirmingKill, let target = pendingKill {
+            let what = target.isUnixSocket
+                ? "pid \(target.pid)"
+                : "port \(target.port) (pid \(target.pid))"
+            let msg = "Kill \(target.command) on \(what)? [y/n]"
             screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: ANSI.bold + ANSI.fg(.red))
         } else if let msg = statusMessage {
             screen.put(row: msgRow, col: 0, text: fitString(msg, width: width), style: statusStyle)
@@ -461,23 +523,15 @@ struct PortListScreen: TUIScreen {
                 let suspiciousMarker = conn.remoteAddress.contains("*") ? "" : "→ \(conn.remoteAddress)"
                 screen.put(row: msgRow, col: countMsg.count, text: fitString("\(blocklistMarker)\(conn.processName) \(suspiciousMarker)", width: width - countMsg.count), style: markerStyle)
 
-                // Show alert summary if in alert state
+                // Show alert summary if in alert state (cached at load time —
+                // this used to re-group every connection on every frame)
                 if alertState.isAlert {
-                    let blocklistedCount = connections.filter { $0.isBlocklisted }.count
-                    let groupedConnections = Dictionary(grouping: connections, by: { $0.processName })
-                    let suspiciousProcesses = groupedConnections.filter { $0.value.count > 50 }
-
-                    if blocklistedCount > 0 {
-                        let alertMsg = " \(blocklistedCount) blocklisted"
-                        let alertStyle = ANSI.bold + ANSI.fg(.brightRed)
-                        screen.put(row: msgRow, col: width - alertMsg.count - 1, text: alertMsg, style: alertStyle)
-                    } else if !suspiciousProcesses.isEmpty {
-                        let topSuspicious = suspiciousProcesses.max { $0.value.count < $1.value.count }
-                        if let (name, conns) = topSuspicious {
-                            let alertMsg = " \(name):\(conns.count) [!]"
-                            let alertStyle = ANSI.bold + ANSI.fg(.brightYellow)
-                            screen.put(row: msgRow, col: max(0, width - alertMsg.count - 1), text: alertMsg, style: alertStyle)
-                        }
+                    if alertSummary.blocklistedCount > 0 {
+                        let alertMsg = " \(alertSummary.blocklistedCount) blocklisted"
+                        screen.put(row: msgRow, col: width - alertMsg.count - 1, text: alertMsg, style: ANSI.bold + ANSI.fg(.brightRed))
+                    } else if let top = alertSummary.topSuspicious {
+                        let alertMsg = " \(top.name):\(top.count) [!]"
+                        screen.put(row: msgRow, col: max(0, width - alertMsg.count - 1), text: alertMsg, style: ANSI.bold + ANSI.fg(.brightYellow))
                     }
                 }
             } else {
@@ -563,8 +617,11 @@ struct PortListScreen: TUIScreen {
                     return showConnectionDetail()
                 }
             } else {
-                // Enter starts kill confirmation — does NOT kill immediately
+                // Enter starts kill confirmation — does NOT kill immediately.
+                // Capture the target now so a refresh between confirm and 'y'
+                // can't retarget the kill.
                 if !filtered.isEmpty, selectedIndex < filtered.count {
+                    pendingKill = filtered[selectedIndex]
                     confirmingKill = true
                 }
             }
@@ -604,6 +661,14 @@ struct PortListScreen: TUIScreen {
 
     mutating func onResize(width: Int, height: Int) {
         clampSelection()
+    }
+
+    mutating func onTick() {
+        // Keep a background load warm — the result is absorbed at the top of
+        // render(). Never mid-search or mid-confirm: swapping rows under
+        // those modes would yank the cursor out from under the user.
+        guard !isSearching, !confirmingKill else { return }
+        refresher.start(tab: activeTab)
     }
 
     // MARK: - Navigation
@@ -688,6 +753,7 @@ struct PortListScreen: TUIScreen {
             killSelected()
         case .char("n"), .char("N"), .escape:
             confirmingKill = false
+            pendingKill = nil
             showStatus("Kill cancelled", style: ANSI.dim)
         default:
             break  // Ignore other keys during confirmation
@@ -696,32 +762,20 @@ struct PortListScreen: TUIScreen {
     }
 
     private mutating func killSelected() {
-        guard !filtered.isEmpty, selectedIndex < filtered.count else { return }
-        let process = filtered[selectedIndex]
+        guard let target = pendingKill else { return }
+        pendingKill = nil
 
-        do {
-            if process.isUnixSocket {
-                // Unix sockets have port=0; kill by PID directly
-                try killByPID(process.pid, force: false)
-            } else {
-                try portManager.killProcessOnPort(process.port, force: false)
-            }
-            let label = process.isUnixSocket ? "pid \(process.pid)" : "port \(process.port)"
-            showStatus("Killed \(process.command) on \(label)", style: ANSI.fg(.green))
-            refresh()
-        } catch {
-            showStatus("Kill failed: \(error.localizedDescription)", style: ANSI.fg(.red))
+        // PID-direct with TERM→KILL escalation. Re-resolving by port could
+        // hit whatever grabbed the port after the scan; the PID the user
+        // pointed at is the thing they meant to kill.
+        let survivors = portManager.killProcess(pids: [target.pid])
+
+        if survivors.isEmpty {
+            showStatus("Killed \(target.command) (pid \(target.pid))", style: ANSI.fg(.green))
+        } else {
+            showStatus("pid \(target.pid) survived SIGKILL — not your process?", style: ANSI.fg(.red))
         }
-    }
-
-    /// Kill a process by PID directly (used for unix socket processes)
-    private func killByPID(_ pid: Int, force: Bool) throws {
-        let signal = force ? "KILL" : "TERM"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/kill")
-        process.arguments = ["-s", signal, "\(pid)"]
-        try process.run()
-        process.waitUntilExit()
+        refresh()
     }
 
     // MARK: - Navigation Actions
@@ -898,9 +952,7 @@ struct PortListScreen: TUIScreen {
             return (truncated(schedule, to: 21), ANSI.fg(.brightYellow))
         case 1:
             if let nextRun = job.nextRun {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "MM-dd HH:mm"
-                return (formatter.string(from: nextRun), ANSI.fg(.cyan))
+                return (Self.nextRunFormatter.string(from: nextRun), ANSI.fg(.cyan))
             }
             return ("-", ANSI.dim)
         case 2:
@@ -1094,5 +1146,84 @@ struct PortListScreen: TUIScreen {
         case .wsl:     return "WSL"
         case .windows: return "Windows"
         }
+    }
+
+    /// "MM-dd HH:mm" for the NEXT column — static because cellProvider runs
+    /// per visible row per frame, and DateFormatter construction is not cheap.
+    private static let nextRunFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+}
+
+// MARK: - Background Refresh
+
+/// Loads tab data off the input thread. A struct screen can't be mutated from
+/// a worker thread, so results queue here and get absorbed on the next render
+/// or tick — the event loop itself never blocks on lsof.
+private final class ListRefresher: @unchecked Sendable {
+    struct Result {
+        var tab: PortListScreen.Tab
+        var processes: [PortProcess] = []
+        var cronjobs: [CronjobEntry] = []
+        var connections: [EstablishedConnection] = []
+        var error: String?
+    }
+
+    private let lock = NSLock()
+    private var inFlight = false
+    private var pending: Result?
+    private let manager: PortManager
+
+    init(manager: PortManager) {
+        self.manager = manager
+    }
+
+    /// Kick a load for `tab` unless one is already running.
+    func start(tab: PortListScreen.Tab) {
+        lock.lock()
+        if inFlight {
+            lock.unlock()
+            return
+        }
+        inFlight = true
+        lock.unlock()
+
+        DispatchQueue.global(qos: .utility).async { [self] in
+            let result = Self.load(tab: tab, manager: manager)
+            lock.lock()
+            pending = result
+            inFlight = false
+            lock.unlock()
+        }
+    }
+
+    /// Remove and return the freshest result, if any.
+    func takeResult() -> Result? {
+        lock.lock()
+        defer { lock.unlock() }
+        let result = pending
+        pending = nil
+        return result
+    }
+
+    private static func load(tab: PortListScreen.Tab, manager: PortManager) -> Result {
+        var result = Result(tab: tab)
+        do {
+            switch tab {
+            case .ports:
+                result.processes = try manager.getListeningProcesses()
+            case .sockets:
+                result.processes = manager.getUnixSocketProcesses()
+            case .schedules:
+                result.cronjobs = manager.getCronjobs()
+            case .connections:
+                result.connections = try manager.getAllConnections()
+            }
+        } catch {
+            result.error = error.localizedDescription
+        }
+        return result
     }
 }

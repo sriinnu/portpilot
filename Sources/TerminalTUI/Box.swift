@@ -111,11 +111,15 @@ public struct Box: Widget {
 
         // Title (centered in top border)
         if let title, !title.isEmpty {
-            let maxTitleWidth = w - 4  // leave room for corners + spacing
-            let truncated = title.count > maxTitleWidth ? String(title.prefix(maxTitleWidth)) : title
-            let titleText = " \(truncated) "
-            let titleCol = c + (w - titleText.count) / 2
-            screen.put(row: r, col: titleCol, text: titleText, style: titleStyle)
+            // w - 4 leaves room for corners + spacing; on tiny widths that's
+            // negative and prefix() would trap — clamp instead.
+            let maxTitleWidth = max(0, w - 4)
+            if maxTitleWidth > 0 {
+                let truncated = TextWidth.truncate(title, toWidth: maxTitleWidth)
+                let titleText = " \(truncated) "
+                let titleCol = c + max(0, (w - TextWidth.displayWidth(titleText)) / 2)
+                screen.put(row: r, col: titleCol, text: titleText, style: titleStyle)
+            }
         }
 
         // Side borders

@@ -2,6 +2,8 @@ import SwiftUI
 
 // MARK: - Cronjob List Panel (for Main Window)
 struct CronjobListPanel: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+
     @ObservedObject var viewModel: PortViewModel
     @Binding var selectedCronjob: CronjobEntry?
 
@@ -18,23 +20,24 @@ struct CronjobListPanel: View {
             // Header
             HStack {
                 Text("Schedules")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(appSettings.appFont(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
 
                 Spacer()
 
                 let pausedCount = viewModel.cronjobs.filter(\.isPaused).count
                 Text(pausedCount > 0 ? "\(viewModel.cronjobs.count) cronjobs · \(pausedCount) paused" : "\(viewModel.cronjobs.count) cronjobs")
-                    .font(.system(size: 11))
+                    .font(appSettings.appFont(size: 11))
                     .foregroundColor(.secondary)
 
                 Button(action: { viewModel.refreshCronjobs() }) {
                     Image(systemName: Theme.Icon.refresh)
-                        .font(.system(size: 11))
+                        .font(appSettings.appFont(size: 11))
                         .foregroundColor(Theme.Action.refresh)
                 }
                 .buttonStyle(.borderless)
                 .help("Refresh cronjobs")
+                .accessibilityLabel("Refresh cronjobs")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -49,7 +52,7 @@ struct CronjobListPanel: View {
                     ProgressView()
                         .scaleEffect(0.8)
                     Text("Scanning cronjobs...")
-                        .font(.system(size: 12))
+                        .font(appSettings.appFont(size: 12))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
@@ -57,13 +60,13 @@ struct CronjobListPanel: View {
                 Spacer()
                 VStack(spacing: 12) {
                     Image(systemName: "clock")
-                        .font(.system(size: 32))
+                        .font(appSettings.appFont(size: 32))
                         .foregroundColor(.secondary)
                     Text("No Cronjobs Found")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(appSettings.appFont(size: 13, weight: .medium))
                         .foregroundColor(.primary)
                     Text("User and system cronjobs appear here")
-                        .font(.system(size: 11))
+                        .font(appSettings.appFont(size: 11))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
@@ -86,6 +89,11 @@ struct CronjobListPanel: View {
                             .onHover { hovering in
                                 hoveredCronjobId = hovering ? job.id : nil
                             }
+                            // Row selection was pointer-only; give VoiceOver
+                            // the same affordance.
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel("\(job.scheduleHuman ?? job.schedule), \(job.command)\(job.isPaused ? ", paused" : "")")
+                            .accessibilityHint(selectedCronjob?.id == job.id ? "Selected" : "Selects this cronjob")
                         }
                     }
                     .padding(.vertical, 4)
@@ -98,6 +106,8 @@ struct CronjobListPanel: View {
 
 // MARK: - Cronjob Row View
 struct CronjobRowView: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+
     let cronjob: CronjobEntry
     let isSelected: Bool
     let isHovered: Bool
@@ -124,12 +134,12 @@ struct CronjobRowView: View {
             // Job info
             VStack(alignment: .leading, spacing: 2) {
                 Text(cronjob.scheduleHuman ?? cronjob.schedule)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(cronjob.isPaused ? .secondary : .yellow)
+                    .font(appSettings.appMonoFont(size: 12, weight: .medium))
+                    .foregroundColor(cronjob.isPaused ? .secondary : Theme.Status.warning)
                     .lineLimit(1)
 
                 Text(cronjob.command)
-                    .font(.system(size: 11))
+                    .font(appSettings.appFont(size: 11))
                     .foregroundColor(cronjob.isPaused ? .secondary : .primary)
                     .lineLimit(1)
                     .strikethrough(cronjob.isPaused)
@@ -139,7 +149,7 @@ struct CronjobRowView: View {
 
             if cronjob.isPaused {
                 Text("Paused")
-                    .font(.system(size: 9, weight: .medium))
+                    .font(appSettings.appFont(size: 9, weight: .medium))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
@@ -150,22 +160,23 @@ struct CronjobRowView: View {
             // User badge
             if let user = cronjob.user {
                 Text(user)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.blue)
+                    .font(appSettings.appFont(size: 9, weight: .medium))
+                    .foregroundColor(Theme.Action.importAction)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(Color.blue.opacity(0.15))
+                    .background(Theme.Action.importAction.opacity(0.15))
                     .cornerRadius(4)
             }
 
             if cronjob.isEditable {
                 Button(action: onToggleSchedule) {
                     Image(systemName: cronjob.isPaused ? "play.circle" : "pause.circle")
-                        .font(.system(size: 13))
+                        .font(appSettings.appFont(size: 13))
                         .foregroundColor(cronjob.isPaused ? Theme.Status.connected : .secondary)
                 }
                 .buttonStyle(.borderless)
                 .help(cronjob.isPaused ? "Resume schedule" : "Pause schedule")
+                .accessibilityLabel(cronjob.isPaused ? "Resume schedule" : "Pause schedule")
             }
         }
         .padding(.horizontal, 12)
@@ -211,7 +222,7 @@ struct CronjobConfigurationPanel: View {
                 // Header
                 HStack {
                     Text("Cronjob Details")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(appSettings.appFont(size: 13, weight: .semibold))
                     Spacer()
                 }
                 .padding(.horizontal, 12)
@@ -227,7 +238,7 @@ struct CronjobConfigurationPanel: View {
                             job.isPaused ? viewModel.resumeCronjob(job) : viewModel.pauseCronjob(job)
                         }) {
                             Label(job.isPaused ? "Start" : "Pause", systemImage: job.isPaused ? "play.fill" : "pause.fill")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(appSettings.appFont(size: 11, weight: .medium))
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -235,7 +246,7 @@ struct CronjobConfigurationPanel: View {
 
                     Button(action: { viewModel.runCronjobNow(job) }) {
                         Label("Run Now", systemImage: "bolt.fill")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(appSettings.appFont(size: 11, weight: .medium))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -244,7 +255,7 @@ struct CronjobConfigurationPanel: View {
                     if isRunning {
                         Button(action: { viewModel.stopCronjob(job) }) {
                             Label("Stop", systemImage: "stop.fill")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(appSettings.appFont(size: 11, weight: .medium))
                                 .foregroundColor(Theme.Action.kill)
                         }
                         .buttonStyle(.bordered)
@@ -302,11 +313,11 @@ struct CronjobConfigurationPanel: View {
 
                         // Command
                         Text("Command")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(appSettings.appFont(size: 11, weight: .semibold))
                             .foregroundColor(.secondary)
 
                         Text(job.command)
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(appSettings.appMonoFont(size: 12))
                             .foregroundColor(.primary)
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -318,10 +329,10 @@ struct CronjobConfigurationPanel: View {
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "clock")
-                        .font(.system(size: 32))
+                        .font(appSettings.appFont(size: 32))
                         .foregroundColor(.secondary.opacity(0.5))
                     Text("Select a cronjob")
-                        .font(.system(size: 12))
+                        .font(appSettings.appFont(size: 12))
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -348,18 +359,20 @@ struct CronjobConfigurationPanel: View {
 
 // MARK: - Detail Row
 struct DetailRow: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+
     let label: String
     let value: String
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
-                .font(.system(size: 11, weight: .semibold))
+                .font(appSettings.appFont(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)
                 .frame(width: 80, alignment: .leading)
 
             Text(value)
-                .font(.system(size: 12))
+                .font(appSettings.appFont(size: 12))
                 .foregroundColor(.primary)
                 .textSelection(.enabled)
         }
@@ -368,31 +381,34 @@ struct DetailRow: View {
 
 // MARK: - Cronjob Logs Panel
 struct CronjobLogsPanel: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+
     @ObservedObject var viewModel: PortViewModel
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text("Activity")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(appSettings.appFont(size: 12, weight: .semibold))
                     .foregroundColor(.primary)
 
                 Spacer()
 
                 Button(action: { viewModel.clearLogs() }) {
                     Text("Clear")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(appSettings.appFont(size: 10, weight: .medium))
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.borderless)
 
                 Button(action: { viewModel.copyLogs() }) {
                     Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10))
+                        .font(appSettings.appFont(size: 10))
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.borderless)
                 .help("Copy logs")
+                        .accessibilityLabel("Copy logs")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -404,7 +420,7 @@ struct CronjobLogsPanel: View {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     if viewModel.logs.isEmpty {
                         Text("No activity yet")
-                            .font(.system(size: 11))
+                            .font(appSettings.appFont(size: 11))
                             .foregroundColor(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, 20)

@@ -43,7 +43,7 @@ extension PortManager {
         var entries: [CronjobEntry] = []
 
         if let content = try? String(contentsOfFile: "/etc/crontab", encoding: .utf8) {
-            entries.append(contentsOf: parseCrontab(output: content, source: "/etc/crontab", user: extractUserFromCrontab(fullPath: "/etc/crontab", line: nil)))
+            entries.append(contentsOf: parseCrontab(output: content, source: "/etc/crontab", user: nil))
         }
 
         entries.append(contentsOf: parseCronDirectory("/etc/cron.d/"))
@@ -70,7 +70,7 @@ extension PortManager {
             }
 
             if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) {
-                entries.append(contentsOf: parseCrontab(output: content, source: fullPath, user: extractUserFromCrontab(fullPath: fullPath, line: nil)))
+                entries.append(contentsOf: parseCrontab(output: content, source: fullPath, user: nil))
             }
         }
 
@@ -108,6 +108,17 @@ extension PortManager {
 
         return entries
     }
+    /// `@macro` schedules and their five-field equivalents. `@reboot` has none.
+    static let cronMacroSchedules: [String: String] = [
+        "@yearly": "0 0 1 1 *",
+        "@annually": "0 0 1 1 *",
+        "@monthly": "0 0 1 * *",
+        "@weekly": "0 0 * * 0",
+        "@daily": "0 0 * * *",
+        "@midnight": "0 0 * * *",
+        "@hourly": "0 * * * *",
+    ]
+
     /// Parse crontab output into CronjobEntry objects.
     /// - Parameter hasUserColumn: true for system crontabs (`/etc/crontab`, `/etc/cron.d/*`),
     ///   which include a user field between the schedule and the command; false for a personal
@@ -128,6 +139,39 @@ extension PortManager {
             guard !trimmed.isEmpty, !trimmed.hasPrefix("#") || isPaused else { continue }
 
             let components = trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+
+            // @macro form: "@daily /bin/do-thing" — no five-field schedule.
+            // Without this branch the ≥6-token filter silently dropped every
+            // macro job. System crontabs still carry the user column
+            // ("@daily root /bin/do-thing"), so honor hasUserColumn here too.
+            if components[0].hasPrefix("@") {
+                let macro = components[0]
+                let effectiveUser: String?
+                let command: String
+                if hasUserColumn, components.count >= 3 {
+                    effectiveUser = components[1]
+                    command = components.dropFirst(2).joined(separator: " ")
+                } else {
+                    effectiveUser = user
+                    command = components.dropFirst().joined(separator: " ")
+                }
+                guard !command.isEmpty else { continue }
+
+                if macro == "@reboot" {
+                    entries.append(CronjobEntry(
+                        command: command, schedule: "@reboot", scheduleHuman: "At reboot",
+                        nextRun: nil, user: effectiveUser, source: source, isPaused: isPaused
+                    ))
+                } else if let schedule = Self.cronMacroSchedules[macro] {
+                    entries.append(CronjobEntry(
+                        command: command, schedule: schedule,
+                        scheduleHuman: humanReadableSchedule(schedule),
+                        nextRun: isPaused ? nil : nextCronRun(after: Date(), schedule: schedule),
+                        user: effectiveUser, source: source, isPaused: isPaused
+                    ))
+                }
+                continue
+            }
 
             guard components.count >= 6 else { continue }
 
@@ -161,25 +205,30 @@ extension PortManager {
             ))
         }
 
-        return entries
-    }
-
-    /// Extract username from a system crontab file header
-    func extractUserFromCrontab(fullPath: String, line: String?) -> String? {
-        if fullPath == "/etc/crontab" {
-            if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) {
-                let lines = content.components(separatedBy: "\n")
-                for l in lines {
-                    let trimmed = l.trimmingCharacters(in: .whitespaces)
-                    guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
-                    let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-                    if parts.count >= 6 {
-                        return parts[5]
-                    }
-                }
+        // Identical lines repeated in one crontab would collide on
+        // source:schedule:command and confuse ForEach — suffix the second
+        // and later occurrences. In-file order is stable, so a duplicate's
+        // suffix survives refreshes.
+        var idCounts: [String: Int] = [:]
+        for i in entries.indices {
+            let base = "\(entries[i].source):\(entries[i].schedule):\(entries[i].command)"
+            idCounts[base, default: 0] += 1
+            let occurrence = idCounts[base]!
+            if occurrence > 1 {
+                entries[i] = CronjobEntry(
+                    command: entries[i].command,
+                    schedule: entries[i].schedule,
+                    scheduleHuman: entries[i].scheduleHuman,
+                    nextRun: entries[i].nextRun,
+                    user: entries[i].user,
+                    source: entries[i].source,
+                    isPaused: entries[i].isPaused,
+                    duplicateIndex: occurrence
+                )
             }
         }
-        return nil
+
+        return entries
     }
 
     /// Get current username
@@ -209,26 +258,35 @@ extension PortManager {
         }
 
         if min != "*" && hour != "*" && dom == "*" && month == "*" && dow == "*" {
-            return "Daily @ \(hour):\(min.padding(toLength: 2, withPad: "0", startingAt: 0))"
+            return "Daily @ \(pad2(hour)):\(pad2(min))"
         }
 
         if dom == "*" && month == "*" && dow != "*" {
             let dayName = dayOfWeekName(dow)
-            return "Weekly on \(dayName) @ \(hour):\(min.padding(toLength: 2, withPad: "0", startingAt: 0))"
+            return "Weekly on \(dayName) @ \(pad2(hour)):\(pad2(min))"
         }
 
         if dom != "*" && month == "*" && dow == "*" {
-            return "Monthly on day \(dom) @ \(hour):\(min.padding(toLength: 2, withPad: "0", startingAt: 0))"
+            return "Monthly on day \(dom) @ \(pad2(hour)):\(pad2(min))"
         }
 
         return schedule
     }
 
+    /// Zero-pad a numeric cron field to 2 ("8" → "08"). Non-numeric patterns
+    /// (steps, ranges) pass through — `padding(toLength:withPad:)` *appends*
+    /// the pad char, which turned 8:30 into "80:30".
+    private func pad2(_ field: String) -> String {
+        guard let n = Int(field) else { return field }
+        return String(format: "%02d", n)
+    }
+
     /// Get day of week name from number
     func dayOfWeekName(_ dow: String) -> String {
         let days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-        if let num = Int(dow), num >= 0, num < 7 {
-            return days[num]
+        // Cron accepts both 0 and 7 for Sunday.
+        if let num = Int(dow), num >= 0, num <= 7 {
+            return days[num % 7]
         }
         return dow
     }
@@ -248,8 +306,14 @@ extension PortManager {
         let allowedMinutes = parseCronFieldValues(minPart, min: 0, max: 59)
         let allowedHours = parseCronFieldValues(hourPart, min: 0, max: 23)
         let allowedMonths = Set(parseCronFieldValues(monthPart, min: 1, max: 12))
+        let allowedDoms = Set(parseCronFieldValues(domPart, min: 1, max: 31))
+        // Cron dow: 0 and 7 both mean Sunday; Calendar.weekday is 1=Sun…7=Sat.
+        let allowedDows = Set(parseCronFieldValues(dowPart, min: 0, max: 7).map { $0 % 7 })
+        let domRestricted = domPart != "*"
+        let dowRestricted = dowPart != "*"
 
-        guard !allowedMinutes.isEmpty, !allowedHours.isEmpty, !allowedMonths.isEmpty else {
+        guard !allowedMinutes.isEmpty, !allowedHours.isEmpty, !allowedMonths.isEmpty,
+              !allowedDoms.isEmpty, !allowedDows.isEmpty else {
             return nil
         }
 
@@ -285,12 +349,13 @@ extension PortManager {
 
             guard allowedMonths.contains(month) else { continue }
 
-            let domMatches = domPart == "*" || matchesCronField(day, pattern: domPart)
-            let dowMatches = dowPart == "*" || matchesCronField(dayComponents.weekday ?? 0, pattern: dowPart)
+            let domOK = allowedDoms.contains(day)
+            let dowOK = allowedDows.contains((dayComponents.weekday ?? 1) - 1)
 
-            if !((domPart == "*" && dowPart == "*") || (domMatches && dowMatches) || (domMatches && dowPart == "*") || (domPart == "*" && dowMatches)) {
-                continue
-            }
+            // Vixie cron: when both dom and dow are restricted, a day matching
+            // EITHER fires ("0 0 13 * 5" = the 13th AND every Friday).
+            let dayMatches = (domRestricted && dowRestricted) ? (domOK || dowOK) : (domOK && dowOK)
+            if !dayMatches { continue }
 
             let isStartDay = calendar.isDate(candidateDay, inSameDayAs: normalizedStart)
 

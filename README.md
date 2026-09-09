@@ -230,14 +230,19 @@ Installs `PortPilot.app` to `/Applications`. Cask source: [sriinnu/homebrew-tap]
 ### Download from GitHub Releases
 Manual install from the Releases page:
 
-- Download `PortPilot-macOS-app.zip`
+- Download `PortPilot-macOS-app-unsigned.zip`
 - Unzip it
 - Move `PortPilot.app` to `/Applications`
+- First launch: right-click the app → **Open** (CI builds are ad-hoc signed,
+  not notarized). The signed + notarized build is attached by the
+  maintainer's local release flow as `PortPilot-macOS-app.zip`.
 
-The release currently attaches:
+The CI release attaches:
 
-- `PortPilot-macOS-app.zip`
-- `portpilot-macos-cli`
+- `PortPilot-macOS-app-unsigned.zip`
+- `portpilot-macos-cli` (universal: arm64 + x86_64)
+- `portpilot-macos-tui` (universal: arm64 + x86_64)
+- `portpilot-linux-cli`, `portpilot-linux-tui`
 - `SHA256SUMS.txt`
 
 ### macOS (App + CLI + TUI, build from source)

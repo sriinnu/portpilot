@@ -5,7 +5,7 @@ struct PortListPanel: View {
     @ObservedObject var viewModel: PortViewModel
     @ObservedObject private var appSettings = AppSettings.shared
     @Binding var selectedPort: PortProcess?
-    let onKill: (Int) -> Void
+    let onKill: (PortProcess) -> Void
     let onAdd: () -> Void
     /// I accept a shared history source so per-row sparklines render live data.
     /// Keeping this optional preserves existing call sites while letting ContentView inject it.
@@ -29,10 +29,10 @@ struct PortListPanel: View {
                         ForEach(viewModel.filteredPorts, id: \.id) { port in
                             PortListRow(
                                 port: port,
-                                isSelected: selectedPort?.port == port.port,
+                                isSelected: selectedPort?.id == port.id,
                                 isFavorite: viewModel.isFavorite(port: port.port),
                                 onSelect: { selectedPort = port },
-                                onKill: { onKill(port.port) },
+                                onKill: { onKill(port) },
                                 onToggleFavorite: { viewModel.toggleFavorite(port: port.port) },
                                 processType: viewModel.processType(for: port),
                                 typeColor: viewModel.connectionType(for: port).color,

@@ -129,8 +129,16 @@ public enum KeyReader {
 
     /// Drain remaining bytes of an unrecognized escape sequence to prevent
     /// them from being misinterpreted as subsequent keypresses.
+    /// Stops at a fresh ESC (start of the next sequence — usually a real
+    /// keypress) and caps the drain so a paste-sized burst can't stall the
+    /// input loop for seconds of 50ms peeks.
     private static func drainSequence() {
-        while peekByte() != nil { /* consume */ }
+        var drained = 0
+        while drained < 64 {
+            guard let byte = peekByte() else { break }
+            if byte == 0x1B { break }
+            drained += 1
+        }
     }
 
     /// Parse an escape sequence after reading 0x1B
@@ -156,6 +164,15 @@ public enum KeyReader {
             }
 
         default:
+            if second < 0x30 {
+                // Intermediate byte of an unrecognized sequence (ESC ( B for
+                // charset switching, ESC # 8, …). Drain the payload so its
+                // bytes don't surface as phantom keypresses.
+                drainSequence()
+                return .unknown
+            }
+            // ESC + printable = an Alt-modified key. Report plain Escape and
+            // drop the modified key — no screen binds Alt-anything.
             return .escape
         }
     }

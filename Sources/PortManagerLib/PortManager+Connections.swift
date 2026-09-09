@@ -306,22 +306,28 @@ extension PortManager {
             return ipContainsPrefix(ip: ip, network: network, prefix: prefix)
         }
 
-        private func ipContainsPrefix(ip: String, network: String, prefix: Int) -> Bool {
+        func ipContainsPrefix(ip: String, network: String, prefix: Int) -> Bool {
+            // parseIP is IPv4-only: a /33–/128 prefix (IPv6 syntax or a typo)
+            // can never match, and used to trap on `1 << (32 - prefix)`.
+            guard prefix <= 32 else { return false }
             guard let ipInt = parseIP(ip), let netInt = parseIP(network) else { return false }
 
-            let mask: UInt32 = prefix == 0 ? 0 : ~((1 << (32 - prefix)) - 1)
+            let mask: UInt32 = prefix == 0 ? 0 : ~((UInt32(1) << (32 - prefix)) - 1)
             return (ipInt & mask) == (netInt & mask)
         }
 
-        private func parseIP(_ ip: String) -> UInt32? {
+        func parseIP(_ ip: String) -> UInt32? {
             let octets = ip.split(separator: ".").compactMap { UInt32(String($0)) }
-            guard octets.count == 4 else { return nil }
+            guard octets.count == 4, octets.allSatisfy({ $0 <= 255 }) else { return nil }
             return (octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]
         }
     }
 
     /// Load blocklist from ~/.portpilot/blocklist.txt
     func loadBlocklist() -> [BlocklistEntry] {
+        blocklistLock.lock()
+        defer { blocklistLock.unlock() }
+
         if let cached = cachedBlocklist as? [BlocklistEntry], let cacheTime = blocklistCacheTime,
            Date().timeIntervalSince(cacheTime) < blocklistCacheDuration {
             return cached

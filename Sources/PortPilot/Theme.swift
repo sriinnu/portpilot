@@ -51,6 +51,9 @@ enum Theme {
 
     enum Status {
         static var connected: Color { Theme.palette.connected.color }
+        /// Success green — the semantic twin of error/warning. Views used to
+        /// hardcode Color.green and drift off-palette in dark mode.
+        static var success: Color { Theme.palette.connected.color }
         static var error: Color { Theme.palette.error.color }
         static var warning: Color { Theme.palette.warning.color }
     }
@@ -284,14 +287,6 @@ enum Theme {
         static var ppid: Color { Theme.Section.orbstack }
         static var uptime: Color { Theme.Status.warning }
         static var workingDirectory: Color { Theme.Action.treeView }
-    }
-
-    // MARK: - Option Toggle Icon Colors
-    enum OptionIcon {
-        static var autoReconnect: Color { Theme.Section.kubernetes }
-        static var enabled: Color { Theme.Action.add }
-        static var notifyConnect: Color { Theme.Status.warning }
-        static var notifyDisconnect: Color { Theme.Classification.system }
     }
 
     // MARK: - Port Mapping Colors

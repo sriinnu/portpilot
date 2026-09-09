@@ -34,16 +34,6 @@ enum ConnectionType: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Port Forward Model
-struct PortForward: Identifiable, Hashable {
-    let id = UUID()
-    let name: String
-    let type: ConnectionType
-    let localPort: Int
-    let remotePort: Int?
-    let isConnected: Bool
-}
-
 // MARK: - Filter Category
 enum FilterCategory: String, CaseIterable, Identifiable {
     case all = "All Ports"
@@ -79,18 +69,20 @@ enum PortSourceFilter: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .all: return "square.grid.2x2"
-        case .database: return Theme.Icon.database
+        // Chrome derives from the ConnectionType each filter fronts — one
+        // icon/color table in ConnectionType, not a drifting copy here.
+        case .database: return ConnectionType.database.icon
         case .orbstack: return Theme.Icon.orbstack
-        case .tunnels: return Theme.Icon.tunnels
+        case .tunnels: return ConnectionType.ssh.icon
         }
     }
 
     var color: Color {
         switch self {
         case .all: return Theme.Badge.accentBackground
-        case .database: return Theme.Section.database
+        case .database: return ConnectionType.database.color
         case .orbstack: return Theme.Section.orbstack
-        case .tunnels: return Theme.Section.ssh
+        case .tunnels: return ConnectionType.ssh.color
         }
     }
 
@@ -111,14 +103,6 @@ struct PortMappingInfo {
     let remotePort: Int?
     let remoteHost: String?
     let protocolName: String
-}
-
-// MARK: - Docker Info
-struct DockerInfo {
-    let containerId: String
-    let containerName: String
-    let imageName: String
-    let status: String
 }
 
 /// I carry one immutable refresh result from background discovery back to the UI.
@@ -153,14 +137,36 @@ class PortViewModel: ObservableObject {
 
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
+    /// The one auto-dismiss timer for errorMessage. The model owns error
+    /// consumption — two UI surfaces (main-window alert, dropdown banner)
+    /// used to fight over one string, and a stale banner timer could wipe a
+    /// fresh error (or dismiss the alert mid-read).
+    private var errorConsumeTask: Task<Void, Never>?
+
+    /// Surface an error to whichever surface is visible. Exactly one
+    /// consume timer runs at a time; a new error cancels the previous timer
+    /// instead of racing it.
+    func raiseError(_ message: String) {
+        errorMessage = message
+        errorConsumeTask?.cancel()
+        errorConsumeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.errorMessage = nil
+        }
+    }
+
+    /// Clear the current error and stop its timer (manual dismiss).
+    func dismissError() {
+        errorConsumeTask?.cancel()
+        errorConsumeTask = nil
+        errorMessage = nil
+    }
     @Published var successMessage: String?
     @Published var lastRefresh: Date?
 
     // Logs
     @Published var logs: [LogEntry] = []
-
-    // Port forwards (all local for now)
-    @Published var portForwards: [PortForward] = []
 
     // Proxy sessions
     @Published var proxySessions: [ProxySession] = []
@@ -190,6 +196,8 @@ class PortViewModel: ObservableObject {
     private let portManager = PortManager()
     private var allPortsCache: [PortProcess] = []
     private var parentProcessNameCache: [Int: String] = [:]
+    /// connectionType(for:) results, keyed by PortProcess.id. Cleared on refresh.
+    private var connectionTypeCache: [String: ConnectionType] = [:]
     private var latestRefreshID = UUID()
     private var latestAllConnectionsRefreshID = UUID()
 
@@ -267,6 +275,17 @@ class PortViewModel: ObservableObject {
     ]
 
     func connectionType(for port: PortProcess) -> ConnectionType {
+        // Scans fullCommand with a dozen contains() per call — and rows call
+        // it twice per render (icon + color). Cached per data snapshot.
+        if let cached = connectionTypeCache[port.id] {
+            return cached
+        }
+        let resolved = resolveConnectionType(for: port)
+        connectionTypeCache[port.id] = resolved
+        return resolved
+    }
+
+    private func resolveConnectionType(for port: PortProcess) -> ConnectionType {
         let basename = port.command.lowercased()
         let full = (port.fullCommand ?? "").lowercased()
 
@@ -552,7 +571,7 @@ class PortViewModel: ObservableObject {
 
     func refreshPorts() {
         isLoading = true
-        errorMessage = nil
+        dismissError()
         successMessage = nil
 
         let startPort = portRangeStart.isEmpty ? nil : Int(portRangeStart)
@@ -560,17 +579,17 @@ class PortViewModel: ObservableObject {
 
         // Validate port range
         if let start = startPort, start < 0 || start > 65535 {
-            errorMessage = "Start port must be between 0 and 65535"
+            raiseError("Start port must be between 0 and 65535")
             isLoading = false
             return
         }
         if let end = endPort, end < 0 || end > 65535 {
-            errorMessage = "End port must be between 0 and 65535"
+            raiseError("End port must be between 0 and 65535")
             isLoading = false
             return
         }
         if let start = startPort, let end = endPort, start > end {
-            errorMessage = "Start port cannot be greater than end port"
+            raiseError("Start port cannot be greater than end port")
             isLoading = false
             return
         }
@@ -599,6 +618,7 @@ class PortViewModel: ObservableObject {
                     return $0.command < $1.command
                 }
                 ports = allPortsCache
+                connectionTypeCache.removeAll()
                 lastRefresh = Date()
                 applyFilters()
                 // Clear stale selection if the selected port no longer exists
@@ -614,7 +634,7 @@ class PortViewModel: ObservableObject {
             } catch {
                 guard latestRefreshID == refreshID else { return }
 
-                errorMessage = error.localizedDescription
+                raiseError(error.localizedDescription)
                 isLoading = false
                 addLog(
                     source: "system",
@@ -657,23 +677,37 @@ class PortViewModel: ObservableObject {
 
     // MARK: - Connections
 
+    private var latestConnectionsRefreshID = UUID()
+
     func loadConnections(for port: Int) {
         isLoadingConnections = true
         connections = []
 
+        // Task {} would inherit @MainActor and run the lsof shell-out on the
+        // main thread — detached + static loader keeps the UI responsive.
+        let refreshID = UUID()
+        latestConnectionsRefreshID = refreshID
+        let snapshotTask = Task.detached(priority: .userInitiated) {
+            try Self.loadPortConnections(port: port)
+        }
+
         Task {
             do {
-                let portConnections = try portManager.getConnections(for: port)
-                await MainActor.run {
-                    self.connections = portConnections
-                    self.isLoadingConnections = false
-                }
+                let conns = try await snapshotTask.value
+                guard latestConnectionsRefreshID == refreshID else { return }
+                connections = conns
             } catch {
-                await MainActor.run {
-                    self.isLoadingConnections = false
-                }
+                guard latestConnectionsRefreshID == refreshID else { return }
+                // A failed lsof pass shouldn't read as "no connections" —
+                // log it; the empty state stays honest.
+                addLog(source: "system", message: "Connection load failed for port \(port): \(error.localizedDescription)", level: .error)
             }
+            isLoadingConnections = false
         }
+    }
+
+    nonisolated private static func loadPortConnections(port: Int) throws -> [PortConnection] {
+        try PortManager().getConnections(for: port)
     }
 
     // MARK: - All Connections (for menu bar Connections tab)
@@ -689,25 +723,32 @@ class PortViewModel: ObservableObject {
         isLoadingAllConnections = true
         let refreshID = UUID()
         latestAllConnectionsRefreshID = refreshID
+
+        let snapshotTask = Task.detached(priority: .userInitiated) {
+            try Self.loadAllConnectionsSnapshot()
+        }
+
         Task {
             do {
-                let conns = try portManager.getAllConnections()
-                await MainActor.run {
-                    guard self.latestAllConnectionsRefreshID == refreshID else { return }
-                    self.allConnections = conns
-                    self.updateConnectionsGroupedCache()
-                    self.isLoadingAllConnections = false
-                    self.checkConnectionAlerts()
-                }
+                let conns = try await snapshotTask.value
+                guard latestAllConnectionsRefreshID == refreshID else { return }
+                allConnections = conns
+                updateConnectionsGroupedCache()
+                isLoadingAllConnections = false
+                checkConnectionAlerts()
             } catch {
-                await MainActor.run {
-                    guard self.latestAllConnectionsRefreshID == refreshID else { return }
-                    self.allConnections = []
-                    self.updateConnectionsGroupedCache()
-                    self.isLoadingAllConnections = false
-                }
+                guard latestAllConnectionsRefreshID == refreshID else { return }
+                // Keep the last good list — a failed lsof pass shouldn't
+                // blank the whole Connections tab.
+                updateConnectionsGroupedCache()
+                isLoadingAllConnections = false
+                addLog(source: "system", message: "Connection refresh failed: \(error.localizedDescription)", level: .error)
             }
         }
+    }
+
+    nonisolated private static func loadAllConnectionsSnapshot() throws -> [EstablishedConnection] {
+        try PortManager().getAllConnections()
     }
 
     /// Check for suspicious connections and send notifications if needed
@@ -733,19 +774,25 @@ class PortViewModel: ObservableObject {
         isLoadingCronjobs = true
         let refreshID = UUID()
         latestCronjobsRefreshID = refreshID
-        Task { [weak self] in
-            guard let self else { return }
-            let jobs = self.portManager.getCronjobs()
-            await MainActor.run {
-                guard self.latestCronjobsRefreshID == refreshID else { return }
-                self.cronjobs = jobs
-                self.isLoadingCronjobs = false
-                for job in jobs {
-                    self.cronRunHistory[job.id] = CronRunManager.shared.record(for: job.id)
-                }
-                self.runningCronjobIDs = Set(jobs.map(\.id).filter { CronRunManager.shared.isRunning($0) })
-            }
+
+        let snapshotTask = Task.detached(priority: .userInitiated) {
+            Self.loadCronjobsSnapshot()
         }
+
+        Task {
+            let jobs = await snapshotTask.value
+            guard latestCronjobsRefreshID == refreshID else { return }
+            cronjobs = jobs
+            isLoadingCronjobs = false
+            for job in jobs {
+                cronRunHistory[job.id] = CronRunManager.shared.record(for: job.id)
+            }
+            runningCronjobIDs = Set(jobs.map(\.id).filter { CronRunManager.shared.isRunning($0) })
+        }
+    }
+
+    nonisolated private static func loadCronjobsSnapshot() -> [CronjobEntry] {
+        PortManager().getCronjobs()
     }
 
     // MARK: - Cronjob Control
@@ -781,71 +828,80 @@ class PortViewModel: ObservableObject {
     /// Stop a cronjob run — whatever PortPilot started, plus a best-effort sweep for
     /// matching processes the cron daemon may have kicked off independently.
     func stopCronjob(_ job: CronjobEntry) {
-        let stoppedTracked = CronRunManager.shared.stop(jobID: job.id)
-        Task { [weak self] in
-            guard let self else { return }
-            let killedCount = self.portManager.stopRunningProcesses(matching: job.command)
-            await MainActor.run {
-                if stoppedTracked || killedCount > 0 {
-                    self.addLog(source: "cron", message: "Stopped \(job.command)", level: .info)
-                } else {
-                    self.addLog(source: "cron", message: "\(job.command) is not currently running", level: .info)
-                }
+        let command = job.command
+        let jobID = job.id
+
+        // Both kill paths walk process trees and TERM-wait — doing either on
+        // the main actor hung the UI for up to ~3s per Stop click.
+        let stopTask = Task.detached(priority: .userInitiated) {
+            let stoppedTracked = CronRunManager.shared.stop(jobID: jobID)
+            let killedCount = PortManager().stopRunningProcesses(matching: command)
+            return (stoppedTracked, killedCount)
+        }
+
+        Task {
+            let (stoppedTracked, killedCount) = await stopTask.value
+            if stoppedTracked || killedCount > 0 {
+                addLog(source: "cron", message: "Stopped \(command)", level: .info)
+            } else {
+                addLog(source: "cron", message: "\(command) is not currently running", level: .info)
             }
         }
     }
 
     /// Pause a user crontab entry so the cron daemon skips it until resumed.
     func pauseCronjob(_ job: CronjobEntry) {
-        Task { [weak self] in
-            guard let self else { return }
+        let command = job.command
+
+        let pauseTask = Task.detached(priority: .userInitiated) {
+            try PortManager().pauseCronjob(job)
+        }
+
+        Task {
             do {
-                try self.portManager.pauseCronjob(job)
-                await MainActor.run {
-                    self.addLog(source: "cron", message: "Paused \(job.command)", level: .info)
-                    self.refreshCronjobs()
-                }
+                try await pauseTask.value
+                addLog(source: "cron", message: "Paused \(command)", level: .info)
+                refreshCronjobs()
             } catch {
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                    self.addLog(source: "cron", message: "Failed to pause \(job.command): \(error.localizedDescription)", level: .error)
-                }
+                raiseError(error.localizedDescription)
+                addLog(source: "cron", message: "Failed to pause \(command): \(error.localizedDescription)", level: .error)
             }
         }
     }
 
     /// Resume a paused user crontab entry.
     func resumeCronjob(_ job: CronjobEntry) {
-        Task { [weak self] in
-            guard let self else { return }
+        let command = job.command
+
+        let resumeTask = Task.detached(priority: .userInitiated) {
+            try PortManager().resumeCronjob(job)
+        }
+
+        Task {
             do {
-                try self.portManager.resumeCronjob(job)
-                await MainActor.run {
-                    self.addLog(source: "cron", message: "Started \(job.command)", level: .info)
-                    self.refreshCronjobs()
-                }
+                try await resumeTask.value
+                addLog(source: "cron", message: "Started \(command)", level: .info)
+                refreshCronjobs()
             } catch {
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                    self.addLog(source: "cron", message: "Failed to start \(job.command): \(error.localizedDescription)", level: .error)
-                }
+                raiseError(error.localizedDescription)
+                addLog(source: "cron", message: "Failed to start \(command): \(error.localizedDescription)", level: .error)
             }
         }
     }
 
     /// Kill a process by PID (used from Connections tab).
     func killProcess(pid: Int) {
+        let killTask = Task.detached(priority: .userInitiated) {
+            try PortManager().killProcessByPID(pid)
+        }
+
         Task {
             do {
-                try portManager.killProcessByPID(pid)
-                await MainActor.run {
-                    self.refreshAllConnections()
-                    self.addLog(source: "system", message: "Killed process \(pid)", level: .info)
-                }
+                try await killTask.value
+                addLog(source: "system", message: "Killed process \(pid)", level: .info)
+                refreshAllConnections()
             } catch {
-                await MainActor.run {
-                    self.addLog(source: "system", message: "Failed to kill process \(pid): \(error.localizedDescription)", level: .error)
-                }
+                addLog(source: "system", message: "Failed to kill process \(pid): \(error.localizedDescription)", level: .error)
             }
         }
     }
@@ -897,53 +953,73 @@ class PortViewModel: ObservableObject {
 
     // MARK: - Kill Operations
 
-    func killPort(_ port: Int) {
+    /// PID-direct kill from a row: the row showed this exact process, so
+    /// that's what dies — not whatever grabbed the port between render and
+    /// click.
+    func killPort(_ port: PortProcess) {
         isLoading = true
-        errorMessage = nil
+        dismissError()
         successMessage = nil
+        let force = forceKill
+        let pid = port.pid
+
+        let killTask = Task.detached(priority: .userInitiated) { () -> Bool in
+            PortManager().killProcess(pids: [pid], force: force).isEmpty
+        }
 
         Task {
-            do {
-                try portManager.killProcessOnPort(port, force: forceKill)
-
-                await MainActor.run {
-                    self.successMessage = "Successfully killed process on port \(port)"
-                    self.addLog(source: "kill", message: "Killed process on port \(port)", level: .success, port: port)
-                    self.refreshPorts()
-                }
-            } catch {
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                    self.isLoading = false
-                    self.addLog(source: "kill", message: "Failed to kill port \(port): \(error.localizedDescription)", level: .error, port: port)
-                }
+            let killed = await killTask.value
+            if killed {
+                successMessage = "Killed \(port.command) on port \(port.port)"
+                addLog(source: "kill", message: "Killed pid \(pid) (\(port.command)) on port \(port.port)", level: .success, port: port.port)
+            } else {
+                raiseError("Failed to kill \(port.command) (pid \(pid))")
+                isLoading = false
+                addLog(source: "kill", message: "Failed to kill pid \(pid) on port \(port.port)", level: .error, port: port.port)
             }
+            refreshPorts()
         }
     }
 
     func killSelectedPorts(_ selectedPorts: Set<PortProcess>) {
         isLoading = true
-        errorMessage = nil
+        dismissError()
+        let force = forceKill
+        // PID-direct: kill exactly what was selected. Re-resolving by port
+        // mid-loop could sweep in processes that started after the selection.
+        let targets = selectedPorts.map { (port: $0.port, pid: $0.pid) }
 
-        Task {
-            for process in selectedPorts {
-                do {
-                    try portManager.killProcessOnPort(process.port, force: forceKill)
-                    await MainActor.run {
-                        self.addLog(source: "kill", message: "Killed process on port \(process.port)", level: .success, port: process.port)
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.errorMessage = "Failed to kill port \(process.port): \(error.localizedDescription)"
-                        self.addLog(source: "kill", message: "Failed to kill port \(process.port): \(error.localizedDescription)", level: .error, port: process.port)
-                    }
+        let killTask = Task.detached(priority: .userInitiated) { () -> [(port: Int, pid: Int)] in
+            let manager = PortManager()
+            var failed: [(port: Int, pid: Int)] = []
+            for target in targets {
+                let survivors = manager.killProcess(pids: [target.pid], force: force)
+                if !survivors.isEmpty {
+                    failed.append(target)
                 }
             }
+            return failed
+        }
 
-            await MainActor.run {
-                self.successMessage = "Killed \(selectedPorts.count) port(s)"
-                self.refreshPorts()
+        Task {
+            let failures = await killTask.value
+            // One aggregated message — the loop used to overwrite the error
+            // each turn, so only the last failure ever reached the user.
+            if !failures.isEmpty {
+                let detail = failures
+                    .map { ":\($0.port) (pid \($0.pid))" }
+                    .joined(separator: ", ")
+                raiseError("Failed to kill \(failures.count) of \(targets.count): \(detail)")
             }
+            for failure in failures {
+                addLog(source: "kill", message: "Failed to kill port \(failure.port): pid \(failure.pid) survived", level: .error, port: failure.port)
+            }
+            let killedCount = targets.count - failures.count
+            if killedCount > 0 {
+                successMessage = "Killed \(killedCount) port(s)"
+                addLog(source: "kill", message: "Killed \(killedCount) process(es)", level: .success)
+            }
+            refreshPorts()
         }
     }
 
@@ -953,6 +1029,8 @@ class PortViewModel: ObservableObject {
         selectedProtocol = .tcp
         searchText = ""
         selectedCategory = .all
+        selectedSourceFilter = .all
+        hideSystemProcesses = false
         applyFilters()
     }
 
@@ -1098,15 +1176,19 @@ class PortViewModel: ObservableObject {
 
     // MARK: - Docker Integration
 
+    /// Container details for a port backed by a Docker container (Port Mapping panel).
+
     /// Known Docker-related process names
     private static let dockerProcessNames: Set<String> = [
         "docker", "dockerd", "containerd", "docker-compose",
         "com.docker.hyperkit", "com.docker.vpnkit", "docker-proxy"
     ]
-
     // Docker info cache to avoid blocking calls during rendering
     // Keyed by PID since a Docker container/process may expose multiple ports
     private var dockerInfoCache: [Int: DockerInfo?] = [:]
+    /// PIDs with a docker lookup already in flight, so body re-evaluations
+    /// don't fan out one `docker ps` per render.
+    private var dockerLookupsInFlight: Set<Int> = []
 
     /// Returns cached Docker container info. Never blocks - returns nil if not cached yet.
     func dockerInfo(for port: PortProcess) -> DockerInfo? {
@@ -1122,14 +1204,17 @@ class PortViewModel: ObservableObject {
         if let cached = dockerInfoCache[port.pid] {
             return cached
         }
+        guard !dockerLookupsInFlight.contains(port.pid) else { return nil }
+        dockerLookupsInFlight.insert(port.pid)
 
         // Fetch asynchronously - don't block the main thread
         let portNum = port.port
         let pid = port.pid
-        Task.detached { [weak self] in
-            guard let self = self else { return }
-            let containerInfo = await self.getContainerForPortAsync(portNum)
+        Task.detached(priority: .utility) { [weak self] in
+            let containerInfo = PortManager.getContainerInfo(forPort: portNum)
             await MainActor.run {
+                guard let self = self else { return }
+                self.dockerLookupsInFlight.remove(pid)
                 self.dockerInfoCache[pid] = containerInfo
                 self.objectWillChange.send()
             }
@@ -1145,91 +1230,34 @@ class PortViewModel: ObservableObject {
                command.contains("containerd")
     }
 
-    /// Get container info for a specific port (runs off main thread)
-    private nonisolated func getContainerForPortAsync(_ port: Int) -> DockerInfo? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
-        process.arguments = ["ps", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return nil }
-
-            let lines = output.components(separatedBy: "\n")
-            for line in lines {
-                guard !line.isEmpty else { continue }
-                let parts = line.split(separator: "|")
-                guard parts.count >= 4 else { continue }
-
-                let containerId = String(parts[0])
-                let containerName = String(parts[1])
-                let imageName = String(parts[2])
-                let status = String(parts[3])
-
-                if hasPortMappingSync(containerId: containerId, port: port) {
-                    return DockerInfo(
-                        containerId: containerId,
-                        containerName: containerName,
-                        imageName: imageName,
-                        status: status
-                    )
-                }
-            }
-        } catch {
-            // Docker not available
-        }
-
-        return nil
-    }
-
-    /// Check if a container has a specific port mapped (sync, off main thread only)
-    private nonisolated func hasPortMappingSync(containerId: String, port: Int) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
-        process.arguments = ["port", containerId]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return false }
-            return output.contains(":\(port)") || output.contains("\(port)/")
-        } catch {
-            return false
-        }
-    }
-
-    /// Stop a Docker container (async to avoid blocking UI)
+    /// Stop a Docker container off the main thread, then refresh so the UI
+    /// reflects the new container state instead of a stale cache entry.
     func stopContainer(_ containerId: String) {
-        Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
-            process.arguments = ["stop", containerId]
-            try? process.run()
-            process.waitUntilExit()
+        let task = Task.detached(priority: .userInitiated) {
+            PortManager.dockerRunQuiet(["stop", containerId], timeout: 30)
+        }
+        Task {
+            let ok = await task.value
+            if !ok {
+                raiseError("Failed to stop container \(containerId.prefix(12)) — is Docker running?")
+            }
+            addLog(source: "docker", message: ok ? "Stopped container \(containerId.prefix(12))" : "Failed to stop container \(containerId.prefix(12))", level: ok ? .info : .error)
+            refreshPorts()
         }
     }
 
-    /// Restart a Docker container (async to avoid blocking UI)
+    /// Restart a Docker container off the main thread, then refresh.
     func restartContainer(_ containerId: String) {
-        Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/local/bin/docker")
-            process.arguments = ["restart", containerId]
-            try? process.run()
-            process.waitUntilExit()
+        let task = Task.detached(priority: .userInitiated) {
+            PortManager.dockerRunQuiet(["restart", containerId], timeout: 60)
+        }
+        Task {
+            let ok = await task.value
+            if !ok {
+                raiseError("Failed to restart container \(containerId.prefix(12)) — is Docker running?")
+            }
+            addLog(source: "docker", message: ok ? "Restarted container \(containerId.prefix(12))" : "Failed to restart container \(containerId.prefix(12))", level: ok ? .info : .error)
+            refreshPorts()
         }
     }
 
@@ -1263,46 +1291,6 @@ class PortViewModel: ObservableObject {
         AppSettings.shared.reservedPorts.removeAll { $0 == port }
     }
 
-    // MARK: - Custom Programs
-
-    /// Returns all custom programs with their matching processes
-    func getCustomProgramPorts() -> [(program: CustomProgram, processes: [PortProcess])] {
-        var results: [(program: CustomProgram, processes: [PortProcess])] = []
-
-        for customProgram in AppSettings.shared.customPrograms {
-            let processes = portManager.getProcessesByName(names: customProgram.processNames)
-            results.append((program: customProgram, processes: processes))
-        }
-
-        return results
-    }
-
-    /// Returns processes for a specific custom program name
-    func getCustomProgramProcesses(named name: String) -> [PortProcess] {
-        guard let customProgram = AppSettings.shared.customPrograms.first(where: { $0.name == name }) else {
-            return []
-        }
-        return portManager.getProcessesByName(names: customProgram.processNames)
-    }
-
-    /// Get processes by process names directly
-    func getProcessesByName(names: [String]) -> [PortProcess] {
-        return portManager.getProcessesByName(names: names)
-    }
-
-    /// Kill all processes matching a custom program name
-    func killCustomProgram(named name: String, force: Bool = false) throws {
-        guard let customProgram = AppSettings.shared.customPrograms.first(where: { $0.name == name }) else {
-            return
-        }
-        try portManager.killAllProcesses(named: customProgram.processNames, force: force)
-    }
-
-    /// Kill all processes for a given program name string
-    func killAllProcesses(named name: String, force: Bool = false) throws {
-        try portManager.killAllProcesses(named: [name], force: force)
-    }
-
     // MARK: - Proxy Management
 
     func startProxy(listenPort: Int, targetHost: String, targetPort: Int) {
@@ -1315,7 +1303,7 @@ class PortViewModel: ObservableObject {
             proxySessions.append(session)
             addLog(source: "proxy", message: "Started proxy :\(listenPort) \u{2192} \(targetHost):\(targetPort)", level: .success, port: listenPort)
         } catch {
-            errorMessage = error.localizedDescription
+            raiseError(error.localizedDescription)
             addLog(source: "proxy", message: "Failed to start proxy: \(error.localizedDescription)", level: .error)
         }
     }
@@ -1356,7 +1344,12 @@ class PortViewModel: ObservableObject {
 // MARK: - PortViewModel Extension for hasActiveFilters
 extension PortViewModel {
     var hasActiveFilters: Bool {
-        !searchText.isEmpty || selectedCategory != .all || selectedProtocol != .all || hideSystemProcesses
+        // selectedSourceFilter and hideSystemProcesses used to be missing
+        // here — filtering to "Tunnels" with no hits claimed "No ports found"
+        // with no Clear button, and hideSystemProcesses alone showed a Clear
+        // button that cleared nothing.
+        !searchText.isEmpty || selectedCategory != .all || selectedProtocol != .all
+            || selectedSourceFilter != .all || hideSystemProcesses
     }
 }
 

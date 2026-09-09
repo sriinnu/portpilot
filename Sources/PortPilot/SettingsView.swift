@@ -244,10 +244,16 @@ struct AppearanceSettingsView: View {
                     HStack(spacing: 16) {
                         AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .system, label: "System")
                             .onTapGesture { appSettings.appearanceMode = .system }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel("Appearance: follow system")
                         AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .light, label: "Light")
                             .onTapGesture { appSettings.appearanceMode = .light }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel("Appearance: light")
                         AppearancePreviewCard(isDark: true, isActive: appSettings.appearanceMode == .dark, label: "Dark")
                             .onTapGesture { appSettings.appearanceMode = .dark }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel("Appearance: dark")
                     }
                 }
 
@@ -258,6 +264,8 @@ struct AppearanceSettingsView: View {
                         ForEach(Array(VisualTheme.allCases.prefix(3)), id: \.self) { theme in
                             ThemePreviewCard(theme: theme, isActive: appSettings.visualTheme == theme)
                                 .onTapGesture { appSettings.visualTheme = theme }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityLabel("Theme \(theme.rawValue)")
                         }
                     }
                     // Bottom row: 3 themes
@@ -265,6 +273,8 @@ struct AppearanceSettingsView: View {
                         ForEach(Array(VisualTheme.allCases.suffix(3)), id: \.self) { theme in
                             ThemePreviewCard(theme: theme, isActive: appSettings.visualTheme == theme)
                                 .onTapGesture { appSettings.visualTheme = theme }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityLabel("Theme \(theme.rawValue)")
                         }
                     }
 
@@ -281,7 +291,7 @@ struct AppearanceSettingsView: View {
                         if let message = fontApplyMessage {
                             Text(message)
                                 .font(.system(size: 10))
-                                .foregroundColor(message.hasPrefix("Not") ? .orange : Theme.Status.connected)
+                                .foregroundColor(message.hasPrefix("Not") ? Theme.Status.warning : Theme.Status.connected)
                         }
                     }
                 }
@@ -292,6 +302,8 @@ struct AppearanceSettingsView: View {
                         ForEach(IconPack.allCases) { pack in
                             IconPackPreviewCard(iconPack: pack, isActive: appSettings.iconPack == pack)
                                 .onTapGesture { appSettings.iconPack = pack }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityLabel("Icon pack \(pack.rawValue)")
                         }
                     }
                 }
@@ -654,44 +666,33 @@ struct MenuBarSettingsView: View {
     }
 
     private func openTUI() {
-        // Find the TUI binary path
+        // Try bundle Resources first, then the documented install locations.
+        // (No probing of the developer's home directory — that path used to
+        // ship inside the binary.)
         let bundlePath = Bundle.main.bundlePath
-        let tuiPath = bundlePath + "/../Resources/portpilot-tui"
-
-        // Try to find it in common locations
         let possiblePaths = [
             bundlePath + "/../Resources/portpilot-tui",
             "/Applications/PortPilot.app/Contents/Resources/portpilot-tui",
-            bundlePath + "/../../../../.build/release/portpilot-tui"
+            "/opt/homebrew/bin/portpilot-tui",
+            "/usr/local/bin/portpilot-tui",
         ]
 
-        var finalPath: String?
-        for path in possiblePaths {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                finalPath = path
-                break
-            }
-        }
-
-        // Fallback: use the built TUI path
-        if finalPath == nil {
-            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
-            let builtTui = homeDir + "/Sriinnu/Personal/ports/.build/release/portpilot-tui"
-            if FileManager.default.isExecutableFile(atPath: builtTui) {
-                finalPath = builtTui
-            }
-        }
-
-        guard let path = finalPath else {
+        guard let path = possiblePaths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             print("Could not find portpilot-tui binary")
             return
         }
+
+        // Escape for the AppleScript string literal — a path containing a
+        // quote or backslash used to splice straight into the script.
+        let escaped = path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
 
         // Open Terminal.app and run the TUI
         let script = """
         tell application "Terminal"
             activate
-            do script "\(path)"
+            do script "\(escaped)"
         end tell
         """
 
@@ -747,7 +748,7 @@ struct NotificationsSettingsView: View {
                         ForEach(notificationManager.watchedPorts, id: \.port) { watched in
                             HStack(spacing: 8) {
                                 Circle()
-                                    .fill(watched.lastKnownState == .available ? Theme.Status.connected : (watched.lastKnownState == .occupied ? Theme.Status.error : Color.gray))
+                                    .fill(watched.lastKnownState == .available ? Theme.Status.connected : (watched.lastKnownState == .occupied ? Theme.Status.error : Theme.Classification.other))
                                     .frame(width: 8, height: 8)
                                 Text(verbatim: "Port \(watched.port)")
                                     .font(.system(size: 13, design: .monospaced))
@@ -1057,7 +1058,7 @@ struct CustomProgramEditorView: View {
                         ForEach(availableColors, id: \.self) { color in
                             Button(action: { selectedColor = color }) {
                                 Circle()
-                                    .fill(Color(hex: color) ?? .blue)
+                                    .fill(Color(hex: color) ?? .accentColor)
                                     .frame(width: 28, height: 28)
                                     .overlay(
                                         Circle()
@@ -1181,7 +1182,7 @@ struct AboutSettingsView: View {
                 )
             }
             .buttonStyle(.plain)
-            .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+            .onHover { h in if h { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() } }
             .padding(.top, 4)
 
             Text(copyrightText)

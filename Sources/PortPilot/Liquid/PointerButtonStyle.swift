@@ -15,7 +15,9 @@ struct PointerButtonStyle: ButtonStyle {
         configuration.label
             .opacity(configuration.isPressed ? 0.7 : 1.0)
             .onHover { hovering in
-                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                // set(), not push()/pop() — overlapping hover regions used to
+                // unbalance the cursor stack and strand a pointing hand.
+                if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
             }
     }
 }

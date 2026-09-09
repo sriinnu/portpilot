@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import SwiftUI
+import ServiceManagement
 
 // MARK: - Appearance Mode
 enum AppearanceMode: String, CaseIterable, Identifiable {
@@ -169,6 +170,29 @@ class AppSettings: ObservableObject {
     @Published var launchAtLogin: Bool {
         didSet {
             defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
+            // SMAppService is the launch-at-login mechanism on macOS 13+.
+            // The old version only wrote the flag — the toggle was a placebo.
+            registerLaunchAtLogin(launchAtLogin)
+        }
+    }
+
+    private func registerLaunchAtLogin(_ enabled: Bool) {
+        Task.detached(priority: .userInitiated) {
+            // Sync variants — already off the main thread, blocking here is fine.
+            let service = SMAppService.mainApp
+            do {
+                if enabled {
+                    if service.status == .notRegistered {
+                        try service.register()
+                    }
+                } else {
+                    if service.status != .notRegistered {
+                        try service.unregister()
+                    }
+                }
+            } catch {
+                NSLog("Launch-at-login change failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -193,7 +217,7 @@ class AppSettings: ObservableObject {
     @Published var autoRefreshInterval: Int {
         didSet {
             defaults.set(autoRefreshInterval, forKey: Keys.autoRefreshInterval)
-            NotificationCenter.default.post(name: .autoRefreshIntervalChanged, object: autoRefreshInterval)
+            // The popover-open refresh timer reads this on each panel open.
         }
     }
 
@@ -280,7 +304,25 @@ class AppSettings: ObservableObject {
     private init() {
         self.showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? false
         self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
-        self.launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
+        // OS truth wins both ways: if the user removed PortPilot from Login
+        // Items in System Settings, fix the flag instead of re-registering
+        // over them — and if they added it there manually, the toggle should
+        // show ON instead of pretending it's off. A pending-approval
+        // registration keeps the stored flag.
+        let storedLaunchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
+        let effectiveLaunchAtLogin: Bool
+        switch SMAppService.mainApp.status {
+        case .enabled:
+            effectiveLaunchAtLogin = true
+        case .requiresApproval:
+            effectiveLaunchAtLogin = storedLaunchAtLogin
+        default:
+            effectiveLaunchAtLogin = false
+        }
+        self.launchAtLogin = effectiveLaunchAtLogin
+        if storedLaunchAtLogin != effectiveLaunchAtLogin {
+            defaults.set(effectiveLaunchAtLogin, forKey: Keys.launchAtLogin)
+        }
         self.showNotifications = defaults.object(forKey: Keys.showNotifications) as? Bool ?? true
         self.backgroundMonitoring = defaults.object(forKey: Keys.backgroundMonitoring) as? Bool ?? false
         self.autoRefreshInterval = defaults.object(forKey: Keys.autoRefreshInterval) as? Int ?? 5
@@ -424,7 +466,6 @@ class AppSettings: ObservableObject {
 extension Notification.Name {
     static let menuBarIconVisibilityChanged = Notification.Name("menuBarIconVisibilityChanged")
     static let appPolicyChanged = Notification.Name("appPolicyChanged")
-    static let autoRefreshIntervalChanged = Notification.Name("autoRefreshIntervalChanged")
     static let autoRefreshChanged = Notification.Name("autoRefreshChanged")
     static let setupMenuBar = Notification.Name("setupMenuBar")
 }

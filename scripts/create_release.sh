@@ -39,13 +39,14 @@ if git rev-parse --verify --quiet "refs/tags/v$VERSION" >/dev/null; then
 fi
 
 echo "Updating package.json to $VERSION"
+# Version-only bump. The old script also rewrote scripts.release back to a
+# stale form (dropping install:tui) — every release quietly regressed it.
 node -e '
 const fs = require("fs");
 const path = process.argv[1];
 const version = process.argv[2];
 const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
 pkg.version = version;
-pkg.scripts.release = "npm run build:all && npm run install:app && npm run install:cli && echo '\''✓ PortPilot v" + version + " released!'\''";
 fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
 ' "$PACKAGE_JSON" "$VERSION"
 

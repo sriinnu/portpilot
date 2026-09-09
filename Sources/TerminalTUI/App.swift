@@ -29,11 +29,16 @@ public protocol TUIScreen {
 
     /// Called when the terminal is resized
     mutating func onResize(width: Int, height: Int)
+
+    /// Called on every `refreshInterval` timeout — the place to re-fetch data.
+    /// Rendering happens right after this returns.
+    mutating func onTick()
 }
 
 /// Default implementations for optional methods
 public extension TUIScreen {
     mutating func onResize(width: Int, height: Int) {}
+    mutating func onTick() {}
 }
 
 /// Actions returned by `handleKey` to control the app flow
@@ -74,6 +79,12 @@ public class TUIApp {
 
     /// Start the application. Blocks until the user quits.
     public func run() {
+        // Escape codes into a pipe help nobody.
+        guard Terminal.isATty() else {
+            FileHandle.standardError.write("portpilot-tui: not a terminal\n".data(using: .utf8)!)
+            return
+        }
+
         // Set up terminal
         Terminal.enableRawMode()
         Terminal.alternateScreen(enable: true)
@@ -107,7 +118,10 @@ public class TUIApp {
             if let key = KeyReader.read(timeout: timeout) {
                 handleKeyEvent(key)
             } else if refreshInterval > 0 {
-                // Timeout — refresh the display (useful for live-updating data)
+                // Timeout — let the screen refresh its data, then redraw
+                if !screenStack.isEmpty {
+                    screenStack[screenStack.count - 1].onTick()
+                }
                 renderCurrentScreen()
             }
         }
@@ -184,27 +198,39 @@ public class TUIApp {
     // MARK: - Signal Handling
 
     private func installSignalHandlers() {
-        // SIGINT: write raw escape sequences and _exit.
-        // Uses only async-signal-safe operations (write, tcgetattr, tcsetattr, _exit).
-        signal(SIGINT) { _ in
-            // Static buffer — no heap allocation
-            // ESC[?25h = show cursor, ESC[?1049l = exit alt screen
+        // Restore-and-exit for every normal termination signal. Without these,
+        // `kill <pid>` (SIGTERM), terminal teardown (SIGHUP) and Ctrl+\ (SIGQUIT)
+        // left the tty in raw mode with the alt screen active and cursor hidden.
+        //
+        // The handler uses only async-signal-safe operations:
+        // write, tcgetattr, tcsetattr, _exit.
+        let restoreAndExit: @convention(c) (Int32) -> Void = { signalNumber in
+            // Static buffer — no heap allocation.
+            // ESC[?25h = show cursor, ESC[?1049l = exit alt screen, ESC[0m = reset
             var buf: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) =
-                (0x1B, 0x5B, 0x3F, 0x32, 0x35, 0x68,       // \e[?25h
+                (0x1B, 0x5B, 0x3F, 0x32, 0x35, 0x68,             // \e[?25h
                  0x1B, 0x5B, 0x3F, 0x31, 0x30, 0x34, 0x39, 0x6C, // \e[?1049l
-                 0x1B, 0x5B, 0x30, 0x6D)                    // \e[0m (reset)
+                 0x1B, 0x5B, 0x30, 0x6D)                          // \e[0m
             withUnsafePointer(to: &buf) { ptr in
                 _ = write(STDOUT_FILENO, ptr, 18)
             }
 
-            // Restore terminal mode
+            // Restore terminal mode from the *current* attributes (the saved
+            // copy lives in a Swift static — not safe to touch from a handler).
             var tattr = termios()
             tcgetattr(STDIN_FILENO, &tattr)
-            tattr.c_lflag |= tcflag_t(ECHO | ICANON)
+            tattr.c_lflag |= tcflag_t(ECHO | ICANON | ISIG)
+            tattr.c_iflag |= tcflag_t(IXON | ICRNL)
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &tattr)
 
-            _exit(0)
+            // 128 + signal number is the conventional shell exit status.
+            _exit(128 &+ signalNumber)
         }
+
+        signal(SIGINT, restoreAndExit)
+        signal(SIGTERM, restoreAndExit)
+        signal(SIGHUP, restoreAndExit)
+        signal(SIGQUIT, restoreAndExit)
 
         // SIGWINCH: just set a flag (async-signal-safe), handled in event loop
         signal(SIGWINCH) { _ in

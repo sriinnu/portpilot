@@ -79,7 +79,6 @@
   },
   "os": [
     "darwin",
-    "linux",
-    "win32"
+    "linux"
   ]
 }

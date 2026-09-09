@@ -27,22 +27,32 @@ extension PortManager {
         guard let dir = dir, !dir.isEmpty else { return nil }
         let fileManager = FileManager.default
 
-        // Node.js ecosystem
+        // Node.js ecosystem — parse package.json properly instead of substring
+        // matching, so a stray "react" inside some unrelated string (or a
+        // dependency that's only mentioned in a script) can't misclassify.
         let packageJSON = dir + "/package.json"
         if fileManager.fileExists(atPath: packageJSON) {
-            if let content = try? String(contentsOfFile: packageJSON, encoding: .utf8) {
-                if content.contains("\"next\"") { return "Next.js" }
-                if content.contains("\"nuxt\"") { return "Nuxt" }
-                if content.contains("\"remix\"") { return "Remix" }
-                if content.contains("\"gatsby\"") { return "Gatsby" }
-                if content.contains("\"astro\"") { return "Astro" }
-                if content.contains("\"react\"") { return "React" }
-                if content.contains("\"vue\"") && !content.contains("nuxt") { return "Vue" }
-                if content.contains("\"svelte\"") { return "Svelte" }
-                if content.contains("\"angular\"") { return "Angular" }
-                if content.contains("\"express\"") { return "Express" }
-                if content.contains("\"fastify\"") { return "Fastify" }
-                if content.contains("\"koa\"") { return "Koa" }
+            if let content = try? String(contentsOfFile: packageJSON, encoding: .utf8),
+               let data = content.data(using: .utf8),
+               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+                func hasDep(_ name: String) -> Bool {
+                    for section in ["dependencies", "devDependencies", "peerDependencies"] {
+                        if let deps = json[section] as? [String: Any], deps[name] != nil { return true }
+                    }
+                    return false
+                }
+                if hasDep("next") { return "Next.js" }
+                if hasDep("nuxt") { return "Nuxt" }
+                if hasDep("@remix-run/react") || hasDep("remix") { return "Remix" }
+                if hasDep("gatsby") { return "Gatsby" }
+                if hasDep("astro") { return "Astro" }
+                if hasDep("react") { return "React" }
+                if hasDep("vue") { return "Vue" }
+                if hasDep("svelte") { return "Svelte" }
+                if hasDep("@angular/core") { return "Angular" }
+                if hasDep("express") { return "Express" }
+                if hasDep("fastify") { return "Fastify" }
+                if hasDep("koa") { return "Koa" }
                 return "Node.js"
             }
             return "Node.js"
@@ -95,41 +105,73 @@ extension PortManager {
 
     // MARK: - Git Info Detection
 
+    /// Resolves the real .git directory. In worktrees and submodules `.git` is
+    /// a file containing "gitdir: <path>", not a directory.
+    private func gitDirectory(for dir: String) -> String? {
+        let dotGit = dir + "/.git"
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dotGit, isDirectory: &isDirectory) else {
+            return nil
+        }
+        if isDirectory.boolValue { return dotGit }
+
+        guard let content = try? String(contentsOfFile: dotGit, encoding: .utf8) else { return nil }
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("gitdir:") else { return nil }
+        let gitdir = String(trimmed.dropFirst("gitdir:".count)).trimmingCharacters(in: .whitespaces)
+        return gitdir.isEmpty ? nil : gitdir
+    }
+
     /// Detect git branch and repository from working directory
     public func detectGitInfo(for workingDirectory: String?) -> (branch: String?, repo: String?) {
-        guard let dir = workingDirectory, !dir.isEmpty else { return (nil, nil) }
+        guard let dir = workingDirectory, !dir.isEmpty,
+              let gitDir = gitDirectory(for: dir) else { return (nil, nil) }
 
-        let headFile = dir + "/.git/HEAD"
-        guard let headContent = try? String(contentsOfFile: headFile, encoding: .utf8) else {
+        guard let headContent = try? String(contentsOfFile: gitDir + "/HEAD", encoding: .utf8) else {
             return (nil, nil)
         }
 
         let trimmed = headContent.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.starts(with: "ref: ") {
+            // "ref: refs/heads/main" — the ref *path* carries the branch name.
+            // The ref file's content is the commit SHA and must not be returned.
+            // Strip the refs/heads/ prefix, keep the rest: "feature/x" is a
+            // branch name, not a typo — lastPathComponent turned it into "x".
             let branchPath = String(trimmed.dropFirst(5))
-
-            let refFile = dir + "/.git/" + branchPath
-            if let branchName = try? String(contentsOfFile: refFile, encoding: .utf8) {
-                let trimmedBranch = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
-                let cleanBranch = trimmedBranch.components(separatedBy: "/").last ?? trimmedBranch
-                let repo = detectRepoName(from: dir)
-                return (cleanBranch, repo)
+            let branchName: String
+            if branchPath.hasPrefix("refs/heads/") {
+                branchName = String(branchPath.dropFirst("refs/heads/".count))
+            } else if branchPath.hasPrefix("refs/") {
+                branchName = String(branchPath.dropFirst("refs/".count))
+            } else {
+                branchName = branchPath
             }
-
-            let branchName = branchPath.components(separatedBy: "/").last ?? branchPath
             let repo = detectRepoName(from: dir)
             return (branchName, repo)
         }
 
+        // Detached HEAD — the file contains the commit SHA directly.
         let shortHash = String(trimmed.prefix(7))
         let repo = detectRepoName(from: dir)
         return (shortHash, repo)
     }
 
     func detectRepoName(from workingDirectory: String) -> String? {
-        let configFile = workingDirectory + "/.git/config"
-        guard let config = try? String(contentsOfFile: configFile, encoding: .utf8) else {
+        var configPaths: [String] = []
+        if let gitDir = gitDirectory(for: workingDirectory) {
+            // Regular repo: /repo/.git/config. Linked worktree: gitDir
+            // resolves to /repo/.git/worktrees/wt, so the shared config sits
+            // two levels up — one deletion short used to miss it.
+            configPaths.append(gitDir + "/config")
+            let parent = (gitDir as NSString).deletingLastPathComponent
+            configPaths.append(parent + "/config")
+            configPaths.append((parent as NSString).deletingLastPathComponent + "/config")
+        }
+        configPaths.append(workingDirectory + "/.git/config")
+
+        let config = configPaths.lazy.compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }.first
+        guard let config else {
             return nil
         }
 

@@ -35,7 +35,7 @@ struct PortListRow: View {
             lines.append("CPU: \(String(format: "%.1f", cpu))%")
         }
         if let mem = port.memoryMB {
-            lines.append("Memory: \(formatMemory(mem))")
+            lines.append("Memory: \(formatMemoryCompact(mem))")
         }
         if let uptime = processUptime {
             lines.append("Uptime: \(uptime)")
@@ -65,7 +65,7 @@ struct PortListRow: View {
                 if isFavorite {
                     Image(systemName: "star.fill")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.yellow)
+                        .foregroundColor(Theme.Status.warning)
                 }
             }
             .frame(width: 12)
@@ -73,18 +73,20 @@ struct PortListRow: View {
             .help(isFavorite ? "Remove from favorites" : "Add to favorites")
 
             // Port column — dominant typography on top, protocol under. Tightened
-            // to 64pt so narrow window widths don't wrap the label vertically.
+            // to 64pt so narrow window widths don't wrap the label vertically;
+            // at large font sizes the number scales down instead of clipping
+            // (the size slider goes up to 18px, where ":65535" outgrows 64pt).
             VStack(alignment: .leading, spacing: 2) {
                 if port.isUnixSocket {
                     Text(verbatim: "PID \(port.pid)")
                         .font(appSettings.appMonoFont(size: appSettings.fontSize, weight: .bold))
-                        .fixedSize(horizontal: true, vertical: false)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                 } else {
                     Text(verbatim: ":\(port.port)")
                         .font(appSettings.appMonoFont(size: appSettings.fontSize + 1, weight: .bold))
-                        .fixedSize(horizontal: true, vertical: false)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                 }
                 HStack(spacing: 3) {
                     Image(systemName: typeIcon)
@@ -168,7 +170,7 @@ struct PortListRow: View {
             // Memory.
             Group {
                 if let mem = port.memoryMB {
-                    Text(formatMemory(mem))
+                    Text(formatMemoryCompact(mem))
                         .font(appSettings.appMonoFont(size: 9, weight: .medium))
                         .foregroundColor(.secondary.opacity(0.85))
                         .lineLimit(1)
@@ -215,6 +217,7 @@ struct PortListRow: View {
                 }
                 .buttonStyle(.plain)
                 .help(killArmed ? "Tap again to confirm kill" : "Kill process")
+                .accessibilityLabel(killArmed ? "Confirm kill" : "Kill process \(port.command), pid \(port.pid)")
             }
             .frame(width: 46, alignment: .trailing)
             .opacity(isHovered || isSelected ? 1 : Theme.Opacity.disabled)
@@ -242,12 +245,30 @@ struct PortListRow: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
+        // Combined for a clean read, but the row still has to be operable:
+        // merging the children swallowed the kill button's label entirely, and
+        // onTapGesture is invisible to VoiceOver. Custom actions expose
+        // select/kill/favorite through the actions rotor instead.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            port.isUnixSocket
+                ? "Socket \(port.command), pid \(port.pid)"
+                : "Port \(port.port) \(port.protocolName.uppercased()), \(port.command), pid \(port.pid)"
+        )
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Double-tap to select. Actions available via the actions rotor.")
+        .accessibilityAction(named: Text("Select")) { onSelect() }
+        .accessibilityAction(named: Text(isFavorite ? "Remove from favorites" : "Add to favorites")) { onToggleFavorite() }
+        .accessibilityAction(named: Text(killArmed ? "Confirm kill" : "Kill process")) { onKill() }
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
+            // .set() instead of push/pop — an unbalanced push (two overlapping
+            // hovers) used to wedge the cursor stack and leave a stuck hand.
             if hovering {
-                NSCursor.pointingHand.push()
+                NSCursor.pointingHand.set()
             } else {
-                NSCursor.pop()
+                NSCursor.arrow.set()
             }
         }
     }
@@ -264,29 +285,4 @@ private extension PortListRow {
         }
     }
 
-    func formatMemory(_ mb: Double) -> String {
-        if mb >= 1024 { return String(format: "%.1fG", mb / 1024.0) }
-        if mb >= 10 { return String(format: "%.0fM", mb) }
-        return String(format: "%.1fM", mb)
-    }
-
-    /// Smooth heat-map: 0% teal → 25% blue → 50% amber → 75% orange → 100% red
-    func cpuHeatColor(_ usage: Double) -> Color {
-        let t = min(max(usage / 100.0, 0), 1)
-        let r: Double, g: Double, b: Double
-        if t < 0.25 {
-            let p = t / 0.25
-            r = 0.18 + p * 0.12;  g = 0.62 - p * 0.14;  b = 0.70 - p * 0.02
-        } else if t < 0.50 {
-            let p = (t - 0.25) / 0.25
-            r = 0.30 + p * 0.58;  g = 0.48 + p * 0.14;  b = 0.68 - p * 0.52
-        } else if t < 0.75 {
-            let p = (t - 0.50) / 0.25
-            r = 0.88 + p * 0.07;  g = 0.62 - p * 0.22;  b = 0.16 - p * 0.04
-        } else {
-            let p = (t - 0.75) / 0.25
-            r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
-        }
-        return Color(red: r, green: g, blue: b)
-    }
 }

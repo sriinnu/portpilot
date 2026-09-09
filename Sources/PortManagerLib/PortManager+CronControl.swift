@@ -40,7 +40,9 @@ extension PortManager {
         var matched = false
 
         for i in lines.indices {
-            var content = lines[i].trimmingCharacters(in: .whitespaces)
+            let raw = lines[i]
+            let indent = String(raw.prefix { $0 == " " || $0 == "\t" })
+            var content = raw.trimmingCharacters(in: .whitespaces)
             let wasPaused = content.hasPrefix(Self.cronPauseMarker)
             if wasPaused {
                 content = String(content.dropFirst(Self.cronPauseMarker.count)).trimmingCharacters(in: .whitespaces)
@@ -55,10 +57,11 @@ extension PortManager {
             }
 
             matched = true
+            // Keep the user's original indentation — it's their crontab, not ours.
             if paused && !wasPaused {
-                lines[i] = "\(Self.cronPauseMarker) \(content)"
+                lines[i] = "\(indent)\(Self.cronPauseMarker) \(content)"
             } else if !paused && wasPaused {
-                lines[i] = content
+                lines[i] = "\(indent)\(content)"
             }
             break
         }
@@ -74,42 +77,67 @@ extension PortManager {
         // and produces a "No such file or directory" error. /tmp/<short-name> stays well under it.
         let tmpURL = URL(fileURLWithPath: "/tmp/portpilot_cron_\(ProcessInfo.processInfo.processIdentifier)_\(Int(Date().timeIntervalSince1970)).txt")
         try content.write(to: tmpURL, atomically: true, encoding: .utf8)
+        // 0600: this file is a copy of the user's crontab; /tmp default perms
+        // (0644) would leave it briefly world-readable.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tmpURL.path)
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/crontab")
-        process.arguments = [tmpURL.path]
-
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw CronControlError.writeFailed(message.isEmpty ? "crontab exited with status \(process.terminationStatus)" : message)
+        let result = runProcess("/usr/bin/crontab", arguments: [tmpURL.path])
+        if result.exitStatus != 0 {
+            let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let reason = message.isEmpty
+                ? (result.timedOut ? "crontab timed out" : "crontab exited with status \(result.exitStatus ?? -1)")
+                : message
+            throw CronControlError.writeFailed(reason)
         }
     }
 
-    /// Find PIDs of currently running processes whose command line contains the given cron command.
-    public func findRunningProcesses(matching command: String) -> [Int32] {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespaces)
-        guard !trimmedCommand.isEmpty else { return [] }
+    /// Precision-first match of a cron command line against a running
+    /// process's `ps -eo command=` line.
+    ///
+    /// The executable must agree — an absolute path in the cron line has to
+    /// match argv[0] exactly (two different `python3`s on disk are different
+    /// programs); a bare name matches however it was invoked. And when the
+    /// cron command carries arguments, the process must run the same leading
+    /// argument tokens: the script path *is* the identity for interpreter
+    /// commands. Basename-only matching made this a shotgun before —
+    /// `python3 /x/backup.py` killed every python3 on the machine. A miss is
+    /// safe (the user can stop it manually); a false positive destroys
+    /// unrelated work, so ambiguity always resolves to "no match".
+    public static func cronCommand(_ command: String, matchesProcessCommand processCommand: String) -> Bool {
+        let targetTokens = command.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        let procTokens = processCommand.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard let targetExec = targetTokens.first, let procExec = procTokens.first else { return false }
 
+        if targetExec.hasPrefix("/") {
+            guard procExec == targetExec else { return false }
+        } else {
+            guard procExec == targetExec
+                || URL(fileURLWithPath: procExec).lastPathComponent == targetExec
+            else { return false }
+        }
+
+        let targetArgs = Array(targetTokens.dropFirst())
+        guard targetArgs.count <= procTokens.count - 1 else { return false }
+        return Array(procTokens.dropFirst().prefix(targetArgs.count)) == targetArgs
+    }
+
+    /// Find PIDs of processes matching the cron command — same executable and,
+    /// when the command has arguments, the same leading argument tokens. See
+    /// `cronCommand(_:matchesProcessCommand:)` for the matching contract.
+    public func findRunningProcesses(matching command: String) -> [Int] {
         let output = runCommandQuiet("/bin/ps", arguments: ["-eo", "pid=,command="])
-        var pids: [Int32] = []
+        var pids: [Int] = []
 
         for line in output.components(separatedBy: "\n") {
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmedLine.isEmpty, let spaceIndex = trimmedLine.firstIndex(of: " ") else { continue }
+            guard !trimmedLine.isEmpty else { continue }
+            let parts = trimmedLine.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+            guard parts.count == 2, let pid = Int(parts[0]) else { continue }
 
-            let pidString = trimmedLine[..<spaceIndex]
-            let commandString = trimmedLine[trimmedLine.index(after: spaceIndex)...].trimmingCharacters(in: .whitespaces)
-
-            guard let pid = Int32(pidString), commandString.contains(trimmedCommand) else { continue }
-            pids.append(pid)
+            if Self.cronCommand(command, matchesProcessCommand: String(parts[1])) {
+                pids.append(pid)
+            }
         }
 
         return pids
@@ -117,12 +145,12 @@ extension PortManager {
 
     /// Best-effort termination of any running processes matching a cron command.
     /// Used as a fallback for jobs the cron daemon started outside of PortPilot.
+    /// Returns how many processes actually stopped (not how many were signaled).
     @discardableResult
     public func stopRunningProcesses(matching command: String) -> Int {
         let pids = findRunningProcesses(matching: command)
-        for pid in pids {
-            _ = runCommandQuiet("/bin/kill", arguments: ["-TERM", "\(pid)"])
-        }
-        return pids.count
+        guard !pids.isEmpty else { return 0 }
+        let survivors = killProcess(pids: pids, timeout: 3)
+        return pids.count - survivors.count
     }
 }

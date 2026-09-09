@@ -5,7 +5,7 @@ public struct FavoritePort: Codable, Hashable {
     public let protocolName: String
     public var label: String
     public var category: PortCategory
-    public let addedAt: Date
+    public var addedAt: Date
 
     public init(port: Int, protocolName: String = "tcp", label: String = "", category: PortCategory = .dev) {
         self.port = port
@@ -33,6 +33,7 @@ public enum FavoritesError: LocalizedError {
 public final class FavoritesManager {
     private let userDefaults: UserDefaults
     private let favoritesKey = "portKiller.favorites"
+    private let lock = NSLock()
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -41,15 +42,15 @@ public final class FavoritesManager {
     // MARK: - CRUD Operations
 
     public func getAllFavorites() -> [FavoritePort] {
-        guard let data = userDefaults.data(forKey: favoritesKey),
-              let favorites = try? JSONDecoder().decode([FavoritePort].self, from: data) else {
-            return []
-        }
-        return favorites.sorted { $0.port < $1.port }
+        lock.lock()
+        defer { lock.unlock() }
+        return loadFavorites()
     }
 
     public func addFavorite(port: Int, protocolName: String = "tcp", label: String = "", category: PortCategory = .dev) throws {
-        var favorites = getAllFavorites()
+        lock.lock()
+        defer { lock.unlock() }
+        var favorites = loadFavorites()
 
         guard !favorites.contains(where: { $0.port == port && $0.protocolName == protocolName }) else {
             throw FavoritesError.alreadyExists
@@ -61,7 +62,9 @@ public final class FavoritesManager {
     }
 
     public func removeFavorite(port: Int, protocolName: String = "tcp") throws {
-        var favorites = getAllFavorites()
+        lock.lock()
+        defer { lock.unlock() }
+        var favorites = loadFavorites()
         let initialCount = favorites.count
         favorites.removeAll { $0.port == port && $0.protocolName == protocolName }
 
@@ -73,35 +76,29 @@ public final class FavoritesManager {
     }
 
     public func updateFavoriteLabel(port: Int, protocolName: String, newLabel: String) throws {
-        var favorites = getAllFavorites()
+        lock.lock()
+        defer { lock.unlock() }
+        var favorites = loadFavorites()
         guard let index = favorites.firstIndex(where: { $0.port == port && $0.protocolName == protocolName }) else {
             throw FavoritesError.notFound
         }
 
-        let oldFavorite = favorites[index]
-        favorites[index] = FavoritePort(
-            port: oldFavorite.port,
-            protocolName: oldFavorite.protocolName,
-            label: newLabel,
-            category: oldFavorite.category
-        )
+        // Mutate in place: rebuilding used to reset addedAt to "now", losing
+        // when the favorite was actually created.
+        favorites[index].label = newLabel
 
         try saveFavorites(favorites)
     }
 
     public func updateFavoriteCategory(port: Int, protocolName: String, newCategory: PortCategory) throws {
-        var favorites = getAllFavorites()
+        lock.lock()
+        defer { lock.unlock() }
+        var favorites = loadFavorites()
         guard let index = favorites.firstIndex(where: { $0.port == port && $0.protocolName == protocolName }) else {
             throw FavoritesError.notFound
         }
 
-        let oldFavorite = favorites[index]
-        favorites[index] = FavoritePort(
-            port: oldFavorite.port,
-            protocolName: oldFavorite.protocolName,
-            label: oldFavorite.label,
-            category: newCategory
-        )
+        favorites[index].category = newCategory
 
         try saveFavorites(favorites)
     }
@@ -146,6 +143,16 @@ public final class FavoritesManager {
 
     // MARK: - Private
 
+    /// Lock must be held. Sorted view of what's on disk.
+    private func loadFavorites() -> [FavoritePort] {
+        guard let data = userDefaults.data(forKey: favoritesKey),
+              let favorites = try? JSONDecoder().decode([FavoritePort].self, from: data) else {
+            return []
+        }
+        return favorites.sorted { $0.port < $1.port }
+    }
+
+    /// Lock must be held.
     private func saveFavorites(_ favorites: [FavoritePort]) throws {
         let data = try JSONEncoder().encode(favorites)
         userDefaults.set(data, forKey: favoritesKey)

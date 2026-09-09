@@ -1,5 +1,11 @@
 import Foundation
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
 // MARK: - Port Process Model
 public struct PortProcess: Codable, Identifiable, Sendable {
     // Identity fields (immutable — define equality and hashing)
@@ -147,8 +153,10 @@ public enum PortCategory: String, CaseIterable, Codable {
 public enum PortManagerError: LocalizedError {
     case noProcessFound(Int)
     case killFailed(Int, String)
+    case partialKill([Int])
     case parseFailed(String)
     case invalidPID(Int)
+    case launchFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -156,10 +164,14 @@ public enum PortManagerError: LocalizedError {
             return "No process found listening on port \(port)"
         case .killFailed(let port, let reason):
             return "Failed to kill process on port \(port): \(reason)"
+        case .partialKill(let pids):
+            return "These processes did not exit: \(pids.map(String.init).joined(separator: ", "))"
         case .parseFailed(let reason):
             return "Failed to parse output: \(reason)"
         case .invalidPID(let pid):
             return "Invalid PID: \(pid). Must be a positive integer."
+        case .launchFailed(let path):
+            return "Failed to launch \(path)"
         }
     }
 }
@@ -175,10 +187,13 @@ public struct CronjobEntry: Codable, Identifiable, Sendable {
     public let source: String
     public let isPaused: Bool
 
-    public init(command: String, schedule: String, scheduleHuman: String? = nil, nextRun: Date? = nil, user: String? = nil, source: String, isPaused: Bool = false) {
+    public init(command: String, schedule: String, scheduleHuman: String? = nil, nextRun: Date? = nil, user: String? = nil, source: String, isPaused: Bool = false, duplicateIndex: Int? = nil) {
         // Stable across launches (unlike String.hashValue, which is randomized per process)
-        // so run-history keyed by id still lines up after a restart.
-        self.id = "\(source):\(command)"
+        // so run-history keyed by id still lines up after a restart. Schedule is part of
+        // the key: the same command listed twice with different schedules is two jobs.
+        // duplicateIndex disambiguates identical lines repeated in one crontab —
+        // ForEach ids must stay unique.
+        self.id = "\(source):\(schedule):\(command)" + (duplicateIndex.map { "#\($0)" } ?? "")
         self.command = command
         self.schedule = schedule
         self.scheduleHuman = scheduleHuman
@@ -209,7 +224,11 @@ public enum Platform {
     case windows
     case wsl // Windows Subsystem for Linux
 
-    public static var current: Platform {
+    /// Cached — the Linux detection hits the filesystem, so this must not be
+    /// recomputed on every call site.
+    public static let current: Platform = detect()
+
+    private static func detect() -> Platform {
         #if os(macOS)
         return .macOS
         #elseif os(Windows)
@@ -237,6 +256,7 @@ public final class PortManager {
     public init() {}
 
     // Blocklist cache — accessed by PortManager+Connections.swift extension
+    let blocklistLock = NSLock()
     var cachedBlocklist: Any? = nil
     var blocklistCacheTime: Date? = nil
     let blocklistCacheDuration: TimeInterval = 60
@@ -249,7 +269,7 @@ public final class PortManager {
     // MARK: - Get PID for Port
 
     public func getPID(forPort port: Int, protocol: String = "tcp") -> Int? {
-        let processes = (try? getListeningProcesses(startPort: port, endPort: port, protocolFilter: `protocol`)) ?? []
+        let processes = (try? getListeningProcesses(startPort: port, endPort: port, protocolFilter: `protocol`, enrich: false)) ?? []
         return processes.first?.pid
     }
 
@@ -268,7 +288,8 @@ public final class PortManager {
     public func getListeningProcesses(
         startPort: Int? = nil,
         endPort: Int? = nil,
-        protocolFilter: String? = nil
+        protocolFilter: String? = nil,
+        enrich: Bool = true
     ) throws -> [PortProcess] {
         let platform = Platform.current
         let output: String
@@ -277,7 +298,10 @@ public final class PortManager {
         case .macOS:
             output = try runCommand("/usr/sbin/lsof", arguments: ["-iTCP", "-iUDP", "-sTCP:LISTEN", "-P", "-n"])
         case .linux, .wsl:
-            output = try runCommand("/usr/bin/ss", arguments: ["-tlnp"])
+            // -tulnp: TCP and UDP listeners. ss lives in /usr/bin or /usr/sbin
+            // depending on the distro's usr-merge state.
+            output = try runCommand(Self.firstExisting(["/usr/bin/ss", "/usr/sbin/ss", "/bin/ss"]) ?? "/usr/bin/ss",
+                                    arguments: ["-tulnp"])
         case .windows:
             output = try runCommand("netstat", arguments: ["-ano"])
         }
@@ -306,7 +330,9 @@ public final class PortManager {
         }
 
         let sorted = filtered.sorted { $0.port < $1.port }
-        return fetchFullCommands(for: sorted)
+        // Enrichment (2 ps spawns + proc_pidpath + framework/git file probes per
+        // process) is real money — callers that only need pid presence skip it.
+        return enrich ? fetchFullCommands(for: sorted) : sorted
     }
 
     // MARK: - Platform Parsers
@@ -329,7 +355,11 @@ public final class PortManager {
             let portString = String(nameField[nameField.index(after: colonIndex)...])
             guard let port = Int(portString) else { continue }
 
-            let proto = line.contains("TCP") ? "tcp" : "udp"
+            // -sTCP:LISTEN filters TCP rows down to listeners; UDP rows pass
+            // through unfiltered and never carry a state. So the (LISTEN)
+            // marker on the NAME column is the reliable protocol discriminator
+            // (a command name containing "TCP" is not).
+            let proto = parts.count > 9 && parts[9] == "(LISTEN)" ? "tcp" : "udp"
 
             let key = "\(proto)-\(port)-\(pid)"
             guard !seen.contains(key) else { continue }
@@ -352,17 +382,24 @@ public final class PortManager {
         var seen = Set<String>()
 
         for line in output.components(separatedBy: "\n") {
-            guard line.contains("LISTEN") else { continue }
-
             let columns = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             guard columns.count >= 5 else { continue }
 
-            let localAddr = columns[3]
+            // `ss -tulnp` prepends a Netid column: State, Recv-Q, Send-Q shift
+            // by one. TCP listeners report LISTEN; UDP reports UNCONN.
+            let netid = columns[0].lowercased()
+            let isTCP = netid.hasPrefix("tcp")
+            let isUDP = netid.hasPrefix("udp")
+            guard isTCP || isUDP else { continue }
+            if isTCP && !line.contains("LISTEN") { continue }
+            if isUDP && !line.contains("UNCONN") { continue }
+
+            let localAddr = columns[4]
             guard let lastColon = localAddr.lastIndex(of: ":") else { continue }
             let portString = String(localAddr[localAddr.index(after: lastColon)...])
             guard let port = Int(portString) else { continue }
 
-            let processInfo = columns.dropFirst(5).joined(separator: " ")
+            let processInfo = columns.dropFirst(6).joined(separator: " ")
             var command = "unknown"
             var pid = 0
 
@@ -377,25 +414,24 @@ public final class PortManager {
             }
 
             var user = "unknown"
-            if pid > 0 {
-                if let statusOutput = try? runCommand("/bin/cat", arguments: ["/proc/\(pid)/status"]),
-                   let uidLine = statusOutput.components(separatedBy: "\n").first(where: { $0.hasPrefix("Uid:") }) {
-                    let uidParts = uidLine.split(separator: "\t", omittingEmptySubsequences: true)
-                    if uidParts.count >= 2, let uid = Int(uidParts[1]) {
-                        if let passwdLine = try? runCommand("/usr/bin/id", arguments: ["-nu", String(uid)]) {
-                            user = passwdLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                    }
+            if pid > 0,
+               let uidLine = (try? String(contentsOfFile: "/proc/\(pid)/status", encoding: .utf8))?
+                   .components(separatedBy: "\n")
+                   .first(where: { $0.hasPrefix("Uid:") }) {
+                let uidParts = uidLine.split(separator: "\t", omittingEmptySubsequences: true)
+                if uidParts.count >= 2, let uid = Int(uidParts[1]) {
+                    user = Self.userName(forUID: uid) ?? "unknown"
                 }
             }
 
-            let key = "tcp-\(port)-\(pid)"
+            let proto = isTCP ? "tcp" : "udp"
+            let key = "\(proto)-\(port)-\(pid)"
             guard !seen.contains(key) else { continue }
             seen.insert(key)
 
             processes.append(PortProcess(
                 port: port,
-                protocolName: "tcp",
+                protocolName: proto,
                 pid: pid,
                 user: user,
                 command: command
@@ -403,6 +439,16 @@ public final class PortManager {
         }
 
         return processes
+    }
+
+    /// libc lookup — no subprocess, no per-call cache needed.
+    private static func userName(forUID uid: Int) -> String? {
+        guard let pw = getpwuid(uid_t(uid)), let name = pw.pointee.pw_name else { return nil }
+        return String(cString: name)
+    }
+
+    private static func firstExisting(_ paths: [String]) -> String? {
+        paths.first { FileManager.default.fileExists(atPath: $0) }
     }
 
     private func parseWindowsOutput(_ output: String) throws -> [PortProcess] {
@@ -473,50 +519,100 @@ public final class PortManager {
         }
     }
 
+    /// BSD ps `lstart` is "Mon Sep  8 01:02:03 2026" — the day-of-month may be
+    /// space-padded, which makes naive whitespace splitting ambiguous. Capture
+    /// the fields explicitly instead of counting tokens.
+    private static let psLineNoUser = try! NSRegularExpression(
+        pattern: #"^\s*(\d+)\s+(\d+)\s+([A-Za-z]{3})\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(\d{4})(?:\s+(.*))?$"#
+    )
+    private static let psLineWithUser = try! NSRegularExpression(
+        pattern: #"^\s*(\d+)\s+(\d+)\s+(\S+)\s+([A-Za-z]{3})\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(\d{4})(?:\s+(.*))?$"#
+    )
+
+    private static let lstartFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
+        return formatter
+    }()
+
+    /// pid, ppid, start date, and args from a `ps -o pid=,ppid=,lstart=,args=` line.
+    // internal for @testable — this parser carries the single-vs-double-digit-day fix
+    static func parsePSLine(_ line: String, hasUser: Bool) -> (pid: Int, ppid: Int?, user: String?, startTime: Date?, args: String?)? {
+        let regex = hasUser ? psLineWithUser : psLineNoUser
+        guard let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) else { return nil }
+
+        func group(_ idx: Int) -> String? {
+            guard let range = Range(match.range(at: idx), in: line) else { return nil }
+            return String(line[range])
+        }
+
+        guard let pidStr = group(1), let pid = Int(pidStr) else { return nil }
+        let ppid = group(2).flatMap(Int.init)
+
+        // Group layout differs between the two patterns — normalize indices.
+        let dayOfWeek: String?, month: String?, day: String?, hh: String?, mm: String?, ss: String?, year: String?, args: String?
+        let user: String?
+        if hasUser {
+            user = group(3)
+            dayOfWeek = group(4); month = group(5); day = group(6)
+            hh = group(7); mm = group(8); ss = group(9); year = group(10); args = group(11)
+        } else {
+            user = nil
+            dayOfWeek = group(3); month = group(4); day = group(5)
+            hh = group(6); mm = group(7); ss = group(8); year = group(9); args = group(10)
+        }
+
+        var startTime: Date?
+        if let dayOfWeek, let month, let day, let hh, let mm, let ss, let year {
+            startTime = lstartFormatter.date(from: "\(dayOfWeek) \(month) \(day) \(hh):\(mm):\(ss) \(year)")
+        }
+
+        return (pid, ppid, user, startTime, args)
+    }
+
+    /// macOS `ps` has no `cwd` keyword — asking for it makes ps exit 1 and emit
+    /// a column-short output that misaligns positional parsers. Working
+    /// directories come from lsof instead (one call for all pids).
+    private func fetchWorkingDirectories(pids: String) -> [Int: String] {
+        guard !pids.isEmpty else { return [:] }
+        guard let output = try? runCommand("/usr/sbin/lsof",
+                                           arguments: ["-w", "-a", "-p", pids, "-d", "cwd", "-F", "pn"],
+                                           timeout: 5) else {
+            return [:]
+        }
+        var result: [Int: String] = [:]
+        var currentPID: Int?
+        for record in output.split(separator: "\n") {
+            guard let prefix = record.first, record.count > 1 else { continue }
+            let value = String(record.dropFirst())
+            switch prefix {
+            case "p": currentPID = Int(value)
+            case "n": if let pid = currentPID { result[pid] = value }
+            default: break
+            }
+        }
+        return result
+    }
+
     private func fetchFullCommandsMacOS(for processes: [PortProcess]) -> [PortProcess] {
         let pids = processes.map { String($0.pid) }.joined(separator: ",")
-        guard let output = try? runCommand("/bin/ps", arguments: ["-p", pids, "-o", "pid=,ppid=,lstart=,cwd=,args="]) else {
+        guard let output = try? runCommand("/bin/ps",
+                                           arguments: ["-p", pids, "-o", "pid=,ppid=,lstart=,args="],
+                                           environment: ["LC_ALL": "C"]) else {
             return processes
         }
 
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dateFormatter.timeZone = TimeZone.current
-        dateFormatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
-
-        var pidToInfo: [Int: (args: String, ppid: Int?, lstart: Date?, cwd: String?)] = [:]
+        var pidToInfo: [Int: (args: String?, ppid: Int?, lstart: Date?)] = [:]
         for line in output.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            guard let firstSpaceIdx = trimmed.firstIndex(of: " ") else { continue }
-            let pidStr = String(trimmed[..<firstSpaceIdx])
-            guard let pid = Int(pidStr) else { continue }
-
-            let rest = String(trimmed[trimmed.index(after: firstSpaceIdx)...])
-
-            let tokens = rest.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
-            var ppid: Int?
-            var lstart: Date?
-            var cwd: String?
-            var args: String?
-
-            if tokens.count >= 1 {
-                ppid = Int(tokens[0])
+            guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+            if let parsed = Self.parsePSLine(line, hasUser: false) {
+                pidToInfo[parsed.pid] = (args: parsed.args, ppid: parsed.ppid, lstart: parsed.startTime)
             }
-
-            if tokens.count >= 6 {
-                let lstartStr = tokens[1...5].joined(separator: " ")
-                lstart = dateFormatter.date(from: lstartStr)
-            }
-            if tokens.count >= 7 {
-                cwd = tokens[6]
-                args = tokens.dropFirst(7).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-            }
-
-            pidToInfo[pid] = (args: args ?? "", ppid: ppid, lstart: lstart, cwd: cwd)
         }
 
+        let cwdByPID = fetchWorkingDirectories(pids: pids)
         let stats = fetchProcessStats(pids: pids)
 
         var pidToPath: [Int: String] = [:]
@@ -530,11 +626,11 @@ public final class PortManager {
         return processes.map { process in
             var updated = process
             if let info = pidToInfo[process.pid] {
-                updated.fullCommand = info.args.isEmpty ? nil : info.args
+                updated.fullCommand = (info.args?.isEmpty == false) ? info.args : nil
                 updated.parentPID = info.ppid
                 updated.startTime = info.lstart
-                updated.workingDirectory = info.cwd
             }
+            updated.workingDirectory = cwdByPID[process.pid]
             updated.cpuUsage = stats.cpu[process.pid]
             updated.memoryMB = stats.memMB[process.pid]
             updated.processPath = pidToPath[process.pid]
@@ -641,34 +737,71 @@ public final class PortManager {
 
     // MARK: - Kill Process
 
-    public func killProcessOnPort(_ port: Int, force: Bool = false, timeout: Int = 5000) throws {
-        let processes = try getListeningProcesses(startPort: port, endPort: port)
-        guard let process = processes.first else {
+    /// Sends TERM (or KILL when `force`), waits up to `timeout` seconds for the
+    /// pids to exit, escalates stragglers to KILL. Returns pids still alive.
+    @discardableResult
+    public func killProcess(pids: [Int], force: Bool = false, timeout: TimeInterval = 5) -> [Int] {
+        let valid = pids.filter { $0 > 1 }  // pid 1 = launchd/init; never signal it
+        guard !valid.isEmpty else { return [] }
+
+        func signalPID(_ pid: Int, _ sig: Int32) { kill(pid_t(pid), sig) }
+        func isAlive(_ pid: Int) -> Bool { kill(pid_t(pid), 0) == 0 }
+
+        let signal: Int32 = force ? SIGKILL : SIGTERM
+        for pid in valid {
+            signalPID(pid, signal)
+        }
+
+        guard !force else {
+            usleep(150_000)
+            return valid.filter(isAlive)
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        var remaining = valid
+        while Date() < deadline {
+            usleep(100_000)
+            remaining = remaining.filter(isAlive)
+            if remaining.isEmpty { break }
+        }
+
+        for pid in remaining {
+            signalPID(pid, SIGKILL)
+        }
+        if !remaining.isEmpty {
+            usleep(150_000)
+            return remaining.filter(isAlive)
+        }
+        return []
+    }
+
+    /// Kills every process listening on `port` (SO_REUSEPORT means there can be
+    /// more than one), escalating TERM → KILL within `timeout` seconds.
+    public func killProcessOnPort(_ port: Int, force: Bool = false, timeout: TimeInterval = 5) throws {
+        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: false)
+        guard !processes.isEmpty else {
             throw PortManagerError.noProcessFound(port)
         }
-
-        let signal = force ? "KILL" : "TERM"
-        let result = try runCommand("/bin/kill", arguments: ["-s", signal, "\(process.pid)"])
-        _ = result
-    }
-
-    public func killAllProcesses(startPort: Int? = nil, endPort: Int? = nil, force: Bool = false) throws {
-        let processes = try getListeningProcesses(startPort: startPort, endPort: endPort)
-        for process in processes {
-            try killProcessOnPort(process.port, force: force)
+        let survivors = killProcess(pids: processes.map(\.pid), force: force, timeout: timeout)
+        if !survivors.isEmpty {
+            throw PortManagerError.partialKill(survivors)
         }
     }
 
-    public func killAllProcesses(startPort: Int? = nil, endPort: Int? = nil, force: Bool = false, pattern: String?) throws {
-        var processes = try getListeningProcesses(startPort: startPort, endPort: endPort)
+    public func killAllProcesses(startPort: Int? = nil, endPort: Int? = nil, force: Bool = false, pattern: String? = nil) throws {
+        var processes = try getListeningProcesses(startPort: startPort, endPort: endPort, enrich: false)
 
         if let pattern = pattern, !pattern.isEmpty {
             let lowercasedPattern = pattern.lowercased()
             processes = processes.filter { $0.command.lowercased().contains(lowercasedPattern) }
         }
+        guard !processes.isEmpty else { return }
 
-        for process in processes {
-            try killProcessOnPort(process.port, force: force)
+        // One discovery pass, direct PID kills — not killProcessOnPort per row,
+        // which used to re-run the whole lsof+ps pipeline for each process.
+        let survivors = killProcess(pids: processes.map(\.pid), force: force)
+        if !survivors.isEmpty {
+            throw PortManagerError.partialKill(survivors)
         }
     }
 
@@ -677,9 +810,10 @@ public final class PortManager {
     public func findAvailablePorts(startPort: Int? = nil, endPort: Int? = nil, count: Int = 1) throws -> [Int] {
         let start = startPort ?? 1024
         let end = endPort ?? 65535
+        guard start <= end else { return [] }
         var availablePorts: [Int] = []
 
-        let occupiedPorts = Set((try getListeningProcesses()).map { $0.port })
+        let occupiedPorts = Set((try getListeningProcesses(enrich: false)).map { $0.port })
 
         for port in start...end {
             guard availablePorts.count < count else { break }
@@ -842,58 +976,24 @@ public final class PortManager {
     }
 
     private func getMacOSProcessInfo(pid: Int, name: String) -> PortProcess? {
-        guard let output = try? runCommand("/bin/ps", arguments: ["-p", String(pid), "-o", "pid=,ppid=,user=,lstart=,cwd=,args="]) else {
+        guard let output = try? runCommand("/bin/ps",
+                                           arguments: ["-p", String(pid), "-o", "pid=,ppid=,user=,lstart=,args="],
+                                           environment: ["LC_ALL": "C"]) else {
             return nil
         }
 
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dateFormatter.timeZone = TimeZone.current
-        dateFormatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
-
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            guard let firstSpaceIdx = trimmed.firstIndex(of: " ") else { continue }
-            let pidStr = String(trimmed[..<firstSpaceIdx])
-            guard let pidVal = Int(pidStr), pidVal == pid else { continue }
-
-            let rest = String(trimmed[trimmed.index(after: firstSpaceIdx)...])
-
-            let cleanTokens = rest.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-            var ppid: Int?
-            var user = "unknown"
-            var lstart: Date?
-            var cwd: String?
-            var args: String?
-
-            if cleanTokens.count >= 1 {
-                ppid = Int(cleanTokens[0])
-            }
-            if cleanTokens.count >= 2 {
-                user = cleanTokens[1]
-            }
-            if cleanTokens.count >= 7 {
-                let lstartStr = cleanTokens[2...6].joined(separator: " ")
-                lstart = dateFormatter.date(from: lstartStr)
-            }
-            if cleanTokens.count >= 8 {
-                cwd = cleanTokens[7]
-                args = cleanTokens.dropFirst(8).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-            }
-
+        for line in output.components(separatedBy: "\n") {
+            guard let parsed = Self.parsePSLine(line, hasUser: true), parsed.pid == pid else { continue }
             return PortProcess(
                 port: 0,
                 protocolName: "process",
                 pid: pid,
-                user: user,
-                command: args?.split(separator: "/").last.map(String.init) ?? name,
-                fullCommand: args,
-                parentPID: ppid,
-                startTime: lstart,
-                workingDirectory: cwd
+                user: parsed.user ?? "unknown",
+                command: parsed.args?.split(separator: "/").last.map(String.init) ?? name,
+                fullCommand: parsed.args,
+                parentPID: parsed.ppid,
+                startTime: parsed.startTime,
+                workingDirectory: fetchWorkingDirectories(pids: String(pid))[pid]
             )
         }
 
@@ -989,12 +1089,14 @@ public final class PortManager {
         }
     }
 
-    public func killProcessByPID(_ pid: Int, force: Bool = false) throws {
+    public func killProcessByPID(_ pid: Int, force: Bool = false, timeout: TimeInterval = 5) throws {
         guard pid > 0 else {
             throw PortManagerError.invalidPID(pid)
         }
-        let signal = force ? "KILL" : "TERM"
-        _ = try runCommand("/bin/kill", arguments: ["-s", signal, "\(pid)"])
+        let survivors = killProcess(pids: [pid], force: force, timeout: timeout)
+        if !survivors.isEmpty {
+            throw PortManagerError.partialKill(survivors)
+        }
     }
 
     // MARK: - Unix Socket Discovery
@@ -1042,58 +1144,89 @@ public final class PortManager {
 
     // MARK: - Shell Command Runner
 
-    func runCommand(_ path: String, arguments: [String], timeout: TimeInterval = 10) throws -> String {
+    struct CommandOutput {
+        let output: String
+        /// nil when the process was killed by the timeout or failed to launch.
+        let exitStatus: Int32?
+        let timedOut: Bool
+    }
+
+    /// Core runner. Drains stdout concurrently — a child writing more than the
+    /// pipe capacity would otherwise block on write and never exit — enforces
+    /// `timeout` for real (TERM first, KILL after a 2 s grace), and reports the
+    /// exit status so callers can stop parsing error text as data.
+    func runProcess(_ path: String, arguments: [String], timeout: TimeInterval = 10,
+                    environment extraEnv: [String: String]? = nil) -> CommandOutput {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
+        if let extraEnv {
+            var env = ProcessInfo.processInfo.environment
+            for (key, value) in extraEnv { env[key] = value }
+            process.environment = env
+        }
 
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
 
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            // Launch failure (missing binary, exec format error): return, never
+            // touch termination APIs on an unlaunched Process.
+            return CommandOutput(output: "", exitStatus: nil, timedOut: false)
+        }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-        if process.isRunning {
-            let deadline = DispatchTime.now() + timeout
-            DispatchQueue.global().asyncAfter(deadline: deadline) {
-                if process.isRunning {
-                    process.terminate()
-                }
+        let drainLock = NSLock()
+        var collected = Data()
+        let drained = DispatchSemaphore(value: 0)
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                drained.signal()
+            } else {
+                drainLock.lock()
+                collected.append(chunk)
+                drainLock.unlock()
             }
         }
-        process.waitUntilExit()
-        return String(data: data, encoding: .utf8) ?? ""
+
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
+        var timedOut = false
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            timedOut = true
+            process.terminate()
+            if exited.wait(timeout: .now() + 2) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 2)
+            }
+            // A grandchild holding the pipe open can delay EOF past the kill;
+            // take what we have rather than block forever.
+        }
+        _ = drained.wait(timeout: .now() + 1)
+
+        drainLock.lock()
+        let output = String(data: collected, encoding: .utf8) ?? ""
+        drainLock.unlock()
+
+        let status: Int32? = timedOut ? nil : process.terminationStatus
+        return CommandOutput(output: output, exitStatus: status, timedOut: timedOut)
+    }
+
+    func runCommand(_ path: String, arguments: [String], timeout: TimeInterval = 10,
+                    environment: [String: String]? = nil) throws -> String {
+        let result = runProcess(path, arguments: arguments, timeout: timeout, environment: environment)
+        if result.exitStatus == nil && !result.timedOut {
+            throw PortManagerError.launchFailed(path)
+        }
+        return result.output
     }
 
     func runCommandQuiet(_ path: String, arguments: [String], timeout: TimeInterval = 10) -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-
-        try? process.run()
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var didTimeout = false
-
-        DispatchQueue.global().async {
-            process.waitUntilExit()
-            semaphore.signal()
-        }
-
-        _ = semaphore.wait(timeout: .now() + timeout)
-        didTimeout = process.isRunning
-
-        if didTimeout {
-            process.terminate()
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        runProcess(path, arguments: arguments, timeout: timeout).output
     }
 }

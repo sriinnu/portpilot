@@ -58,5 +58,13 @@ let package = Package(
             ],
             path: "Sources/PortPilotTUI"
         ),
+
+        // Pure-logic tests: parsers, cron math, blocklist matching, wcwidth layout.
+        // Nothing here shells out to lsof/ps or touches a real tty.
+        .testTarget(
+            name: "PortPilotTests",
+            dependencies: ["PortManagerLib", "TerminalTUI"],
+            path: "Tests/PortPilotTests"
+        ),
     ]
 )

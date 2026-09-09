@@ -30,17 +30,20 @@ public protocol PortWatcherDelegate: AnyObject {
     func portWatcher(_ watcher: PortWatcher, didUpdateState state: PortState, forPort port: Int)
 }
 
-public final class PortWatcher {
+/// Thread-safe by design: watchedPorts/timer are lock-guarded, polling runs on
+/// the internal queue, delegate callbacks hop to main.
+public final class PortWatcher: @unchecked Sendable {
     private let portManager: PortManager
     private var watchedPorts: [Int: WatchedPort] = [:]
     private var timer: Timer?
-    private let queue = DispatchQueue(label: "com.portkiller.watcher", qos: .background)
+    private let queue = DispatchQueue(label: "com.portkiller.watcher", qos: .utility)
     private let lock = NSLock()
+    /// Queue-confined: skips a poll when the previous one (slow lsof) is still running.
+    private var pollInProgress = false
 
     public weak var delegate: PortWatcherDelegate?
 
     public var pollInterval: TimeInterval = 2.0
-    public var isWatching: Bool { timer != nil }
 
     public init(portManager: PortManager) {
         self.portManager = portManager
@@ -59,7 +62,7 @@ public final class PortWatcher {
         lock.unlock()
 
         queue.async { [weak self] in
-            self?.checkPortState(port: port, protocol: protocolName)
+            self?.checkSinglePort(port: port, protocolName: protocolName)
         }
     }
 
@@ -83,19 +86,47 @@ public final class PortWatcher {
 
     // MARK: - Watching Control
 
-    public func startWatching() {
-        guard timer == nil else { return }
+    public var isWatching: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return timer != nil
+    }
 
-        timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            self?.checkAllPorts()
+    public func startWatching() {
+        lock.lock()
+        guard timer == nil else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
+        let interval = pollInterval
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            // The timer fires on the scheduling runloop (main); the lsof work
+            // happens on the watcher queue so the UI never pays for it.
+            self?.queue.async { self?.pollPorts() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+
+        lock.lock()
+        if self.timer == nil {
+            self.timer = timer
+            lock.unlock()
+        } else {
+            // Lost a race with another startWatching — keep the existing timer.
+            lock.unlock()
+            timer.invalidate()
         }
 
-        checkAllPorts()
+        queue.async { self.pollPorts() }
     }
 
     public func stopWatching() {
+        lock.lock()
+        let timer = self.timer
+        self.timer = nil
+        lock.unlock()
         timer?.invalidate()
-        timer = nil
     }
 
     public func toggleWatching() {
@@ -109,6 +140,15 @@ public final class PortWatcher {
     // MARK: - State Checking
 
     public func checkAllPorts() {
+        queue.async { self.pollPorts() }
+    }
+
+    /// Queue-confined. One lsof per watched port per tick.
+    private func pollPorts() {
+        guard !pollInProgress else { return }
+        pollInProgress = true
+        defer { pollInProgress = false }
+
         lock.lock()
         let snapshot = watchedPorts
         lock.unlock()
@@ -118,25 +158,11 @@ public final class PortWatcher {
 
             let stateChanged = watchedPort.lastKnownState != newState
             watchedPort.lastKnownState = newState
-            watchedPort.isWatching = isWatching
+            watchedPort.isWatching = true
 
             if stateChanged {
                 watchedPort.lastStateChange = Date()
-
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
-
-                    switch newState {
-                    case .available:
-                        self.delegate?.portWatcher(self, portBecameAvailable: port)
-                    case .occupied:
-                        self.delegate?.portWatcher(self, portBecameOccupied: port)
-                    case .unknown:
-                        break
-                    }
-
-                    self.delegate?.portWatcher(self, didUpdateState: newState, forPort: port)
-                }
+                notifyStateChange(newState, forPort: port)
             }
 
             lock.lock()
@@ -145,8 +171,9 @@ public final class PortWatcher {
         }
     }
 
-    private func checkPortState(port: Int, protocol proto: String) {
-        let state = checkPortStateSync(port: port, protocolName: proto)
+    /// Queue-confined single-port check (used right after addPort).
+    private func checkSinglePort(port: Int, protocolName: String) {
+        let state = checkPortStateSync(port: port, protocolName: protocolName)
 
         lock.lock()
         guard var watchedPort = watchedPorts[port] else {
@@ -155,7 +182,7 @@ public final class PortWatcher {
         }
         let stateChanged = watchedPort.lastKnownState != state
         watchedPort.lastKnownState = state
-        watchedPort.isWatching = isWatching
+        watchedPort.isWatching = true
 
         if stateChanged {
             watchedPort.lastStateChange = Date()
@@ -165,16 +192,34 @@ public final class PortWatcher {
         lock.unlock()
 
         if stateChanged {
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.delegate?.portWatcher(self, didUpdateState: state, forPort: port)
+            notifyStateChange(state, forPort: port)
+        }
+    }
+
+    private func notifyStateChange(_ newState: PortState, forPort port: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            switch newState {
+            case .available:
+                self.delegate?.portWatcher(self, portBecameAvailable: port)
+            case .occupied:
+                self.delegate?.portWatcher(self, portBecameOccupied: port)
+            case .unknown:
+                break
             }
+
+            self.delegate?.portWatcher(self, didUpdateState: newState, forPort: port)
         }
     }
 
     private func checkPortStateSync(port: Int, protocolName: String) -> PortState {
         do {
-            let processes = try portManager.getListeningProcesses(startPort: port, endPort: port, protocolFilter: protocolName)
+            // Presence-only check — enrichment (ps, proc_pidpath, framework
+            // probes per process) is wasted work on this hot 2 s path.
+            let processes = try portManager.getListeningProcesses(
+                startPort: port, endPort: port, protocolFilter: protocolName, enrich: false
+            )
             return processes.isEmpty ? .available : .occupied
         } catch {
             return .unknown
@@ -183,16 +228,21 @@ public final class PortWatcher {
 
     // MARK: - Wait for Port
 
+    private func stateOnQueue(port: Int, protocolName: String) async -> PortState {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                continuation.resume(returning: self?.checkPortStateSync(port: port, protocolName: protocolName) ?? .unknown)
+            }
+        }
+    }
+
     public func waitForPort(_ port: Int, protocolName: String = "tcp", timeout: TimeInterval = 60.0) async throws -> Bool {
         let startTime = Date()
 
         while Date().timeIntervalSince(startTime) < timeout {
-            let state = checkPortStateSync(port: port, protocolName: protocolName)
-
-            if state == .available {
+            if await stateOnQueue(port: port, protocolName: protocolName) == .available {
                 return true
             }
-
             try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
         }
 
@@ -203,12 +253,9 @@ public final class PortWatcher {
         let startTime = Date()
 
         while Date().timeIntervalSince(startTime) < timeout {
-            let state = checkPortStateSync(port: port, protocolName: protocolName)
-
-            if state == .occupied {
+            if await stateOnQueue(port: port, protocolName: protocolName) == .occupied {
                 return true
             }
-
             try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
         }
 

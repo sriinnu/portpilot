@@ -30,7 +30,12 @@ public enum Terminal {
         savedTermios = raw
 
         // Disable echo, canonical mode, and signal generation
-        raw.c_lflag &= ~tcflag_t(ECHO | ICANON | ISIG)
+        raw.c_lflag &= ~tcflag_t(ECHO | ICANON | ISIG | IEXTEN)
+        // Input processing off: IXON makes Ctrl+S freeze output at the tty
+        // layer (the app looks hung until Ctrl+Q); ICRNL mangles CR into NL.
+        raw.c_iflag &= ~tcflag_t(IXON | ICRNL | INLCR | IGNCR | ISTRIP | IEXTEN)
+        // OPOST stays on: positioning is cursor-absolute anyway, and CR
+        // translation keeps any stray literal newline from staircasing.
 
         // Set VMIN=0 (don't block), VTIME=1 (100ms timeout) for non-blocking reads.
         // c_cc is a tuple in Swift; indices differ per platform, so we use withUnsafeMutablePointer.
@@ -45,12 +50,19 @@ public enum Terminal {
     /// Restore the terminal to its original state.
     public static func restoreMode() {
         guard var saved = savedTermios else { return }
+        savedTermios = nil
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved)
         // Re-show cursor and clear any leftover styling
         write(ANSI.showCursor + ANSI.reset)
     }
 
     // MARK: - Terminal Size
+
+    /// True when both stdin and stdout are terminals. Spraying escape codes
+    /// into a pipe (e.g. `portpilot-tui | head`) is never what anyone wants.
+    public static func isATty() -> Bool {
+        isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
+    }
 
     /// Returns (columns, rows) of the current terminal window
     public static func size() -> (width: Int, height: Int) {
@@ -90,10 +102,23 @@ public enum Terminal {
 
     // MARK: - Output
 
-    /// Write a string directly to stdout (unbuffered)
+    /// Write a string directly to stdout (unbuffered). Loops until every byte
+    /// is out — ptys and sockets routinely return short writes, and dropping
+    /// the tail of a large frame garbles the screen.
     public static func write(_ string: String) {
-        let data = Array(string.utf8)
-        _ = Foundation.write(STDOUT_FILENO, data, data.count)
+        var data = Array(string.utf8)
+        guard !data.isEmpty else { return }
+        var offset = 0
+        while offset < data.count {
+            let written = data.withUnsafeMutableBufferPointer { buf in
+                Foundation.write(STDOUT_FILENO, buf.baseAddress! + offset, buf.count - offset)
+            }
+            if written <= 0 {
+                if errno == EINTR { continue }
+                return  // EPIPE and friends: nothing useful to do mid-frame
+            }
+            offset += written
+        }
     }
 
     /// Flush stdout
