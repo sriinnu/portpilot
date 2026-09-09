@@ -138,6 +138,10 @@ class PortViewModel: ObservableObject {
     var cronRunHistory: [String: CronRunRecord] { cron.runHistory }
     var runningCronjobIDs: Set<String> { cron.runningIDs }
 
+    // Port guard — armed enforcement, independent of the monitoring toggle.
+    let portGuard: PortGuardStore
+    func isGuarded(_ port: Int) -> Bool { portGuard.isGuarded(port) }
+
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     /// The one auto-dismiss timer for errorMessage. The model owns error
@@ -218,10 +222,12 @@ class PortViewModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
-        // First: cron is the only member without a default, and its error
-        // hook captures self — assign before anything else uses self.
+        // First: cron and portGuard have no defaults, and their error hooks
+        // capture self — assign before anything else uses self.
         cron = CronjobController(log: activityLog)
+        portGuard = PortGuardStore(log: activityLog)
         cron.onError = { [weak self] message in self?.raiseError(message) }
+        portGuard.onError = { [weak self] message in self?.raiseError(message) }
 
         // One central relay: store mutations re-render views that observe
         // the VM, so no view has to observe the stores directly.
@@ -229,6 +235,9 @@ class PortViewModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         cron.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        portGuard.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 

@@ -266,6 +266,7 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     static let portAvailableCategoryIdentifier = "PORT_AVAILABLE"
     static let reservedPortCategoryIdentifier = "RESERVED_PORT"
     static let connectionAlertCategoryIdentifier = "CONNECTION_ALERT"
+    static let guardActionCategoryIdentifier = "GUARD_ACTION"
 
     override init() {
         self.portWatcher = PortWatcher(portManager: portManager)
@@ -332,11 +333,19 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
             options: [.customDismissAction]
         )
 
+        let guardActionCategory = UNNotificationCategory(
+            identifier: Self.guardActionCategoryIdentifier,
+            actions: [dismissAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
         center.setNotificationCategories([
             portOccupiedCategory,
             portAvailableCategory,
             reservedPortCategory,
-            connectionAlertCategory
+            connectionAlertCategory,
+            guardActionCategory
         ])
     }
 
@@ -519,6 +528,22 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
                 "blocklistedCount": blocklistedCount,
                 "suspiciousProcesses": suspiciousProcesses.map { ["processName": $0.processName, "count": $0.connectionCount] }
             ]
+        )
+    }
+
+    // MARK: - Guard Notifications
+
+    /// Loud, one-per-victim notice that the port guard evicted a squatter.
+    /// The eviction already happened — the notification is the audit trail.
+    func sendGuardEviction(port: Int, command: String, pid: Int) {
+        guard notificationsEnabled else { return }
+
+        sendNotification(
+            title: "Port Guard",
+            body: "Evicted \(command) (PID \(pid)) from port \(port)",
+            identifier: "guard-evict-\(port)-\(pid)",
+            categoryIdentifier: Self.guardActionCategoryIdentifier,
+            userInfo: ["port": port, "pid": pid]
         )
     }
 

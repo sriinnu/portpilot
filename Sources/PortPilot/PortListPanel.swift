@@ -32,6 +32,7 @@ struct PortListPanel: View {
                                 port: port,
                                 isSelected: selectedPort?.id == port.id,
                                 isFavorite: viewModel.isFavorite(port: port.port),
+                                isGuarded: viewModel.isGuarded(port.port),
                                 onSelect: { selectedPort = port },
                                 onKill: { onKill(port) },
                                 onPauseResume: { onPauseResume(port) },

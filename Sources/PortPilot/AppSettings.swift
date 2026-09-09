@@ -196,6 +196,7 @@ class AppSettings: ObservableObject {
         static let visualTheme = "VisualTheme"
         static let iconPack = "IconPack"
         static let reservedPorts = "ReservedPorts"
+        static let guardedPorts = "GuardedPorts"
         static let customPrograms = "CustomPrograms"
         static let selectedFont = "SelectedFont"
         static let selectedMonoFont = "SelectedMonoFont"
@@ -346,6 +347,15 @@ class AppSettings: ObservableObject {
         }
     }
 
+    /// Ports under active guard: current holders are grandfathered, and
+    /// anything that binds afterwards gets evicted. Owned/written by
+    /// PortGuardStore — this property only persists the list.
+    @Published var guardedPorts: [Int] {
+        didSet {
+            defaults.set(guardedPorts, forKey: Keys.guardedPorts)
+        }
+    }
+
     @Published var customPrograms: [CustomProgram] {
         didSet {
             saveCustomPrograms()
@@ -394,6 +404,7 @@ class AppSettings: ObservableObject {
         self.fontSize = defaults.object(forKey: Keys.fontSize) as? Double ?? 12.0
 
         self.reservedPorts = defaults.array(forKey: Keys.reservedPorts) as? [Int] ?? []
+        self.guardedPorts = defaults.array(forKey: Keys.guardedPorts) as? [Int] ?? []
 
         self.customPrograms = Self.loadCustomPrograms()
 

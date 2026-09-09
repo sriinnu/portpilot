@@ -7,6 +7,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case menuBar = "Menu Bar"
     case notifications = "Notifications"
     case reserved = "Reserved"
+    case guardPorts = "Guard"
     case programs = "Programs"
     case about = "About"
 
@@ -24,6 +25,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             return "bell"
         case .reserved:
             return "lock.shield"
+        case .guardPorts:
+            return "shield.fill"
         case .programs:
             return "app.fill"
         case .about:
@@ -65,6 +68,8 @@ struct SettingsView: View {
             NotificationsSettingsView()
         case .reserved:
             ReservedPortsSettingsView()
+        case .guardPorts:
+            GuardedPortsSettingsView()
         case .programs:
             CustomProgramsSettingsView()
         case .about:
@@ -746,7 +751,12 @@ struct ReservedPortsSettingsView: View {
                             .frame(width: 100)
                         Button("Add") {
                             if let port = Int(newReservedPort), port > 0, port <= 65535 {
-                                if !appSettings.reservedPorts.contains(port) {
+                                if viewModel.isGuarded(port) {
+                                    // Guarded and reserved would fight — the
+                                    // guard evicts, reserved only warns.
+                                    warningMessage = "Port \(port) is guarded — disarm its guard before reserving it."
+                                    showWarning = true
+                                } else if !appSettings.reservedPorts.contains(port) {
                                     appSettings.reservedPorts.append(port)
                                     appSettings.reservedPorts.sort()
                                     newReservedPort = ""
@@ -805,6 +815,80 @@ struct ReservedPortsSettingsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(warningMessage)
+        }
+    }
+}
+
+// MARK: - Guarded Ports Settings
+struct GuardedPortsSettingsView: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+    @EnvironmentObject var viewModel: PortViewModel
+    @State private var newGuardedPort: String = ""
+    @State private var inlineError: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                LiquidCard(
+                    title: "Port Guard",
+                    icon: "shield.fill",
+                    footer: "Arming a port grandfathers whoever holds it right now. Anything that binds the port afterwards is evicted — TERM first, force if it survives. The guard runs even when background monitoring is off."
+                ) {
+                    HStack {
+                        TextField("Port number", text: $newGuardedPort)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                        Button("Arm") {
+                            if let port = Int(newGuardedPort) {
+                                if let reason = viewModel.portGuard.enable(port: port) {
+                                    inlineError = reason
+                                } else {
+                                    inlineError = nil
+                                    newGuardedPort = ""
+                                }
+                            }
+                        }
+                        .disabled(newGuardedPort.isEmpty || Int(newGuardedPort) == nil)
+                    }
+
+                    if let inlineError {
+                        Text(inlineError)
+                            .font(.system(size: 11))
+                            .foregroundColor(Theme.Status.error)
+                    }
+
+                    let guarded = viewModel.portGuard.guardedPorts
+                    if !guarded.isEmpty {
+                        ForEach(guarded, id: \.self) { port in
+                            HStack(spacing: 8) {
+                                Image(systemName: "shield.fill")
+                                    .foregroundColor(Theme.Action.treeView)
+                                    .font(.system(size: 12))
+                                Text(verbatim: "Port \(port)")
+                                    .font(.system(size: 12, design: .monospaced))
+                                Spacer()
+                                if let process = viewModel.ports.first(where: { $0.port == port }) {
+                                    Text(verbatim: "Held by \(process.command)")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("Free")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(Theme.Status.connected)
+                                }
+                                Button { viewModel.portGuard.disable(port: port) } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    } else {
+                        Text("No ports under guard")
+                            .font(.system(size: 12)).foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(20)
         }
     }
 }
