@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build PortPilot (Release) and install it into /Applications.
 #
-# Usage: Scripts/dev-install.sh [--clean]
+# Usage: scripts/dev-install.sh [--clean]
 #   --clean  also wipes .build and Xcode DerivedData first (full rebuild)
 set -euo pipefail
 cd "$(dirname "$0")/.."
