@@ -36,6 +36,7 @@
 		64CD01E9489530F2554BF1EE /* PortListPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3642965AC0E095B5E0863B11 /* PortListPanel.swift */; };
 		680841545D8FF9CC9A107352 /* PortWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E856A016D49BF0EA323BF579 /* PortWatcher.swift */; };
 		6E28F1020175E3718E988818 /* FavoritesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */; };
+		73AD957EA436D2D12E9191A1 /* TunnelInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 057B2F82640E81DB6A406249 /* TunnelInspector.swift */; };
 		8358201A85E771E3088A8713 /* PortManager+Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D335FC05100CC2892A4101D /* PortManager+Connections.swift */; };
 		84647CE2A1E70DCD280DB758 /* MainTrafficStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D13BDF79773A43F17B743D /* MainTrafficStrip.swift */; };
 		873918D37E26D4E0006C8831 /* PortManager+FrameworkDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBDC13CC40C86EFD5D62334D /* PortManager+FrameworkDetector.swift */; };
@@ -65,9 +66,11 @@
 		E1A03A464A6EAB4D026ED740 /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */; };
 		E1B9459CF5A0F9DA25B3B237 /* ThemeColorPair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53AC899CC04843CF4593F661 /* ThemeColorPair.swift */; };
 		E2851162D6E2FE56F6B01127 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306E20A02CAD6507A9EABC0D /* AppSettings.swift */; };
+		E7F7AF3BD8B9B74B039536CC /* CronjobController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13BC97BB25FC01A457B34DBF /* CronjobController.swift */; };
 		E9B1CE09E6468E7FA89BD554 /* PortManager+CronControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */; };
 		ED267D7980B6D77CD820D0BB /* Palettes+Character.swift in Sources */ = {isa = PBXBuildFile; fileRef = F513CD4DA916564130D1A2F8 /* Palettes+Character.swift */; };
 		ED5628FAAFDFF4140B8FD6DF /* PortManager+Docker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4A83897BFD7F8CD42F50F3 /* PortManager+Docker.swift */; };
+		EEEB821FFD7DF066A9B2C9F1 /* ActivityLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE5FB6FE1A412940C9079FD /* ActivityLogStore.swift */; };
 		F35FDFC0E038FFECFB4BFB2C /* Sparkline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4817059CE1DE690B5A924FB /* Sparkline.swift */; };
 		F438C3C737DDF89CC82661F9 /* PortManager+Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D335FC05100CC2892A4101D /* PortManager+Connections.swift */; };
 		F8B95C825566C7102D39B04B /* ProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */; };
@@ -77,6 +80,8 @@
 /* Begin PBXFileReference section */
 		029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+CronControl.swift"; sourceTree = "<group>"; };
 		0397B2DBB0086B28EA73306C /* portpilot */ = {isa = PBXFileReference; includeInIndex = 0; path = portpilot; sourceTree = BUILT_PRODUCTS_DIR; };
+		057B2F82640E81DB6A406249 /* TunnelInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelInspector.swift; sourceTree = "<group>"; };
+		13BC97BB25FC01A457B34DBF /* CronjobController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CronjobController.swift; sourceTree = "<group>"; };
 		1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortPilotApp.swift; sourceTree = "<group>"; };
 		2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationPanel.swift; sourceTree = "<group>"; };
 		27629EA5FE623F463B619EAB /* TCPProxyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPProxyManager.swift; sourceTree = "<group>"; };
@@ -91,6 +96,7 @@
 		3642965AC0E095B5E0863B11 /* PortListPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListPanel.swift; sourceTree = "<group>"; };
 		36D13BDF79773A43F17B743D /* MainTrafficStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTrafficStrip.swift; sourceTree = "<group>"; };
 		37A6AF7BD37EF2449BE454C0 /* Palettes+Standard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Palettes+Standard.swift"; sourceTree = "<group>"; };
+		3AE5FB6FE1A412940C9079FD /* ActivityLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogStore.swift; sourceTree = "<group>"; };
 		3F7925D712801392988B9C16 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4538E828BD932E87FB855FE4 /* PortPilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortPilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		463F95798BDB1DA7F74588B7 /* PointerButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointerButtonStyle.swift; sourceTree = "<group>"; };
@@ -179,7 +185,9 @@
 				29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */,
 				73849239FC92C331256E34F8 /* SettingsView.swift */,
 				D852C65A93061DC605B8E880 /* Theme.swift */,
+				057B2F82640E81DB6A406249 /* TunnelInspector.swift */,
 				AA03C81365CB15F3C665535A /* Liquid */,
+				F5C9E25E96FD666260DD744D /* Stores */,
 				4350F995C3EFD720FED70352 /* Theme */,
 			);
 			name = PortPilot;
@@ -262,6 +270,15 @@
 			);
 			name = PortKillerCLI;
 			path = Sources/PortKillerCLI;
+			sourceTree = "<group>";
+		};
+		F5C9E25E96FD666260DD744D /* Stores */ = {
+			isa = PBXGroup;
+			children = (
+				3AE5FB6FE1A412940C9079FD /* ActivityLogStore.swift */,
+				13BC97BB25FC01A457B34DBF /* CronjobController.swift */,
+			);
+			path = Stores;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -384,12 +401,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EEEB821FFD7DF066A9B2C9F1 /* ActivityLogStore.swift in Sources */,
 				05310515E4BC93003B3D650C /* AlertState.swift in Sources */,
 				E2851162D6E2FE56F6B01127 /* AppSettings.swift in Sources */,
 				37A3F492387C9A9C3933A55A /* CommandPalette.swift in Sources */,
 				0AE5E0C4D87AADF5DAFEB5D2 /* ConfigurationPanel.swift in Sources */,
 				5D7BACC7B281C23E9110B48B /* ContentView.swift in Sources */,
 				CDB2B78CFF1B89257D44255F /* CronRunManager.swift in Sources */,
+				E7F7AF3BD8B9B74B039536CC /* CronjobController.swift in Sources */,
 				301F6FF6EE69E86F41827C76 /* CronjobListPanel.swift in Sources */,
 				02424985B3D3D0153B71C2E8 /* FavoritesManager.swift in Sources */,
 				4C9F138BAFE6A335A6E54185 /* FontManager.swift in Sources */,
@@ -431,6 +450,7 @@
 				8C3BCB5E2BDD443952126871 /* Theme.swift in Sources */,
 				E1B9459CF5A0F9DA25B3B237 /* ThemeColorPair.swift in Sources */,
 				A6E31A0536890687E7989409 /* ThemePalette.swift in Sources */,
+				73AD957EA436D2D12E9191A1 /* TunnelInspector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
