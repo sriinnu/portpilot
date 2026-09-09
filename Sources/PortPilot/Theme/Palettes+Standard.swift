@@ -353,6 +353,12 @@ extension ThemePalette {
             light: NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1),
             dark: NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
         ),
+        // Dark-mode accent is near-white — white chip/badge text on top of it
+        // was invisible. Text on Noir's accent flips to near-black in dark.
+        onAccent: ThemeColorPair(
+            light: NSColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 1),
+            dark: NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1)
+        ),
         sponsors: ThemeColorPair(
             light: NSColor(red: 0.50, green: 0.50, blue: 0.50, alpha: 1),
             dark: NSColor(red: 0.80, green: 0.80, blue: 0.80, alpha: 1)

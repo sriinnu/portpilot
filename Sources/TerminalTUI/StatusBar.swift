@@ -54,13 +54,14 @@ public struct StatusBar: Widget {
             let keyText = " \(item.key) "
             let labelText = " \(item.label)"
 
-            // Don't overflow the screen
-            guard col + keyText.count + labelText.count < origin.col + size.width else { break }
-
+// Don't overflow the screen (display columns, not code units)
+let keyWidth = TextWidth.displayWidth(keyText)
+let labelWidth = TextWidth.displayWidth(labelText)
+guard col + keyWidth + labelWidth <= origin.col + size.width else { break }
             screen.put(row: origin.row, col: col, text: keyText, style: keyStyle)
-            col += keyText.count
+            col += keyWidth
             screen.put(row: origin.row, col: col, text: labelText, style: labelStyle)
-            col += labelText.count + 2  // gap between items
+            col += labelWidth + 2  // gap between items
         }
     }
 }

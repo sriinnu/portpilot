@@ -9,5 +9,5 @@ import Foundation
 import TerminalTUI
 
 let app = TUIApp(screen: PortListScreen())
-app.refreshInterval = 2.0  // Auto-refresh every 2s for live CPU/memory
+app.refreshInterval = 2.0  // Tick every 2s — drives the background data refresh
 app.run()

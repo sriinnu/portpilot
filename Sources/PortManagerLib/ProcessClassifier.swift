@@ -105,14 +105,9 @@ public final class ProcessClassifier {
             return .system
         }
 
-        // Check system path prefixes
-        for prefix in systemPrefixes {
-            if path.hasPrefix(prefix) {
-                return .system
-            }
-        }
-
-        // Developer tools installed via Homebrew or similar
+        // Dev toolchain check BEFORE the /usr/bin prefix: on Linux (and macOS
+        // system Pythons) node/python3/go live in /usr/bin, and devCommands
+        // must win or every dev server classifies as System.
         let devPrefixes = [
             "/opt/homebrew/",
             "/usr/local/bin/",
@@ -140,6 +135,13 @@ public final class ProcessClassifier {
         for prefix in devPrefixes {
             if path.hasPrefix(prefix) {
                 return .developerTool
+            }
+        }
+
+        // Check system path prefixes
+        for prefix in systemPrefixes {
+            if path.hasPrefix(prefix) {
+                return .system
             }
         }
 

@@ -16,13 +16,25 @@ import Foundation
 public struct Cell: Equatable {
     public var char: Character
     public var style: String  // ANSI escape prefix (empty = default)
+    /// True for the right half of a double-width glyph. Never emitted —
+    /// printing the wide glyph already advanced the terminal cursor two
+    /// columns; writing this cell's "content" would corrupt the row.
+    public var isContinuation: Bool
 
     public init(char: Character = " ", style: String = "") {
         self.char = char
         self.style = style
+        self.isContinuation = false
     }
 
     public static let empty = Cell()
+
+    /// The shadow cell following a wide glyph.
+    public static func continuation(style: String = "") -> Cell {
+        var cell = Cell(char: " ", style: style)
+        cell.isContinuation = true
+        return cell
+    }
 }
 
 // MARK: - Screen Buffer
@@ -34,7 +46,8 @@ public struct Screen {
     public private(set) var height: Int
 
     /// Current frame buffer
-    private var buffer: [[Cell]]
+    // internal read for @testable — continuation-cell layout is part of the renderer contract
+    private(set) var buffer: [[Cell]]
     /// Previous frame (for diff-based rendering)
     private var previous: [[Cell]]
 
@@ -47,6 +60,16 @@ public struct Screen {
         self.previous = []
     }
 
+    /// Fixed-geometry init for @testable — Terminal.size() depends on the
+    /// caller's tty, which would make buffer layout tests non-deterministic.
+    init(width: Int, height: Int) {
+        self.width = max(1, width)
+        self.height = max(1, height)
+        let emptyRow = [Cell](repeating: .empty, count: self.width)
+        self.buffer = [[Cell]](repeating: emptyRow, count: self.height)
+        self.previous = []
+    }
+
     // MARK: - Resize
 
     /// Re-read terminal size and resize the buffer. Call on SIGWINCH.
@@ -54,6 +77,11 @@ public struct Screen {
         let size = Terminal.size()
         self.width = size.width
         self.height = size.height
+        // Physically erase the old frame. When the window shrinks, glyphs
+        // from the previous (larger) frame sit outside anything the new
+        // buffer can address — the diff renderer can never overwrite them,
+        // so they'd linger as ghost columns/rows forever.
+        Terminal.clearScreen()
         clear()
         previous = []  // Force full redraw after resize
     }
@@ -70,15 +98,22 @@ public struct Screen {
 
     /// Write a plain string at (row, col) with optional ANSI style prefix.
     /// Characters outside the screen bounds are silently clipped (both left and right).
+    /// Double-width glyphs (CJK, emoji) occupy two cells; the second gets a
+    /// continuation marker the renderer skips over.
     public mutating func put(row: Int, col: Int, text: String, style: String = "") {
         guard row >= 0, row < height else { return }
         var x = col
         for char in text {
-            if x >= width { break }        // Past right edge — stop
-            if x >= 0 {                    // On-screen — write cell
+            let w = TextWidth.width(of: char)
+            if x >= width { break }                 // Past right edge — stop
+            if w == 2 && x >= width - 1 { break }   // Wide glyph needs both columns
+            if x >= 0 {                             // On-screen — write cell(s)
                 buffer[row][x] = Cell(char: char, style: style)
+                if w == 2 {
+                    buffer[row][x + 1] = .continuation(style: style)
+                }
             }
-            x += 1                         // Before left edge — skip but advance
+            x += w                                  // Before left edge — skip but advance
         }
     }
 
@@ -112,6 +147,7 @@ public struct Screen {
         for row in 0..<height {
             for col in 0..<width {
                 let cell = buffer[row][col]
+                if cell.isContinuation { continue }  // Wide glyph already moved the cursor past this column
                 let needsUpdate = fullRedraw || (row < previous.count && col < previous[row].count && previous[row][col] != cell)
 
                 if needsUpdate {

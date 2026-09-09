@@ -6,6 +6,13 @@ class MenuBarPanel: NSPanel {
 
     private var isClosing = false
 
+    /// Set by MenuBarController. A bare `close()` here used to leave the
+    /// controller believing the panel was still shown — zombie refresh timer,
+    /// zombie event monitor, and a dead first click on the status item after
+    /// any key-steal (Cmd-Tab, clicking our own window, an alert presenting).
+    /// Routing through the controller runs the full dismiss path.
+    var onResignKey: (() -> Void)?
+
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect,
@@ -38,7 +45,7 @@ class MenuBarPanel: NSPanel {
 
     override func resignKey() {
         super.resignKey()
-        close()
+        onResignKey?()
     }
 
     func showBelow(button: NSStatusBarButton) {

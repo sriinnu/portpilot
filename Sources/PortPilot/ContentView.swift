@@ -14,7 +14,11 @@ struct ContentView: View {
     @StateObject private var metrics = LiveMetricsHistory()
     @StateObject private var palette = CommandPaletteController()
     @State private var showConfirmation = false
-    @State private var portToKill: Int?
+    @State private var portToKill: PortProcess?
+    /// Snapshot of the last error, taken the moment it's raised. The model
+    /// auto-consumes errorMessage after 4s (the dropdown banner fades); the
+    /// alert outlives that because it owns this copy, not the shared string.
+    @State private var alertErrorMessage: String?
     @State private var selectedMainTab: MainTab = .ports
     @State private var selectedCronjob: CronjobEntry?
     @State private var inspectorTab: InspectorTab = .overview
@@ -160,6 +164,14 @@ struct ContentView: View {
                                     viewModel.killPort(port)
                                 }
                             },
+                            // Pause/resume is reversible — no confirmation gate.
+                            onPauseResume: { port in
+                                if port.isStopped {
+                                    viewModel.resumeProcess(port)
+                                } else {
+                                    viewModel.pauseProcess(port)
+                                }
+                            },
                             onAdd: {},
                             metrics: metrics
                         )
@@ -233,19 +245,22 @@ struct ContentView: View {
                 }
             }
         } message: {
-            if let port = portToKill {
-                Text("Are you sure you want to terminate the process on port \(port)?")
+            if let target = portToKill {
+                Text("Terminate \(target.command) (pid \(target.pid)) on port \(target.port)?")
             }
         }
         .alert("Error", isPresented: .init(
-            get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
+            get: { alertErrorMessage != nil },
+            set: { if !$0 { alertErrorMessage = nil } }
         )) {
             Button("OK", role: .cancel) {}
         } message: {
-            if let error = viewModel.errorMessage {
+            if let error = alertErrorMessage {
                 Text(error)
             }
+        }
+        .onChange(of: viewModel.errorMessage) { msg in
+            if let msg { alertErrorMessage = msg }
         }
         .overlay(alignment: .top) {
             if let success = viewModel.successMessage {
@@ -289,14 +304,15 @@ struct ContentView: View {
 // MARK: - Success Toast
 struct SuccessToast: View {
     let message: String
+    @ObservedObject private var appSettings = AppSettings.shared
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: Theme.Icon.checkmark)
-                .font(.system(size: 16, weight: .semibold))
+                .font(appSettings.appFont(size: 16, weight: .semibold))
                 .foregroundStyle(Theme.Status.connected)
             Text(message)
-                .font(.system(size: 13, weight: .medium))
+                .font(appSettings.appFont(size: 13, weight: .medium))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

@@ -51,12 +51,10 @@ struct CronjobDetailScreen: TUIScreen {
         screen.put(row: row, col: 0, text: " Next Runs ", style: ANSI.bold + ANSI.fg(.brightCyan))
         row += 1
 
-        let nextRuns = upcomingRuns(count: 5)
+        let nextRuns = cachedNextRuns
         for (i, date) in nextRuns.enumerated() {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEE, MMM d  HH:mm:ss"
             let relative = relativeTime(from: date)
-            let line = "  \(i + 1). \(formatter.string(from: date))  (\(relative))"
+            let line = "  \(i + 1). \(Self.runFormatter.string(from: date))  (\(relative))"
             screen.put(row: row, col: 0, text: fitString(line, width: w), style: ANSI.fg(.white))
             row += 1
         }
@@ -83,6 +81,16 @@ struct CronjobDetailScreen: TUIScreen {
     mutating func onResize(width: Int, height: Int) {}
 
     // MARK: - Helpers
+
+    /// Computed once. nextCronRun walks the calendar; recomputing it (plus a
+    /// fresh DateFormatter per line) on every rendered frame was pure burn.
+    private lazy var cachedNextRuns: [Date] = upcomingRuns(count: 5)
+
+    private static let runFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, MMM d  HH:mm:ss"
+        return formatter
+    }()
 
     private func renderField(into screen: inout Screen, row: inout Int, label: String, value: String, width: Int) {
         if label.isEmpty {

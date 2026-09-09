@@ -17,6 +17,12 @@ xcuserdata/
 node_modules/
 pnpm-lock.yaml
 
+# Signing material — a dropped AuthKey must never ride a `git add -A`
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+
 # Environment / local config
 .claude/
 .mcp.json

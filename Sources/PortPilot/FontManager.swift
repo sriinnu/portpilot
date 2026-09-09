@@ -25,9 +25,12 @@ class FontManager: ObservableObject {
     /// Secondary fonts folder (Application Support)
     let appSupportFontsURL: URL
 
-    /// All font directories to scan
+    /// All font directories to scan (deduped: when the project folder
+    /// resolves to App Support on an installed copy, it's listed once)
     var allFontFolders: [URL] {
-        [projectFontsURL, appSupportFontsURL]
+        projectFontsURL == appSupportFontsURL
+            ? [appSupportFontsURL]
+            : [projectFontsURL, appSupportFontsURL]
     }
 
     /// Curated list of recommended UI fonts (detected from system)
@@ -153,12 +156,9 @@ class FontManager: ObservableObject {
             if parent == dir { break }
             dir = parent
         }
-        // Fallback: for .app bundles, look next to the bundle
-        if let bundlePath = Bundle.main.bundlePath as String? {
-            let bundleDir = URL(fileURLWithPath: bundlePath).deletingLastPathComponent()
-            return bundleDir.appendingPathComponent("Fonts", isDirectory: true)
-        }
-        // Last resort: Application Support
+        // Not a dev checkout — App Support. (The old fallback looked NEXT TO
+        // the .app bundle, creating a stray /Applications/Fonts folder on
+        // every installed copy.)
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("PortPilot/Fonts", isDirectory: true)
     }

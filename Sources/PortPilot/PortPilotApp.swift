@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 import AppKit
 
 // Pure AppKit entry point — no SwiftUI App/Scene, so zero Dock icon
@@ -19,7 +18,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
     let sharedViewModel = PortViewModel()
     private var autoRefreshTimer: Timer?
-    private var cancellables = Set<AnyCancellable>()
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
 

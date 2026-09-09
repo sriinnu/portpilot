@@ -14,6 +14,10 @@ struct ThemePalette {
     let error: ThemeColorPair
     let warning: ThemeColorPair
     let accent: ThemeColorPair
+    /// Text color placed ON TOP of the accent (chip labels, badge text).
+    /// nil means white — the right default everywhere except Noir's dark
+    /// mode, whose near-white accent makes white text invisible.
+    var onAccent: ThemeColorPair? = nil
     let sponsors: ThemeColorPair
     let treeView: ThemeColorPair
     let system: ThemeColorPair
@@ -23,17 +27,6 @@ struct ThemePalette {
 
     /// I expose the currently selected palette from persisted app settings.
     static var current: ThemePalette {
-        switch AppSettings.shared.visualTheme {
-        case .classic:    return .classic
-        case .graphite:   return .graphite
-        case .sunset:     return .sunset
-        case .oceanic:    return .oceanic
-        case .noir:       return .noir
-        case .retro:      return .retro
-        case .terminal:   return .terminal
-        case .paperwhite: return .paperwhite
-        case .synthwave:  return .synthwave
-        case .solarized:  return .solarized
-        }
+        AppSettings.shared.visualTheme.palette
     }
 }

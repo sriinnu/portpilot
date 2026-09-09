@@ -64,34 +64,37 @@ public protocol Widget {
 }
 
 // MARK: - Text Helpers
+//
+// All of these measure display columns (see TextWidth), not character count —
+// a CJK glyph or emoji takes two terminal columns, and pretending otherwise
+// makes aligned columns drift.
 
-/// Pad or truncate a string to exactly `width` characters.
+/// Pad or truncate a string to exactly `width` display columns.
 /// Returns empty string for zero or negative width.
 public func fitString(_ string: String, width: Int, pad: Character = " ") -> String {
     guard width > 0 else { return "" }
-    let count = string.count
-    if count >= width {
-        return String(string.prefix(width))
-    }
-    return string + String(repeating: pad, count: width - count)
+    let truncated = TextWidth.truncate(string, toWidth: width)
+    let padCount = width - TextWidth.displayWidth(truncated)
+    return padCount > 0 ? truncated + String(repeating: pad, count: padCount) : truncated
 }
 
-/// Right-align a string within `width` characters.
+/// Right-align a string within `width` display columns.
 /// Returns empty string for zero or negative width.
 public func rightAlign(_ string: String, width: Int) -> String {
     guard width > 0 else { return "" }
-    let count = string.count
-    if count >= width { return String(string.prefix(width)) }
-    return String(repeating: " ", count: width - count) + string
+    let truncated = TextWidth.truncate(string, toWidth: width)
+    let padCount = width - TextWidth.displayWidth(truncated)
+    return padCount > 0 ? String(repeating: " ", count: padCount) + truncated : truncated
 }
 
-/// Center a string within `width` characters.
+/// Center a string within `width` display columns.
 /// Returns empty string for zero or negative width.
 public func centerString(_ string: String, width: Int) -> String {
     guard width > 0 else { return "" }
-    let count = string.count
-    if count >= width { return String(string.prefix(width)) }
-    let left = (width - count) / 2
-    let right = width - count - left
-    return String(repeating: " ", count: left) + string + String(repeating: " ", count: right)
+    let truncated = TextWidth.truncate(string, toWidth: width)
+    let padTotal = width - TextWidth.displayWidth(truncated)
+    guard padTotal > 0 else { return truncated }
+    let left = padTotal / 2
+    let right = padTotal - left
+    return String(repeating: " ", count: left) + truncated + String(repeating: " ", count: right)
 }

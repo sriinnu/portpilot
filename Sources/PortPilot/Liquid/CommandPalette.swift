@@ -9,8 +9,10 @@ import AppKit
 /// and arrow-key navigation works uniformly regardless of what kind of
 /// thing the user is highlighting.
 struct CommandItem: Identifiable {
-    /// Stable identity so SwiftUI can diff and animate rows cleanly.
-    let id = UUID()
+    /// Stable, caller-derived identity. A per-instance `UUID()` gave every
+    /// row a fresh identity on each recomputation of the palette list, so
+    /// SwiftUI re-diffed everything and animation/scroll position reset.
+    let id: String
     /// SF Symbol name drawn in the leading icon chip.
     let icon: String
     /// Primary label shown on the row.
@@ -22,6 +24,15 @@ struct CommandItem: Identifiable {
     /// Closure I invoke when the user activates the row via click or Return.
     let action: () -> Void
 
+    init(id: String? = nil, icon: String, title: String, subtitle: String?, tint: Color, action: @escaping () -> Void) {
+        self.id = id ?? title
+        self.icon = icon
+        self.title = title
+        self.subtitle = subtitle
+        self.tint = tint
+        self.action = action
+    }
+
     /// Convenience factory that shapes a `PortProcess` into a palette row.
     /// - Parameters:
     ///   - port: The port whose summary fields populate the row.
@@ -29,6 +40,7 @@ struct CommandItem: Identifiable {
     ///   - action: Fired when the row is selected.
     static func port(_ port: PortProcess, tint: Color, action: @escaping () -> Void) -> CommandItem {
         CommandItem(
+            id: "port-\(port.pid)-\(port.protocolName)-\(port.port)",
             icon: "network",
             title: port.isUnixSocket ? "PID \(port.pid)" : ":\(port.port)",
             subtitle: port.command,

@@ -15,6 +15,12 @@ class MenuBarController: NSObject, ObservableObject {
     @Published var isPanelShown = false
 
     nonisolated(unsafe) private var metricsTimer: Timer?
+    /// Refreshes port data while the dropdown is open, honoring the
+    /// "Auto-refresh interval" setting. Previously that setting did nothing.
+    nonisolated(unsafe) private var panelRefreshTimer: Timer?
+    /// Handles ⌘O / ⌘T while the panel is key — the footer used to display
+    /// those glyphs with nothing behind them.
+    nonisolated(unsafe) private var panelKeyMonitor: Any?
 
     init(portViewModel: PortViewModel, notificationManager: NotificationManager) {
         self.portViewModel = portViewModel
@@ -80,7 +86,15 @@ class MenuBarController: NSObject, ObservableObject {
         let panelHeight = Theme.Liquid.panelHeight
 
         if panel == nil {
-            panel = MenuBarPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+            let newPanel = MenuBarPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+            // Key-steals (Cmd-Tab, our own windows, alerts) must tear down
+            // timer + monitor + state, not just fade the panel away.
+            newPanel.onResignKey = { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.dismissPanel()
+                }
+            }
+            panel = newPanel
         }
 
         let dropdownView = MenuBarDropdownView(
@@ -121,6 +135,33 @@ class MenuBarController: NSObject, ObservableObject {
             self?.portViewModel.refreshAllConnections()
             self?.refreshCapsuleMetrics()
         }
+
+        panelRefreshTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(AppSettings.shared.autoRefreshInterval), repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isPanelShown else { return }
+                self.portViewModel.refreshPorts()
+                self.portViewModel.refreshAllConnections()
+            }
+        }
+
+        // The panel is an NSPanel, not an NSMenu — no free key equivalents.
+        // This monitor is what makes the footer's ⌘O / ⌘T glyphs true.
+        panelKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor [weak self] in
+                guard let self, self.isPanelShown, event.window === self.panel else { return }
+                guard event.modifierFlags.contains(.command),
+                      let key = event.charactersIgnoringModifiers?.lowercased() else { return }
+                switch key {
+                case "o":
+                    self.openMainWindow()
+                case "t":
+                    NotificationCenter.default.post(name: .toggleDropdownTreeView, object: nil)
+                default:
+                    break
+                }
+            }
+            return event
+        }
     }
 
     private func dismissPanel() {
@@ -129,10 +170,17 @@ class MenuBarController: NSObject, ObservableObject {
         panel = nil
         isPanelShown = false
 
+        panelRefreshTimer?.invalidate()
+        panelRefreshTimer = nil
+
         // Remove event monitor when panel closes
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
+        }
+        if let monitor = panelKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            panelKeyMonitor = nil
         }
     }
 
@@ -182,7 +230,11 @@ class MenuBarController: NSObject, ObservableObject {
         if let eventMonitor = eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
+        if let monitor = panelKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
         metricsTimer?.invalidate()
+        panelRefreshTimer?.invalidate()
     }
 }
 
@@ -190,6 +242,7 @@ class MenuBarController: NSObject, ObservableObject {
 extension Notification.Name {
     static let openMainWindow = Notification.Name("openMainWindow")
     static let addWatchedPort = Notification.Name("addWatchedPort")
+    static let toggleDropdownTreeView = Notification.Name("toggleDropdownTreeView")
 }
 
 // MARK: - Notification Manager
@@ -364,11 +417,22 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
 
     func portWatcher(_ watcher: PortWatcher, portBecameOccupied port: Int) {
         guard notificationsEnabled else { return }
-        do {
-            let processes = try portManager.getListeningProcesses(startPort: port, endPort: port)
-            if let process = processes.first {
-                if AppSettings.shared.reservedPorts.contains(port) {
-                    sendNotification(
+        // getListeningProcesses enriches (lsof + ps + probes) — running it
+        // here on the callback's main thread beachballed the app every time
+        // a watched port flipped. Do the lookup in the background; posting a
+        // UNNotification is thread-safe, so it fires from the same task the
+        // moment we know the occupant.
+        let reserved = AppSettings.shared.reservedPorts.contains(port)
+        Task.detached(priority: .utility) { [weak self] in
+            let occupant: (command: String, pid: Int)? = (try? PortManager()
+                .getListeningProcesses(startPort: port, endPort: port))?
+                .first
+                .map { (command: $0.command, pid: $0.pid) }
+
+            guard let self = self else { return }
+            if let process = occupant {
+                if reserved {
+                    self.sendNotification(
                         title: "Reserved Port Threatened",
                         body: "Warning: Port \(port) is reserved but is now occupied by \(process.command) (PID: \(process.pid))",
                         identifier: "reserved-port-\(port)-threatened",
@@ -376,7 +440,7 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
                         userInfo: ["port": port, "pid": process.pid]
                     )
                 } else {
-                    sendNotification(
+                    self.sendNotification(
                         title: "Port Occupied",
                         body: "Port \(port) is now in use by \(process.command) (PID: \(process.pid))",
                         identifier: "port-\(port)-occupied",
@@ -384,15 +448,15 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
                         userInfo: ["port": port, "pid": process.pid]
                     )
                 }
+            } else {
+                self.sendNotification(
+                    title: "Port Occupied",
+                    body: "Port \(port) is now in use",
+                    identifier: "port-\(port)-occupied",
+                    categoryIdentifier: Self.portOccupiedCategoryIdentifier,
+                    userInfo: ["port": port]
+                )
             }
-        } catch {
-            sendNotification(
-                title: "Port Occupied",
-                body: "Port \(port) is now in use",
-                identifier: "port-\(port)-occupied",
-                categoryIdentifier: Self.portOccupiedCategoryIdentifier,
-                userInfo: ["port": port]
-            )
         }
     }
 

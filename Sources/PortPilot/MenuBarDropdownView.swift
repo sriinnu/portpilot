@@ -2,32 +2,6 @@ import SwiftUI
 
 private let liquidSpring = Animation.spring(response: 0.26, dampingFraction: 0.84, blendDuration: 0.1)
 
-/// Smooth heat-map: 0% teal → 50% amber → 100% red
-private func cpuHeatColor(_ usage: Double) -> Color {
-    let t = min(max(usage / 100.0, 0), 1)
-    let r: Double, g: Double, b: Double
-    if t < 0.25 {
-        let p = t / 0.25
-        r = 0.18 + p * 0.12;  g = 0.62 - p * 0.14;  b = 0.70 - p * 0.02
-    } else if t < 0.50 {
-        let p = (t - 0.25) / 0.25
-        r = 0.30 + p * 0.58;  g = 0.48 + p * 0.14;  b = 0.68 - p * 0.52
-    } else if t < 0.75 {
-        let p = (t - 0.50) / 0.25
-        r = 0.88 + p * 0.07;  g = 0.62 - p * 0.22;  b = 0.16 - p * 0.04
-    } else {
-        let p = (t - 0.75) / 0.25
-        r = 0.95 - p * 0.05;  g = 0.40 - p * 0.18;  b = 0.12 + p * 0.08
-    }
-    return Color(red: r, green: g, blue: b)
-}
-
-private func formatMemory(_ mb: Double) -> String {
-    if mb >= 1024 { return String(format: "%.1f GB", mb / 1024.0) }
-    if mb >= 10 { return String(format: "%.0f MB", mb) }
-    return String(format: "%.1f MB", mb)
-}
-
 // MARK: - Protocol Filter
 enum MenuBarProtocolFilter: String, CaseIterable {
     case all = "All"
@@ -106,6 +80,9 @@ struct MenuBarDropdownView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerView
+            if let error = viewModel.errorMessage {
+                errorBanner(error)
+            }
             liveTrafficView
             searchView
             filterView
@@ -124,6 +101,44 @@ struct MenuBarDropdownView: View {
         .animation(.easeOut(duration: 0.15), value: showMoreMenu)
         .onAppear { metrics.start(viewModel: viewModel) }
         .onDisappear { metrics.stop() }
+        // Errors raised while this dropdown is the visible surface show here
+        // as a banner. The model owns the 4s auto-consume (see raiseError) —
+        // the banner just renders; dismissal goes through dismissError().
+        .animation(.easeOut(duration: 0.2), value: viewModel.errorMessage)
+        // ⌘T from the panel's key monitor — the footer glyph is real now.
+        .onReceive(NotificationCenter.default.publisher(for: .toggleDropdownTreeView)) { _ in
+            withAnimation(liquidSpring) { showTreeView.toggle() }
+        }
+    }
+
+    // MARK: - Error Banner
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Theme.Status.error)
+            Text(message)
+                .font(appSettings.appFont(size: 11))
+                .foregroundColor(.primary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+            Button {
+                viewModel.dismissError()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(Theme.Liquid.subtitleText)
+            }
+            .buttonStyle(PointerButtonStyle())
+            .accessibilityLabel("Dismiss error")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.Status.error.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.Status.error.opacity(0.25), lineWidth: 0.5))
+        .padding(.horizontal, 14).padding(.top, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Error: \(message)")
     }
 
     // MARK: - Live Traffic Strip (replaces the flat stats line)
@@ -159,15 +174,15 @@ struct MenuBarDropdownView: View {
             Spacer()
 
             HStack(spacing: 2) {
-                headerBtn(icon: "arrow.clockwise") {
+                headerBtn(icon: "arrow.clockwise", label: "Refresh") {
                     viewModel.refreshPorts()
                     viewModel.refreshAllConnections()
                 }
-                headerBtn(icon: "gearshape") {
+                headerBtn(icon: "gearshape", label: "Settings") {
                     onDismiss()
                     onOpenSettings()
                 }
-                headerBtn(icon: "ellipsis") {
+                headerBtn(icon: "ellipsis", label: "More") {
                     showMoreMenu.toggle()
                 }
             }
@@ -177,7 +192,7 @@ struct MenuBarDropdownView: View {
         .padding(.bottom, 6)
     }
 
-    private func headerBtn(icon: String, action: @escaping () -> Void) -> some View {
+    private func headerBtn(icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .medium))
@@ -185,6 +200,7 @@ struct MenuBarDropdownView: View {
                 .frame(width: 30, height: 30)
         }
         .buttonStyle(PointerButtonStyle())
+        .accessibilityLabel(label)
     }
 
     // MARK: - Search
@@ -204,12 +220,7 @@ struct MenuBarDropdownView: View {
                         .foregroundColor(Theme.Liquid.subtitleText)
                 }
                 .buttonStyle(PointerButtonStyle())
-            } else {
-                Text("\u{2318}F")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundColor(Theme.Liquid.subtitleText.opacity(0.5))
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.Liquid.chipBackground))
+                .accessibilityLabel("Clear search")
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
@@ -334,7 +345,10 @@ struct MenuBarDropdownView: View {
                 ForEach(activity, id: \.id) { port in
                     LiquidPortRow(
                         port: port,
-                        onKill: { viewModel.killPort(port.port) },
+                        onKill: { viewModel.killPort(port) },
+                        onPauseResume: {
+                            if port.isStopped { viewModel.resumeProcess(port) } else { viewModel.pauseProcess(port) }
+                        },
                         onCopy: { viewModel.copyPortInfo(port) },
                         history: metrics.history(for: port)
                     )
@@ -397,14 +411,17 @@ struct MenuBarDropdownView: View {
     @ViewBuilder
     private var emptySection: some View {
         if filteredPorts.isEmpty {
+            // One condition for icon, color, and both labels — the icon used
+            // to say "filtered" while the color still said "all clear".
+            let unfiltered = searchText.isEmpty && protocolFilter == .all && sourceFilter == .all
             VStack(spacing: 10) {
-                Image(systemName: searchText.isEmpty && protocolFilter == .all && sourceFilter == .all ? "checkmark.circle" : "magnifyingglass")
+                Image(systemName: unfiltered ? "checkmark.circle" : "magnifyingglass")
                     .font(.system(size: 28, weight: .light))
-                    .foregroundColor(searchText.isEmpty ? Theme.Alert.dotActive : Theme.Liquid.subtitleText)
-                Text(searchText.isEmpty && protocolFilter == .all && sourceFilter == .all ? "No Active Ports" : "No matching ports")
+                    .foregroundColor(unfiltered ? Theme.Alert.dotActive : Theme.Liquid.subtitleText)
+                Text(unfiltered ? "No Active Ports" : "No matching ports")
                     .font(appSettings.appFont(size: 14, weight: .medium))
                     .foregroundColor(Theme.Liquid.headerText)
-                Text(searchText.isEmpty && protocolFilter == .all && sourceFilter == .all ? "All ports are available" : "Try a different search or filter")
+                Text(unfiltered ? "All ports are available" : "Try a different search or filter")
                     .font(appSettings.appFont(size: 12))
                     .foregroundColor(Theme.Liquid.subtitleText)
             }
@@ -483,17 +500,21 @@ struct MenuBarDropdownView: View {
     private var moreMenuView: some View {
         if showMoreMenu {
             VStack(spacing: 2) {
-                moreItem("Refresh", icon: "arrow.clockwise", shortcut: "R") {
+                moreItem("Refresh", icon: "arrow.clockwise") {
                     showMoreMenu = false
                     viewModel.refreshPorts()
                     viewModel.refreshAllConnections()
                 }
-                if !viewModel.ports.isEmpty {
-                    moreItem(confirmingKillAll ? "Confirm Kill All?" : "Kill All...", icon: confirmingKillAll ? "exclamationmark.triangle.fill" : "xmark.circle", shortcut: "K", tint: Theme.Action.kill) {
+                // Kill what the dropdown is SHOWING (search-filtered), network
+                // ports only — "Kill All" on the raw list used to sweep in
+                // every Unix-socket holder regardless of the filter.
+                let killAllTargets = filteredPorts.filter { !$0.isUnixSocket }
+                if !killAllTargets.isEmpty {
+                    moreItem(confirmingKillAll ? "Confirm Kill All? (\(killAllTargets.count))" : "Kill All...", icon: confirmingKillAll ? "exclamationmark.triangle.fill" : "xmark.circle", tint: Theme.Action.kill) {
                         if confirmingKillAll {
                             confirmingKillAll = false
                             showMoreMenu = false
-                            viewModel.killSelectedPorts(Set(viewModel.ports))
+                            viewModel.killSelectedPorts(Set(killAllTargets))
                         } else {
                             confirmingKillAll = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { confirmingKillAll = false }
@@ -501,11 +522,11 @@ struct MenuBarDropdownView: View {
                     }
                 }
                 Divider().padding(.horizontal, 8).padding(.vertical, 2)
-                moreItem("Settings", icon: "gearshape", shortcut: ",") {
+                moreItem("Settings", icon: "gearshape") {
                     showMoreMenu = false; onDismiss(); onOpenSettings()
                 }
                 Divider().padding(.horizontal, 8).padding(.vertical, 2)
-                moreItem("Quit", icon: "power", shortcut: "Q") { showMoreMenu = false; onQuit() }
+                moreItem("Quit", icon: "power") { showMoreMenu = false; onQuit() }
             }
             .padding(6).frame(width: 210)
             .background(
@@ -520,17 +541,15 @@ struct MenuBarDropdownView: View {
         }
     }
 
-    private func moreItem(_ label: String, icon: String, shortcut: String? = nil, tint: Color? = nil, action: @escaping () -> Void) -> some View {
+    private func moreItem(_ label: String, icon: String, tint: Color? = nil, action: @escaping () -> Void) -> some View {
+        // No ⌘-shortcut glyphs: this is a custom panel, not an NSMenu — it
+        // has no key-equivalent handling, so the hints were decorative lies.
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 12, weight: .medium))
                     .foregroundColor(tint ?? Theme.Liquid.subtitleText).frame(width: 16)
                 Text(label).font(appSettings.appFont(size: 13)).foregroundColor(tint ?? Theme.Liquid.headerText)
                 Spacer()
-                if let s = shortcut {
-                    Text("\u{2318}\(s)").font(.system(size: 11, design: .rounded))
-                        .foregroundColor(Theme.Liquid.subtitleText.opacity(0.4))
-                }
             }
             .padding(.horizontal, 10).padding(.vertical, 7)
             .contentShape(Rectangle())
@@ -544,6 +563,7 @@ struct MenuBarDropdownView: View {
 private struct LiquidPortRow: View {
     let port: PortProcess
     let onKill: () -> Void
+    let onPauseResume: () -> Void
     let onCopy: () -> Void
     var history: [Double] = []
     @ObservedObject private var appSettings = AppSettings.shared
@@ -554,9 +574,9 @@ private struct LiquidPortRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Status dot
+            // Status dot — warning tone while the process is frozen
             Circle()
-                .fill(Theme.Alert.dotActive)
+                .fill(port.isStopped ? Theme.Alert.dotWarning : Theme.Alert.dotActive)
                 .frame(width: 8, height: 8)
                 .shadow(color: Theme.Alert.dotActive.opacity(0.4), radius: 3)
 
@@ -605,7 +625,7 @@ private struct LiquidPortRow: View {
 
             // Memory badge
             if let mem = port.memoryMB {
-                Text(verbatim: formatMemory(mem))
+                Text(verbatim: formatMemorySpacious(mem))
                     .font(appSettings.appMonoFont(size: 9, weight: .medium))
                     .foregroundColor(Theme.Liquid.badgeText)
                     .padding(.horizontal, 5).padding(.vertical, 2)
@@ -623,25 +643,37 @@ private struct LiquidPortRow: View {
                     .fixedSize()
             }
 
-            // Actions on hover
-            if isHovered {
-                HStack(spacing: 4) {
-                    Button(action: onCopy) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(Theme.Liquid.accentPurple)
-                    }
-                    .buttonStyle(PointerButtonStyle())
-
-                    Button(action: onKill) {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Theme.Action.kill)
-                    }
-                    .buttonStyle(PointerButtonStyle())
+            // Actions — visually hover-revealed, but always in the hierarchy:
+            // `if isHovered` made them invisible to VoiceOver (which never
+            // hovers), so keyboard/VO users had no kill or copy at all here.
+            HStack(spacing: 4) {
+                Button(action: onCopy) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Theme.Liquid.accentPurple)
                 }
-                .transition(.opacity)
+                .buttonStyle(PointerButtonStyle())
+                .accessibilityLabel("Copy port info")
+
+                Button(action: onPauseResume) {
+                    Image(systemName: port.isStopped ? "play.circle" : "pause.circle")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(port.isStopped ? Theme.Status.connected : Theme.Status.warning)
+                }
+                .buttonStyle(PointerButtonStyle())
+                .help(port.isStopped ? "Resume (SIGCONT)" : "Pause (SIGSTOP) — port stays bound")
+                .accessibilityLabel(port.isStopped ? "Resume process \(port.command)" : "Pause process \(port.command)")
+
+                Button(action: onKill) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Theme.Action.kill)
+                }
+                .buttonStyle(PointerButtonStyle())
+                .accessibilityLabel("Kill process \(port.command), pid \(port.pid)")
             }
+            .opacity(isHovered ? 1 : 0)
+            .animation(.easeInOut(duration: 0.15), value: isHovered)
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(isHovered ? Theme.Surface.hover : .clear))
@@ -747,7 +779,10 @@ private struct LiquidProcessSection: View {
                 ForEach(group.ports, id: \.id) { port in
                     LiquidPortRow(
                         port: port,
-                        onKill: { viewModel.killPort(port.port) },
+                        onKill: { viewModel.killPort(port) },
+                        onPauseResume: {
+                            if port.isStopped { viewModel.resumeProcess(port) } else { viewModel.pauseProcess(port) }
+                        },
                         onCopy: { viewModel.copyPortInfo(port) },
                         history: metrics.history(for: port)
                     )
@@ -800,7 +835,10 @@ private struct LiquidConnectionTypeSection: View {
                     ForEach(ports, id: \.id) { port in
                         LiquidPortRow(
                             port: port,
-                            onKill: { viewModel.killPort(port.port) },
+                            onKill: { viewModel.killPort(port) },
+                            onPauseResume: {
+                                if port.isStopped { viewModel.resumeProcess(port) } else { viewModel.pauseProcess(port) }
+                            },
                             onCopy: { viewModel.copyPortInfo(port) },
                             history: metrics.history(for: port)
                         )
@@ -933,79 +971,5 @@ private struct LiquidCronjobRow: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(isHovered ? Theme.Surface.hover : .clear))
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.easeInOut(duration: 0.12)) { isHovered = h } }
-    }
-}
-
-// MARK: - Connection Section (kept for compatibility)
-
-struct MenuBarConnectionSection: View {
-    let processName: String
-    let connections: [EstablishedConnection]
-    let totalCount: Int
-    let onKill: (Int) -> Void
-
-    @ObservedObject private var appSettings = AppSettings.shared
-    @State private var isExpanded = true
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Button { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "network").font(.system(size: 11)).foregroundColor(Theme.Action.treeView)
-                    Text(processName).font(appSettings.appFont(size: appSettings.fontSize - 1, weight: .semibold))
-                    Text(verbatim: "\(totalCount)").font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .medium)).foregroundColor(.secondary)
-                    Spacer()
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .medium)).foregroundColor(.secondary.opacity(0.6))
-                }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-            }
-            .buttonStyle(PointerButtonStyle())
-            if isExpanded {
-                ForEach(connections, id: \.id) { conn in
-                    MenuBarConnectionRow(connection: conn, onKill: { onKill(conn.pid) })
-                }
-            }
-        }
-    }
-}
-
-struct MenuBarConnectionRow: View {
-    let connection: EstablishedConnection
-    let onKill: () -> Void
-
-    @ObservedObject private var appSettings = AppSettings.shared
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(connection.isBlocklisted ? Theme.Action.kill : Theme.Status.connected).frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(connection.remoteAddress)
-                        .font(appSettings.appMonoFont(size: appSettings.fontSize, weight: connection.isBlocklisted ? .bold : .medium))
-                        .foregroundColor(connection.isBlocklisted ? Theme.Action.kill : .primary)
-                        .lineLimit(1).truncationMode(.middle)
-                    Text(connection.state)
-                        .font(appSettings.appMonoFont(size: max(appSettings.fontSize - 3, 8), weight: .medium))
-                        .foregroundColor(.secondary).padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Theme.Surface.headerTint).cornerRadius(3)
-                }
-                Text(verbatim: "PID \(connection.pid)")
-                    .font(appSettings.appMonoFont(size: appSettings.fontSize - 2, weight: .medium))
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            if isHovered {
-                Button(action: onKill) {
-                    Text("Kill").font(appSettings.appFont(size: 9, weight: .semibold)).foregroundColor(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 3).background(Theme.Action.kill).cornerRadius(10)
-                }
-                .buttonStyle(PointerButtonStyle()).transition(.opacity)
-            }
-        }
-        .padding(.horizontal, 14).padding(.vertical, 7)
-        .background(isHovered ? Theme.Surface.hover : .clear).cornerRadius(4)
-        .contentShape(Rectangle())
-        .onHover { h in withAnimation(.easeInOut(duration: 0.18)) { isHovered = h } }
     }
 }

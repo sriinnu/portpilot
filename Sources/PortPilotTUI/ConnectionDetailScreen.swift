@@ -11,6 +11,7 @@ struct ConnectionDetailScreen: TUIScreen {
     private let connection: EstablishedConnection
     private let portManager = PortManager()
     private var confirmingKill: Bool = false
+    private var killFailed: Bool = false
 
     init(connection: EstablishedConnection) {
         self.connection = connection
@@ -60,9 +61,20 @@ struct ConnectionDetailScreen: TUIScreen {
 
         let statusBar = StatusBar(items: items)
         statusBar.render(into: &screen, at: Point(row: msgRow, col: 0), size: TerminalTUI.Size(width: w, height: 1))
+
+        // Kill failures used to vanish — the screen just stayed as if nothing
+        // happened. Surface the outcome on the bar until the next keypress.
+        if killFailed {
+            let msg = "Kill failed: pid \(connection.pid) survived SIGKILL — not your process?"
+            screen.put(row: msgRow, col: 0, text: fitString(msg, width: w), style: ANSI.bold + ANSI.fg(.red))
+        }
     }
 
     mutating func handleKey(_ key: KeyEvent) -> ScreenAction {
+        if killFailed {
+            killFailed = false
+        }
+
         if confirmingKill {
             switch key {
             case .char("y"), .char("Y"):
@@ -89,20 +101,15 @@ struct ConnectionDetailScreen: TUIScreen {
 
     mutating func onResize(width: Int, height: Int) {}
 
-    private func killProcess() -> ScreenAction {
-        let pid = connection.pid
-
-        do {
-            try portManager.killProcessByPID(pid, force: false)
+    /// PID-direct with TERM→KILL escalation. Pops on success, shows the
+    /// failure on the bar instead of silently doing nothing.
+    private mutating func killProcess() -> ScreenAction {
+        let survivors = portManager.killProcess(pids: [connection.pid])
+        if survivors.isEmpty {
             return .pop
-        } catch {
-            do {
-                try portManager.killProcessByPID(pid, force: true)
-                return .pop
-            } catch {
-                return .continue
-            }
         }
+        killFailed = true
+        return .continue
     }
 
     private func renderField(into screen: inout Screen, row: inout Int, label: String, value: String, width: Int) {

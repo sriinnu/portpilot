@@ -23,25 +23,24 @@ public struct PortUsageEntry: Codable, Identifiable {
         self.lastSeen = Date()
     }
 
-    public var formattedFirstSeen: String {
+    private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         formatter.timeStyle = .medium
-        return formatter.string(from: firstSeen)
+        return formatter
+    }()
+
+    public var formattedFirstSeen: String {
+        Self.timestampFormatter.string(from: firstSeen)
     }
 
     public var formattedLastSeen: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .medium
-        return formatter.string(from: lastSeen)
+        Self.timestampFormatter.string(from: lastSeen)
     }
 
     public var relativeFirstSeen: String {
         #if canImport(ObjectiveC)
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: firstSeen, relativeTo: Date())
+        return Self.relativeFormatter.localizedString(for: firstSeen, relativeTo: Date())
         #else
         let interval = Date().timeIntervalSince(firstSeen)
         if interval < 60 {
@@ -58,9 +57,7 @@ public struct PortUsageEntry: Codable, Identifiable {
 
     public var relativeLastSeen: String {
         #if canImport(ObjectiveC)
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: lastSeen, relativeTo: Date())
+        return Self.relativeFormatter.localizedString(for: lastSeen, relativeTo: Date())
         #else
         let interval = Date().timeIntervalSince(lastSeen)
         if interval < 60 {
@@ -74,6 +71,14 @@ public struct PortUsageEntry: Codable, Identifiable {
         }
         #endif
     }
+
+    #if canImport(ObjectiveC)
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+    #endif
 }
 
 // MARK: - Port Stats
@@ -115,18 +120,28 @@ public struct HistoryEntry: Codable, Identifiable {
         self.duration = startTime.map { Date().timeIntervalSince($0) }
     }
 
-    public var formattedDate: String {
+    #if canImport(ObjectiveC)
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+    #endif
+
+    private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         formatter.timeStyle = .medium
-        return formatter.string(from: killedAt)
+        return formatter
+    }()
+
+    public var formattedDate: String {
+        Self.timestampFormatter.string(from: killedAt)
     }
 
     public var relativeTime: String {
         #if canImport(ObjectiveC)
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: killedAt, relativeTo: Date())
+        return Self.relativeFormatter.localizedString(for: killedAt, relativeTo: Date())
         #else
         // Fallback for Linux/Windows - simple date difference
         let interval = Date().timeIntervalSince(killedAt)
@@ -167,6 +182,11 @@ public final class HistoryManager {
     private let maxPortUsageSize = 1000
     private let lock = NSLock()
 
+    // In-memory mirrors. recordPortUsage runs per process per refresh —
+    // decoding up to 1000 JSON entries from UserDefaults each time was pure churn.
+    private var historyCache: [HistoryEntry]?
+    private var portUsageCache: [PortUsageEntry]?
+
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
     }
@@ -176,7 +196,7 @@ public final class HistoryManager {
     public func recordPortUsage(port: Int, process: PortProcess) {
         lock.lock()
         defer { lock.unlock() }
-        var usage = getAllPortUsage()
+        var usage = loadPortUsageLocked()
 
         // Check if we already have an entry for this port+pid combination
         if let existingIndex = usage.firstIndex(where: { $0.port == port && $0.pid == process.pid }) {
@@ -198,14 +218,21 @@ public final class HistoryManager {
             usage = Array(usage.prefix(maxPortUsageSize))
         }
 
-        savePortUsage(usage)
+        savePortUsageLocked(usage)
     }
 
     public func getAllPortUsage() -> [PortUsageEntry] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = portUsageCache {
+            return cached
+        }
         guard let data = userDefaults.data(forKey: portUsageKey),
               let usage = try? JSONDecoder().decode([PortUsageEntry].self, from: data) else {
+            portUsageCache = []
             return []
         }
+        portUsageCache = usage
         return usage
     }
 
@@ -261,16 +288,35 @@ public final class HistoryManager {
     }
 
     public func clearPortUsage() {
+        lock.lock()
+        defer { lock.unlock() }
         userDefaults.removeObject(forKey: portUsageKey)
+        portUsageCache = []
     }
 
     public func clearPortUsage(forPort port: Int) {
-        var usage = getAllPortUsage()
+        lock.lock()
+        defer { lock.unlock() }
+        var usage = loadPortUsageLocked()
         usage.removeAll { $0.port == port }
-        savePortUsage(usage)
+        savePortUsageLocked(usage)
     }
 
-    private func savePortUsage(_ usage: [PortUsageEntry]) {
+    private func loadPortUsageLocked() -> [PortUsageEntry] {
+        if let cached = portUsageCache {
+            return cached
+        }
+        guard let data = userDefaults.data(forKey: portUsageKey),
+              let usage = try? JSONDecoder().decode([PortUsageEntry].self, from: data) else {
+            portUsageCache = []
+            return []
+        }
+        portUsageCache = usage
+        return usage
+    }
+
+    private func savePortUsageLocked(_ usage: [PortUsageEntry]) {
+        portUsageCache = usage
         if let data = try? JSONEncoder().encode(usage) {
             userDefaults.set(data, forKey: portUsageKey)
         }
@@ -281,7 +327,7 @@ public final class HistoryManager {
     public func addEntry(from process: PortProcess, wasForceKilled: Bool = false, startTime: Date? = nil) {
         lock.lock()
         defer { lock.unlock() }
-        var history = getAllHistory()
+        var history = loadHistoryLocked()
         let entry = HistoryEntry(from: process, wasForceKilled: wasForceKilled, startTime: startTime)
         history.insert(entry, at: 0)
 
@@ -289,14 +335,25 @@ public final class HistoryManager {
             history = Array(history.prefix(maxHistorySize))
         }
 
-        saveHistory(history)
+        saveHistoryLocked(history)
     }
 
     public func getAllHistory() -> [HistoryEntry] {
+        lock.lock()
+        defer { lock.unlock() }
+        return loadHistoryLocked()
+    }
+
+    private func loadHistoryLocked() -> [HistoryEntry] {
+        if let cached = historyCache {
+            return cached
+        }
         guard let data = userDefaults.data(forKey: historyKey),
               let history = try? JSONDecoder().decode([HistoryEntry].self, from: data) else {
+            historyCache = []
             return []
         }
+        historyCache = history
         return history
     }
 
@@ -319,19 +376,26 @@ public final class HistoryManager {
     }
 
     public func clearHistory() {
+        lock.lock()
+        defer { lock.unlock() }
         userDefaults.removeObject(forKey: historyKey)
+        historyCache = []
     }
 
     public func clearHistory(olderThan date: Date) {
-        var history = getAllHistory()
+        lock.lock()
+        defer { lock.unlock() }
+        var history = loadHistoryLocked()
         history.removeAll { $0.killedAt < date }
-        saveHistory(history)
+        saveHistoryLocked(history)
     }
 
     public func clearHistory(forPort port: Int) {
-        var history = getAllHistory()
+        lock.lock()
+        defer { lock.unlock() }
+        var history = loadHistoryLocked()
         history.removeAll { $0.port == port }
-        saveHistory(history)
+        saveHistoryLocked(history)
     }
 
     // MARK: - Statistics
@@ -405,14 +469,10 @@ public final class HistoryManager {
 
     // MARK: - Private
 
-    private func saveHistory(_ history: [HistoryEntry]) {
+    private func saveHistoryLocked(_ history: [HistoryEntry]) {
+        historyCache = history
         if let data = try? JSONEncoder().encode(history) {
             userDefaults.set(data, forKey: historyKey)
         }
     }
 }
-
-#if canImport(Combine)
-import Combine
-extension HistoryManager: ObservableObject {}
-#endif

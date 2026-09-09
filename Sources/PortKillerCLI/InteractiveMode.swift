@@ -1,5 +1,10 @@
 import Foundation
 import PortManagerLib
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 // MARK: - ANSI Escape Codes
 enum ANSI {
@@ -102,6 +107,13 @@ final class InteractiveMode {
     private var searchBuffer: String = ""
     private var isShowingInfo: Bool = false
     private var terminalLines: Int = 24
+    /// Target captured when the kill prompt opened — a refresh between prompt
+    /// and 'y' must not retarget the kill.
+    private var pendingKill: PortProcess?
+
+    /// Saved tty state, reachable from the signal handler (which can only
+    /// touch globals).
+    private static var savedTermios: termios?
 
     init(portManager: PortManager) {
         self.portManager = portManager
@@ -118,13 +130,14 @@ final class InteractiveMode {
             terminalLines = size.lines
         }
 
-        // Hide cursor, disable echo
+        // Hide cursor, enter cbreak
         FileHandle.standardOutput.write(Data((ANSI.hideCursor + ANSI.eraseScreen).utf8))
-        disableEcho()
+        enterCbreakMode()
+        installSignalHandlers()
     }
 
     private func cleanupTerminal() {
-        enableEcho()
+        restoreTerminal()
         FileHandle.standardOutput.write(Data((ANSI.showCursor + ANSI.eraseScreen).utf8))
     }
 
@@ -134,18 +147,46 @@ final class InteractiveMode {
         return (Int(size.ws_row), Int(size.ws_col))
     }
 
-    private func disableEcho() {
-        var flags = termios()
-        tcgetattr(STDIN_FILENO, &flags)
-        flags.c_lflag &= ~tcflag_t(ECHO)
-        tcsetattr(STDIN_FILENO, TCSANOW, &flags)
+    /// Cbreak mode: line editing off so keys arrive immediately, echo off.
+    /// The old code only disabled ECHO — every keypress sat in the line
+    /// discipline until Enter, then the whole buffered batch replayed at
+    /// once, so buffered keys could navigate AND fire a kill unattended.
+    private func enterCbreakMode() {
+        var raw = termios()
+        tcgetattr(STDIN_FILENO, &raw)
+        Self.savedTermios = raw
+        raw.c_lflag &= ~tcflag_t(ECHO | ICANON)
+        withUnsafeMutablePointer(to: &raw.c_cc) { ptr in
+            let cc = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: cc_t.self)
+            cc[Int(VMIN)] = 1
+            cc[Int(VTIME)] = 0
+        }
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw)
     }
 
-    private func enableEcho() {
-        var flags = termios()
-        tcgetattr(STDIN_FILENO, &flags)
-        flags.c_lflag |= tcflag_t(ECHO)
-        tcsetattr(STDIN_FILENO, TCSANOW, &flags)
+    private func restoreTerminal() {
+        guard var saved = Self.savedTermios else { return }
+        Self.savedTermios = nil
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved)
+    }
+
+    /// Without these, Ctrl+C killed the process with the tty still in cbreak
+    /// (echo off, no line editing) — the shell looked broken afterwards.
+    /// Handler body is async-signal-safe: write, tcsetattr, _exit.
+    private func installSignalHandlers() {
+        let restoreAndExit: @convention(c) (Int32) -> Void = { signalNumber in
+            var buf: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) =
+                (0x1B, 0x5B, 0x3F, 0x32, 0x35, 0x68)  // \e[?25h — show cursor
+            withUnsafePointer(to: &buf) { ptr in
+                _ = write(STDOUT_FILENO, ptr, 6)
+            }
+            if var saved = InteractiveMode.savedTermios {
+                tcsetattr(STDIN_FILENO, TCSAFLUSH, &saved)
+            }
+            _exit(128 &+ signalNumber)
+        }
+        signal(SIGINT, restoreAndExit)
+        signal(SIGTERM, restoreAndExit)
     }
 
     func start(startPort: Int? = nil, endPort: Int? = nil) throws {
@@ -158,10 +199,17 @@ final class InteractiveMode {
                 renderMainScreen()
             }
 
-            let key = readKey()
+            // nil = EOF (Ctrl+D, closed pipe). The old empty-string return
+            // spun this loop at 100% CPU forever.
+            guard let key = readKey() else { return }
 
             if isShowingInfo {
                 isShowingInfo = false
+                continue
+            }
+
+            if pendingKill != nil {
+                handleKillConfirmation(key, startPort: startPort, endPort: endPort)
                 continue
             }
 
@@ -179,7 +227,7 @@ final class InteractiveMode {
             case "i", "I":
                 showPortInfo()
             case ANSI.enter, "\n":
-                killSelectedPort(startPort: startPort, endPort: endPort)
+                promptKillSelected()
             default:
                 break
             }
@@ -226,7 +274,10 @@ final class InteractiveMode {
         while isSearching {
             renderSearchPrompt()
 
-            let key = readKey()
+            guard let key = readKey() else {
+                isSearching = false
+                return
+            }
 
             switch key {
             case ANSI.enter, "\n":
@@ -251,36 +302,44 @@ final class InteractiveMode {
     }
 
     private func showPortInfo() {
-        guard !filteredProcesses.isEmpty else { return }
-        let process = filteredProcesses[selectedIndex]
-
-        do {
-            _ = try portManager.getConnections(for: process.port)
-            isShowingInfo = true
-
-            // Wait for key press then return
-            _ = readKey()
-            isShowingInfo = false
-        } catch {
-            // Silently fail
-        }
+        guard !filteredProcesses.isEmpty, selectedIndex < filteredProcesses.count else { return }
+        // The main loop renders the info screen; any keypress dismisses it.
+        // (The old version blocked on readKey() *before* the screen ever
+        // rendered — the info screen was unreachable dead code.)
+        isShowingInfo = true
     }
 
-    private func killSelectedPort(startPort: Int?, endPort: Int?) {
-        guard !filteredProcesses.isEmpty else { return }
-        let process = filteredProcesses[selectedIndex]
+    /// Enter opens a y/n prompt instead of killing outright — one stray
+    /// keypress shouldn't cost a process its life.
+    private func promptKillSelected() {
+        guard !filteredProcesses.isEmpty, selectedIndex < filteredProcesses.count else { return }
+        pendingKill = filteredProcesses[selectedIndex]
+    }
 
-        do {
-            try portManager.killProcessOnPort(process.port, force: false)
-            renderKillConfirmation(process: process)
+    private func handleKillConfirmation(_ key: String, startPort: Int?, endPort: Int?) {
+        guard let target = pendingKill else { return }
+
+        switch key {
+        case "y", "Y", ANSI.enter, "\n":
+            pendingKill = nil
+            // PID-direct with TERM→KILL escalation: re-resolving by port
+            // could hit whatever grabbed it since the last scan.
+            let survivors = portManager.killProcess(pids: [target.pid])
+            if survivors.isEmpty {
+                renderKillConfirmation(process: target)
+            } else {
+                renderError("pid \(target.pid) survived SIGKILL")
+            }
             refreshData(startPort: startPort, endPort: endPort)
-        } catch {
-            renderError(error.localizedDescription)
+        case "n", "N", ANSI.escape, "q", "Q":
+            pendingKill = nil
+        default:
+            break
         }
     }
 
     private func renderKillConfirmation(process: PortProcess) {
-        let message = "\(ANSI.green)Killed process on port \(process.port): \(process.command)\(ANSI.clear)"
+        let message = "\(ANSI.green)Killed pid \(process.pid): \(process.command)\(ANSI.clear)"
         FileHandle.standardOutput.write(Data(message.utf8))
         sleep(1)
     }
@@ -315,16 +374,21 @@ final class InteractiveMode {
         }
 
         var lines: [String] = []
-        let maxVisible = terminalLines - 10 // Leave room for header, footer, and status bar
+        // max(1, …): a terminal shorter than the chrome made this negative,
+        // and prefix() traps on a negative count.
+        let maxVisible = max(1, terminalLines - 10)
 
-        for (index, process) in filteredProcesses.prefix(maxVisible).enumerated() {
-            let isSelected = index == selectedIndex
-            let line = formatProcessRow(process, isSelected: isSelected)
-            lines.append(line)
+        // Window the list around the selection so navigating past the first
+        // screenful scrolls instead of marching the cursor off-screen.
+        let scrollOffset = max(0, min(selectedIndex - maxVisible / 2, filteredProcesses.count - maxVisible))
+
+        for (visibleIndex, process) in filteredProcesses.dropFirst(scrollOffset).prefix(maxVisible).enumerated() {
+            let isSelected = (visibleIndex + scrollOffset) == selectedIndex
+            lines.append(formatProcessRow(process, isSelected: isSelected))
         }
 
         if filteredProcesses.count > maxVisible {
-            lines.append("\(ANSI.dim)... and \(filteredProcesses.count - maxVisible) more (scroll with arrow keys)\(ANSI.clear)")
+            lines.append("\(ANSI.dim)… \(filteredProcesses.count - maxVisible) more (arrow keys scroll)\(ANSI.clear)")
         }
 
         return lines.joined(separator: "\n")
@@ -351,7 +415,7 @@ final class InteractiveMode {
         let total = processes.count
 
         let status = """
-        \(ANSI.bold)Navigation:\(ANSI.clear) ↑↓ Navigate | \(ANSI.bold)Enter:\(ANSI.clear) Kill | \(ANSI.bold)/:\(ANSI.clear) Search | \(ANSI.bold)i:\(ANSI.clear) Info | \(ANSI.bold)r:\(ANSI.clear) Refresh | \(ANSI.bold)q:\(ANSI.clear) Quit
+        \(ANSI.bold)Navigation:\(ANSI.clear) ↑↓ Navigate | \(ANSI.bold)Enter:\(ANSI.clear) Kill [y/n] | \(ANSI.bold)/:\(ANSI.clear) Search | \(ANSI.bold)i:\(ANSI.clear) Info | \(ANSI.bold)r:\(ANSI.clear) Refresh | \(ANSI.bold)q:\(ANSI.clear) Quit
         \(ANSI.dim)──────────────────────────────────────────────────────────────────────────────────────────────────────\(ANSI.clear)
         \(ANSI.bold)Ports:\(ANSI.clear) \(count) / \(total) shown
         """
@@ -378,7 +442,9 @@ final class InteractiveMode {
         output += "\n\n"
         output += renderFooter()
 
-        if !searchQuery.isEmpty {
+        if let target = pendingKill {
+            output += "\n\(ANSI.bold)\(ANSI.red)Kill \(target.command) (pid \(target.pid))? [y/n]\(ANSI.clear)"
+        } else if !searchQuery.isEmpty {
             output += "\n\(ANSI.dim)Filter: \"\(searchQuery)\" (press / to clear)\(ANSI.clear)"
         }
 
@@ -416,34 +482,47 @@ final class InteractiveMode {
         return String(repeating: " ", count: padding) + string
     }
 
-    private func readKey() -> String {
-        let fd = STDIN_FILENO
+    /// Read one key. Returns nil on EOF (Ctrl+D, closed pipe).
+    private func readKey() -> String? {
         var buf = [UInt8](repeating: 0, count: 1)
 
-        // Read first byte
-        guard read(fd, &buf, 1) == 1 else { return "" }
+        guard read(STDIN_FILENO, &buf, 1) == 1 else { return nil }
 
-        // Handle escape sequences
-        if buf[0] == 0x1B { // ESC
-            // Peek at next byte
-            var peekBuf = [UInt8](repeating: 0, count: 1)
-            if read(fd, &peekBuf, 1) == 1 {
-                if peekBuf[0] == 0x5B { // [
-                    // Get the final byte
-                    if read(fd, &peekBuf, 1) == 1 {
-                        switch peekBuf[0] {
-                        case 0x41: return ANSI.arrowUp    // Up
-                        case 0x42: return ANSI.arrowDown  // Down
-                        case 0x43: return ANSI.arrowRight // Right
-                        case 0x44: return ANSI.arrowLeft  // Left
-                        default: return ""
-                        }
-                    }
-                }
+        // Escape sequences — tail bytes are polled with a short timeout so a
+        // bare Escape press doesn't block waiting for a byte that never comes.
+        if buf[0] == 0x1B {
+            guard let second = peekByte() else { return ANSI.escape }
+
+            guard second == 0x5B else { return ANSI.escape }  // '['
+            // Swallow numeric parameter bytes (ESC[5~, ESC[1;5A, …) so the
+            // terminating letter really terminates — otherwise the '~' leaks
+            // through as a phantom keypress.
+            var final: UInt8
+            while true {
+                guard let byte = peekByte() else { return "" }
+                if (0x30...0x3F).contains(byte) { continue }
+                final = byte
+                break
             }
-            return ANSI.escape
+
+            switch final {
+            case 0x41: return ANSI.arrowUp
+            case 0x42: return ANSI.arrowDown
+            case 0x43: return ANSI.arrowRight
+            case 0x44: return ANSI.arrowLeft
+            default: return ""
+            }
         }
 
         return String(bytes: [buf[0]], encoding: .utf8) ?? ""
+    }
+
+    /// Read one byte if it arrives within ~50ms — for escape-sequence tails.
+    private func peekByte() -> UInt8? {
+        var pollFd = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+        guard poll(&pollFd, 1, 50) > 0 else { return nil }
+        var buf = [UInt8](repeating: 0, count: 1)
+        guard read(STDIN_FILENO, &buf, 1) == 1 else { return nil }
+        return buf[0]
     }
 }
