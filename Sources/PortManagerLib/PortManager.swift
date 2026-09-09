@@ -24,6 +24,9 @@ public struct PortProcess: Codable, Identifiable, Sendable {
     public var socketPath: String?
     public var cpuUsage: Double?
     public var memoryMB: Double?
+    /// True when the process is SIGSTOPped (ps STAT leading T/t). The socket
+    /// stays bound — the process is frozen, not gone.
+    public var isStopped: Bool = false
 
     // Framework detection fields
     public var framework: String?
@@ -40,7 +43,7 @@ public struct PortProcess: Codable, Identifiable, Sendable {
     /// Whether this is a Unix socket process (no network port)
     public var isUnixSocket: Bool { protocolName == "unix" }
 
-    public init(port: Int, protocolName: String, pid: Int, user: String, command: String, fullCommand: String? = nil, parentPID: Int? = nil, startTime: Date? = nil, workingDirectory: String? = nil, processPath: String? = nil, socketPath: String? = nil, cpuUsage: Double? = nil, memoryMB: Double? = nil, framework: String? = nil, gitBranch: String? = nil, gitRepo: String? = nil, isOrphaned: Bool = false) {
+    public init(port: Int, protocolName: String, pid: Int, user: String, command: String, fullCommand: String? = nil, parentPID: Int? = nil, startTime: Date? = nil, workingDirectory: String? = nil, processPath: String? = nil, socketPath: String? = nil, cpuUsage: Double? = nil, memoryMB: Double? = nil, framework: String? = nil, gitBranch: String? = nil, gitRepo: String? = nil, isOrphaned: Bool = false, isStopped: Bool = false) {
         self.port = port
         self.protocolName = protocolName
         self.pid = pid
@@ -58,6 +61,7 @@ public struct PortProcess: Codable, Identifiable, Sendable {
         self.gitBranch = gitBranch
         self.gitRepo = gitRepo
         self.isOrphaned = isOrphaned
+        self.isStopped = isStopped
     }
 }
 
@@ -633,6 +637,7 @@ public final class PortManager {
             updated.workingDirectory = cwdByPID[process.pid]
             updated.cpuUsage = stats.cpu[process.pid]
             updated.memoryMB = stats.memMB[process.pid]
+            updated.isStopped = stats.stopped[process.pid] ?? false
             updated.processPath = pidToPath[process.pid]
             updated.framework = detectFramework(for: updated.workingDirectory, processPath: updated.processPath)
             let gitInfo = detectGitInfo(for: updated.workingDirectory)
@@ -642,12 +647,20 @@ public final class PortManager {
         }
     }
 
-    private func fetchProcessStats(pids: String) -> (cpu: [Int: Double], memMB: [Int: Double]) {
-        guard let output = try? runCommand("/bin/ps", arguments: ["-p", pids, "-o", "pid=,%cpu=,rss="]) else {
-            return ([:], [:])
+    /// ps STAT codes: a leading `T` (or `t` on Linux) means the process is
+    /// stopped — SIGSTOPped by job control or traced by a debugger. Both read
+    /// as "paused" for our purposes.
+    public static func isStoppedState(_ stat: String) -> Bool {
+        stat.first == "T" || stat.first == "t"
+    }
+
+    private func fetchProcessStats(pids: String) -> (cpu: [Int: Double], memMB: [Int: Double], stopped: [Int: Bool]) {
+        guard let output = try? runCommand("/bin/ps", arguments: ["-p", pids, "-o", "pid=,%cpu=,rss=,stat="]) else {
+            return ([:], [:], [:])
         }
         var cpuMap: [Int: Double] = [:]
         var memMap: [Int: Double] = [:]
+        var stoppedMap: [Int: Bool] = [:]
         for line in output.components(separatedBy: "\n") {
             let parts = line.trimmingCharacters(in: .whitespaces)
                 .split(separator: " ", omittingEmptySubsequences: true)
@@ -657,8 +670,11 @@ public final class PortManager {
                   let rssKB = Double(parts[2]) else { continue }
             cpuMap[pid] = cpu
             memMap[pid] = rssKB / 1024.0
+            if parts.count >= 4 {
+                stoppedMap[pid] = Self.isStoppedState(String(parts[3]))
+            }
         }
-        return (cpuMap, memMap)
+        return (cpuMap, memMap, stoppedMap)
     }
 
     private func fetchFullCommandsLinux(for processes: [PortProcess]) -> [PortProcess] {
@@ -696,6 +712,7 @@ public final class PortManager {
             updated.fullCommand = pidToArgs[process.pid]
             updated.cpuUsage = stats.cpu[process.pid]
             updated.memoryMB = stats.memMB[process.pid]
+            updated.isStopped = stats.stopped[process.pid] ?? false
             updated.processPath = pidToPath[process.pid]
             updated.workingDirectory = pidToCwd[process.pid]
             updated.framework = detectFramework(for: updated.workingDirectory, processPath: updated.processPath)
@@ -786,6 +803,52 @@ public final class PortManager {
         if !survivors.isEmpty {
             throw PortManagerError.partialKill(survivors)
         }
+    }
+
+    // MARK: - Pause / Resume Process
+
+    /// Freezes processes with SIGSTOP. The kernel keeps their sockets bound —
+    /// the port stays taken, the process just stops accepting. Returns the
+    /// pids that were actually signaled.
+    @discardableResult
+    public func pauseProcess(pids: [Int]) -> [Int] {
+        signalProcesses(pids, SIGSTOP)
+    }
+
+    /// Unfreezes SIGSTOPped processes with SIGCONT — state is intact, the
+    /// listener picks up exactly where it froze.
+    @discardableResult
+    public func resumeProcess(pids: [Int]) -> [Int] {
+        signalProcesses(pids, SIGCONT)
+    }
+
+    /// Pauses every process listening on `port` (SO_REUSEPORT allows more
+    /// than one). A frozen process still owns its socket, so discovery keeps
+    /// finding it.
+    @discardableResult
+    public func pauseProcessOnPort(_ port: Int) throws -> [Int] {
+        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: false)
+        guard !processes.isEmpty else {
+            throw PortManagerError.noProcessFound(port)
+        }
+        return pauseProcess(pids: processes.map(\.pid))
+    }
+
+    /// Resumes every process listening on `port`.
+    @discardableResult
+    public func resumeProcessOnPort(_ port: Int) throws -> [Int] {
+        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: false)
+        guard !processes.isEmpty else {
+            throw PortManagerError.noProcessFound(port)
+        }
+        return resumeProcess(pids: processes.map(\.pid))
+    }
+
+    /// Deliver `sig` to each pid we're allowed to signal. pid 1 is excluded
+    /// (launchd/init — same guard as killProcess) and pids we don't own come
+    /// back as failures from kill(2), which the filter drops.
+    private func signalProcesses(_ pids: [Int], _ sig: Int32) -> [Int] {
+        pids.filter { $0 > 1 }.filter { kill(pid_t($0), sig) == 0 }
     }
 
     public func killAllProcesses(startPort: Int? = nil, endPort: Int? = nil, force: Bool = false, pattern: String? = nil) throws {

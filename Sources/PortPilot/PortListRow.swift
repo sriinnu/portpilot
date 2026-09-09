@@ -10,6 +10,7 @@ struct PortListRow: View {
     let isFavorite: Bool
     let onSelect: () -> Void
     let onKill: () -> Void
+    let onPauseResume: () -> Void
     let onToggleFavorite: () -> Void
     var processType: ProcessType = .other
     var typeColor: Color = Theme.Status.connected
@@ -114,6 +115,18 @@ struct PortListRow: View {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(processTypeColor(processType).opacity(0.14))
                         )
+                    if port.isStopped {
+                        Text("PAUSED")
+                            .font(appSettings.appMonoFont(size: 8, weight: .bold))
+                            .foregroundColor(Theme.Status.warning)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Theme.Status.warning.opacity(0.14))
+                            )
+                    }
                     if let uptime = processUptime {
                         Text(uptime)
                             .font(appSettings.appMonoFont(size: 9))
@@ -183,12 +196,27 @@ struct PortListRow: View {
             }
             .frame(width: 42, alignment: .trailing)
 
-            // Actions — info tooltip + kill button.
+            // Actions — info tooltip + pause/resume + kill.
             HStack(spacing: 4) {
                 Image(systemName: "info.circle")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary.opacity(0.7))
                     .help(infoTooltip)
+                // Reversible, so it fires on first tap — no arming dance like
+                // the kill button. Pausing SIGSTOPs the pid: the port stays
+                // bound, the process freezes with its state.
+                Button(action: onPauseResume) {
+                    Image(systemName: port.isStopped ? "play.circle" : "pause.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(port.isStopped ? Theme.Status.connected : Theme.Status.warning)
+                }
+                .buttonStyle(.plain)
+                .help(port.isStopped
+                      ? "Resume process (SIGCONT)"
+                      : "Pause process (SIGSTOP) — port stays bound, state is kept")
+                .accessibilityLabel(port.isStopped
+                                    ? "Resume process \(port.command), pid \(port.pid)"
+                                    : "Pause process \(port.command), pid \(port.pid)")
                 Button(action: {
                     // I arm on the first tap and only fire onKill on the second tap
                     // inside the 3s window — keeps accidental kills from happening.
@@ -219,7 +247,7 @@ struct PortListRow: View {
                 .help(killArmed ? "Tap again to confirm kill" : "Kill process")
                 .accessibilityLabel(killArmed ? "Confirm kill" : "Kill process \(port.command), pid \(port.pid)")
             }
-            .frame(width: 46, alignment: .trailing)
+            .frame(width: 64, alignment: .trailing)
             .opacity(isHovered || isSelected ? 1 : Theme.Opacity.disabled)
         }
         .padding(.horizontal, Theme.Spacing.contentInset)

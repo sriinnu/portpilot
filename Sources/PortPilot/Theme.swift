@@ -110,6 +110,10 @@ enum Theme {
                 return Theme.Status.warning
             case "kill":
                 return Theme.Action.kill
+            case "pause":
+                return Theme.Status.warning
+            case "resume":
+                return Theme.Status.connected
             case "proxy":
                 return Theme.Section.proxy
             default:

@@ -346,6 +346,9 @@ struct MenuBarDropdownView: View {
                     LiquidPortRow(
                         port: port,
                         onKill: { viewModel.killPort(port) },
+                        onPauseResume: {
+                            if port.isStopped { viewModel.resumeProcess(port) } else { viewModel.pauseProcess(port) }
+                        },
                         onCopy: { viewModel.copyPortInfo(port) },
                         history: metrics.history(for: port)
                     )
@@ -560,6 +563,7 @@ struct MenuBarDropdownView: View {
 private struct LiquidPortRow: View {
     let port: PortProcess
     let onKill: () -> Void
+    let onPauseResume: () -> Void
     let onCopy: () -> Void
     var history: [Double] = []
     @ObservedObject private var appSettings = AppSettings.shared
@@ -570,9 +574,9 @@ private struct LiquidPortRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Status dot
+            // Status dot — warning tone while the process is frozen
             Circle()
-                .fill(Theme.Alert.dotActive)
+                .fill(port.isStopped ? Theme.Alert.dotWarning : Theme.Alert.dotActive)
                 .frame(width: 8, height: 8)
                 .shadow(color: Theme.Alert.dotActive.opacity(0.4), radius: 3)
 
@@ -650,6 +654,15 @@ private struct LiquidPortRow: View {
                 }
                 .buttonStyle(PointerButtonStyle())
                 .accessibilityLabel("Copy port info")
+
+                Button(action: onPauseResume) {
+                    Image(systemName: port.isStopped ? "play.circle" : "pause.circle")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(port.isStopped ? Theme.Status.connected : Theme.Status.warning)
+                }
+                .buttonStyle(PointerButtonStyle())
+                .help(port.isStopped ? "Resume (SIGCONT)" : "Pause (SIGSTOP) — port stays bound")
+                .accessibilityLabel(port.isStopped ? "Resume process \(port.command)" : "Pause process \(port.command)")
 
                 Button(action: onKill) {
                     Image(systemName: "stop.circle.fill")
@@ -767,6 +780,9 @@ private struct LiquidProcessSection: View {
                     LiquidPortRow(
                         port: port,
                         onKill: { viewModel.killPort(port) },
+                        onPauseResume: {
+                            if port.isStopped { viewModel.resumeProcess(port) } else { viewModel.pauseProcess(port) }
+                        },
                         onCopy: { viewModel.copyPortInfo(port) },
                         history: metrics.history(for: port)
                     )
@@ -820,6 +836,9 @@ private struct LiquidConnectionTypeSection: View {
                         LiquidPortRow(
                             port: port,
                             onKill: { viewModel.killPort(port) },
+                            onPauseResume: {
+                                if port.isStopped { viewModel.resumeProcess(port) } else { viewModel.pauseProcess(port) }
+                            },
                             onCopy: { viewModel.copyPortInfo(port) },
                             history: metrics.history(for: port)
                         )

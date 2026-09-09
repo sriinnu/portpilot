@@ -132,6 +132,61 @@ extension PortKiller {
     }
 }
 
+// MARK: - Pause / Resume Commands
+extension PortKiller {
+    struct Pause: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Pause (SIGSTOP) the process on a port — the socket stays bound, state is kept"
+        )
+
+        @Argument(help: "Port number (prefix with ':' for kill-style input, e.g., :8080)")
+        var port: String
+
+        func run() throws {
+            let portManager = PortManager()
+
+            guard let portNumber = parsePortInput(port) else {
+                print("Invalid port number: \(port) (expected 1-65535)")
+                throw ExitCode(1)
+            }
+
+            do {
+                let paused = try portManager.pauseProcessOnPort(portNumber)
+                print("⏸  Paused pid(s) \(paused.map(String.init).joined(separator: ", ")) on port \(portNumber). Resume with: portpilot resume \(portNumber)")
+            } catch PortManagerError.noProcessFound {
+                print("No process found listening on port \(portNumber)")
+                throw ExitCode(1)
+            }
+        }
+    }
+
+    struct Resume: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Resume (SIGCONT) a paused process on a port"
+        )
+
+        @Argument(help: "Port number (prefix with ':' for kill-style input, e.g., :8080)")
+        var port: String
+
+        func run() throws {
+            let portManager = PortManager()
+
+            guard let portNumber = parsePortInput(port) else {
+                print("Invalid port number: \(port) (expected 1-65535)")
+                throw ExitCode(1)
+            }
+
+            do {
+                let resumed = try portManager.resumeProcessOnPort(portNumber)
+                print("▶️  Resumed pid(s) \(resumed.map(String.init).joined(separator: ", ")) on port \(portNumber)")
+            } catch PortManagerError.noProcessFound {
+                print("No process found listening on port \(portNumber)")
+                throw ExitCode(1)
+            }
+        }
+    }
+}
+
 // MARK: - Interactive Command
 extension PortKiller {
     struct Interactive: ParsableCommand {
@@ -885,7 +940,7 @@ extension PortKiller {
 struct PortKiller: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "A tiny CLI for viewing and clearing ports in use by running processes.",
-        subcommands: [List.self, Kill.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self, Cronjobs.self, Connections.self],
+        subcommands: [List.self, Kill.self, Pause.self, Resume.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self, Cronjobs.self, Connections.self],
         defaultSubcommand: List.self
     )
 }

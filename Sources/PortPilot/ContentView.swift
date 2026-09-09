@@ -164,6 +164,14 @@ struct ContentView: View {
                                     viewModel.killPort(port)
                                 }
                             },
+                            // Pause/resume is reversible — no confirmation gate.
+                            onPauseResume: { port in
+                                if port.isStopped {
+                                    viewModel.resumeProcess(port)
+                                } else {
+                                    viewModel.pauseProcess(port)
+                                }
+                            },
                             onAdd: {},
                             metrics: metrics
                         )

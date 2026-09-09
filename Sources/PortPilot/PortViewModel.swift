@@ -981,6 +981,46 @@ class PortViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Pause / Resume Operations
+
+    /// SIGSTOP the row's exact pid. Reversible — no confirmation needed.
+    /// The socket stays bound; the process freezes with full state.
+    func pauseProcess(_ process: PortProcess) {
+        signalProcess(process, signal: "pause") {
+            !PortManager().pauseProcess(pids: [$0]).isEmpty
+        }
+    }
+
+    /// SIGCONT a frozen process — it resumes where it stopped.
+    func resumeProcess(_ process: PortProcess) {
+        signalProcess(process, signal: "resume") {
+            !PortManager().resumeProcess(pids: [$0]).isEmpty
+        }
+    }
+
+    private func signalProcess(_ process: PortProcess, signal: String, deliver: @escaping (Int) -> Bool) {
+        dismissError()
+        successMessage = nil
+        let pid = process.pid
+
+        let signalTask = Task.detached(priority: .userInitiated) { () -> Bool in
+            deliver(pid)
+        }
+
+        Task {
+            let delivered = await signalTask.value
+            if delivered {
+                let verb = signal == "pause" ? "Paused" : "Resumed"
+                successMessage = "\(verb) \(process.command) on port \(process.port)"
+                addLog(source: signal, message: "\(verb) pid \(pid) (\(process.command)) on port \(process.port)", level: .success, port: process.port)
+            } else {
+                raiseError("Failed to \(signal) \(process.command) (pid \(pid))")
+                addLog(source: signal, message: "Failed to \(signal) pid \(pid) on port \(process.port)", level: .error, port: process.port)
+            }
+            refreshPorts()
+        }
+    }
+
     func killSelectedPorts(_ selectedPorts: Set<PortProcess>) {
         isLoading = true
         dismissError()
