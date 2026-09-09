@@ -28,6 +28,14 @@ struct MenuBarDropdownView: View {
     @State private var sourceFilter: PortSourceFilter = .all
     @State private var showAllActivity = false
     @State private var showTreeView = false
+
+    /// How the tree view nests rows: by process name, or by owning project
+    /// (git repo, falling back to cwd, then process).
+    private enum TreeGrouping {
+        case process
+        case project
+    }
+    @State private var treeGrouping: TreeGrouping = .process
     @State private var showMoreMenu = false
     @State private var confirmingKillAll = false
     @StateObject private var metrics = LiveMetricsHistory()
@@ -380,19 +388,87 @@ struct MenuBarDropdownView: View {
 
     // MARK: Process Groups (Tree View)
 
-    @ViewBuilder
+    /// Group by owning project: the git repo when enrichment found one,
+    /// else the working directory's last component, else the process name.
+    /// Repo groups sort first so real projects lead the tree.
+    private var projectGroups: [(process: String, ports: [PortProcess], pid: Int)] {
+        struct Key: Hashable { let name: String; let isRepo: Bool }
+
+        let dict = Dictionary(grouping: filteredPorts) { port -> Key in
+            if let repo = port.gitRepo, !repo.isEmpty {
+                return Key(name: repo, isRepo: true)
+            }
+            if let cwd = port.workingDirectory, !cwd.isEmpty {
+                return Key(name: (cwd as NSString).lastPathComponent, isRepo: false)
+            }
+            return Key(name: port.command, isRepo: false)
+        }
+
+        return dict
+            .sorted {
+                if $0.key.isRepo != $1.key.isRepo { return $0.key.isRepo }
+                return $0.value.count > $1.value.count
+            }
+            .map { (process: $0.key.name, ports: $0.value, pid: $0.value.first?.pid ?? 0) }
+    }
+
     private var processGroupsSection: some View {
-        let groups = processGroups
-        if !groups.isEmpty {
-            LiquidProcessSection(
-                title: "Local Processes",
-                icon: "folder.fill",
-                groups: groups,
-                totalCount: filteredPorts.count,
-                viewModel: viewModel,
-                metrics: metrics
+        let groups: [(process: String, ports: [PortProcess], pid: Int)]
+        let title: String
+        let icon: String
+        switch treeGrouping {
+        case .process:
+            groups = processGroups
+            title = "Local Processes"
+            icon = "folder.fill"
+        case .project:
+            groups = projectGroups
+            title = "Projects"
+            icon = "square.stack.3d.up.fill"
+        }
+
+        return VStack(spacing: 8) {
+            groupingToggle
+            if !groups.isEmpty {
+                LiquidProcessSection(
+                    title: title,
+                    icon: icon,
+                    groups: groups,
+                    totalCount: filteredPorts.count,
+                    showsPID: treeGrouping == .process,
+                    viewModel: viewModel,
+                    metrics: metrics
+                )
+            }
+        }
+    }
+
+    /// Process/Project axis chips — only meaningful in tree view.
+    private var groupingToggle: some View {
+        HStack(spacing: 4) {
+            groupingChip("Process", systemImage: "cpu", selection: .process)
+            groupingChip("Project", systemImage: "square.stack.3d.up", selection: .project)
+            Spacer()
+        }
+    }
+
+    private func groupingChip(_ label: String, systemImage: String, selection: TreeGrouping) -> some View {
+        let selected = treeGrouping == selection
+        return Button {
+            withAnimation(liquidSpring) { treeGrouping = selection }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage).font(.system(size: 9, weight: .semibold))
+                Text(label).font(appSettings.appFont(size: 11, weight: .medium))
+            }
+            .foregroundColor(selected ? .white : Theme.Liquid.subtitleText)
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(selected ? Theme.Liquid.accentPurple : Theme.Liquid.badgeBackground)
             )
         }
+        .buttonStyle(PointerButtonStyle())
     }
 
     // MARK: Schedules (Cronjobs)
@@ -689,6 +765,8 @@ private struct LiquidProcessSection: View {
     let icon: String
     let groups: [(process: String, ports: [PortProcess], pid: Int)]
     let totalCount: Int
+    /// Project groups mix many pids — a "PID n" there would be a lie.
+    var showsPID: Bool = true
     @ObservedObject var viewModel: PortViewModel
     @ObservedObject var metrics: LiveMetricsHistory
     @ObservedObject private var appSettings = AppSettings.shared
@@ -765,9 +843,11 @@ private struct LiquidProcessSection: View {
                         .font(appSettings.appFont(size: 11))
                         .foregroundColor(Theme.Liquid.subtitleText)
 
-                    Text(verbatim: "PID \(group.pid)")
-                        .font(appSettings.appMonoFont(size: 10))
-                        .foregroundColor(Theme.Liquid.subtitleText.opacity(0.6))
+                    if showsPID {
+                        Text(verbatim: "PID \(group.pid)")
+                            .font(appSettings.appMonoFont(size: 10))
+                            .foregroundColor(Theme.Liquid.subtitleText.opacity(0.6))
+                    }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .contentShape(Rectangle())
