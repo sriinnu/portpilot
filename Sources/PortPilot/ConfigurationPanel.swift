@@ -20,6 +20,7 @@ struct ConfigurationPanel: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                         if let port = port {
+                            narrativeSection(port: port)
                             connectionSection(port: port)
                             portMappingSection(port: port)
                             visualPortMapperSection(port: port)
@@ -61,7 +62,7 @@ struct ConfigurationPanel: View {
                     .foregroundColor(.secondary)
                     .frame(width: Theme.Spacing.md)
 
-                Text("Configuration")
+                Text("Overview")
                     .font(appSettings.appFont(size: 13, weight: .semibold))
 
                 if port != nil {
@@ -103,6 +104,138 @@ struct ConfigurationPanel: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Theme.Spacing.xxl)
+    }
+
+    // MARK: - Process Narrative
+
+    /// One sentence of the story: an icon and the text that goes with it.
+    private struct StoryLine: Identifiable {
+        let id = UUID()
+        let icon: String
+        let color: Color
+        let text: String
+    }
+
+    private static let storyDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, HH:mm"
+        return formatter
+    }()
+
+    /// The story before the grid — who holds this port, for how long, from
+    /// where, and what it forwards to. Everything comes from enrichment the
+    /// refresh already resolved; nothing here shells out or blocks.
+    private func narrativeSection(port: PortProcess) -> some View {
+        ConfigSection(title: "Story") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                // Headline: the process, the port, and how it's classified.
+                HStack(spacing: Theme.Spacing.xs) {
+                    Circle()
+                        .fill(port.isStopped ? Theme.Status.warning : Theme.Status.connected)
+                        .frame(width: Theme.Size.statusDotSmall, height: Theme.Size.statusDotSmall)
+
+                    Text(port.command)
+                        .font(appSettings.appMonoFont(size: 13, weight: .semibold))
+                        .foregroundColor(.primary)
+
+                    Text("on :\(String(port.port))")
+                        .font(appSettings.appMonoFont(size: 11))
+                        .foregroundColor(.secondary)
+
+                    let processType = viewModel.processType(for: port)
+                    Text(processType.rawValue)
+                        .font(appSettings.appFont(size: 9, weight: .semibold))
+                        .foregroundColor(classificationColor(processType))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(classificationColor(processType).opacity(0.12))
+                        .cornerRadius(6)
+
+                    Spacer(minLength: 0)
+                }
+
+                let lines = storyLines(for: port)
+                if lines.isEmpty {
+                    Text("Nothing enriched for this process yet — a refresh pulls uptime, repo, and parent.")
+                        .font(appSettings.appFont(size: 11))
+                        .foregroundColor(.secondary.opacity(Theme.Opacity.subtle))
+                } else {
+                    ForEach(lines) { line in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: line.icon)
+                                .font(appSettings.appFont(size: 10))
+                                .foregroundColor(line.color)
+                                .frame(width: 14)
+                            Text(line.text)
+                                .font(appSettings.appFont(size: 11))
+                                .foregroundColor(.primary.opacity(0.85))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            .padding(Theme.Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Size.cornerRadius)
+                    .fill(Theme.Surface.headerTint.opacity(Theme.Opacity.subtle))
+            )
+        }
+    }
+
+    /// Assemble the process story from what the snapshot actually knows.
+    /// Missing facts are omitted, not guessed — an empty result shows the
+    /// honest "nothing enriched" line.
+    private func storyLines(for port: PortProcess) -> [StoryLine] {
+        var lines: [StoryLine] = []
+        let type = viewModel.connectionType(for: port)
+
+        if let uptime = viewModel.processUptime(for: port) {
+            var text = "Up \(uptime)"
+            if let start = port.startTime {
+                text += " — started \(Self.storyDateFormatter.string(from: start))"
+            }
+            lines.append(StoryLine(icon: Theme.Icon.uptime, color: Theme.ConfigIcon.uptime, text: text))
+        }
+
+        switch (port.gitRepo, port.gitBranch) {
+        case let (repo?, branch?):
+            lines.append(StoryLine(icon: "arrow.triangle.branch", color: Theme.Action.treeView, text: "From the \(repo) repo on branch \(branch)"))
+        case let (nil, branch?):
+            lines.append(StoryLine(icon: "arrow.triangle.branch", color: Theme.Action.treeView, text: "On branch \(branch)"))
+        case let (repo?, nil):
+            lines.append(StoryLine(icon: "arrow.triangle.branch", color: Theme.Action.treeView, text: "From the \(repo) repo"))
+        default:
+            // No repo signal — the working directory is the next-best "where".
+            if let cwd = port.workingDirectory, !cwd.isEmpty {
+                lines.append(StoryLine(icon: Theme.Icon.workingDirectory, color: Theme.ConfigIcon.workingDirectory, text: "Running from \(cwd)"))
+            }
+        }
+
+        if let framework = port.framework {
+            lines.append(StoryLine(icon: "hammer", color: Theme.ConfigIcon.type, text: "Serving a \(framework) app"))
+        }
+
+        if let ppid = port.parentPID, let parentName = viewModel.parentProcessName(for: port) {
+            lines.append(StoryLine(icon: Theme.Icon.ppid, color: Theme.ConfigIcon.ppid, text: "Launched by \(parentName) (pid \(String(ppid)))"))
+        }
+
+        // The connection story — only when the type says more than "local".
+        if type != .local {
+            var text = "\(type.rawValue) listener"
+            if let name = viewModel.tunnelName(for: port) {
+                text = "\(type.rawValue) → \(name)"
+            }
+            if let detail = viewModel.tunnelDetail(for: port) {
+                text += " (\(detail))"
+            }
+            lines.append(StoryLine(icon: type.icon, color: type.color, text: text))
+        }
+
+        if port.isStopped {
+            lines.append(StoryLine(icon: "pause.circle.fill", color: Theme.Status.warning, text: "Frozen (SIGSTOP) — the port stays bound while the process is paused"))
+        }
+
+        return lines
     }
 
     // MARK: - Connection Section
