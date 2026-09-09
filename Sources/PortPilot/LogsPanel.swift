@@ -1,37 +1,5 @@
 import SwiftUI
 
-// MARK: - Log Entry Model
-struct LogEntry: Identifiable, Equatable {
-    let id = UUID()
-    let timestamp: Date
-    let source: String
-    let message: String
-    let level: LogLevel
-    let portNumber: Int?
-
-    enum LogLevel: String {
-        case info
-        case success
-        case warning
-        case error
-
-        var color: Color {
-            switch self {
-            case .info: return .primary
-            case .success: return Theme.Status.connected
-            case .warning: return Theme.Status.warning
-            case .error: return Theme.Status.error
-            }
-        }
-    }
-
-    var formattedTime: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter.string(from: timestamp)
-    }
-}
-
 // MARK: - Logs Panel
 struct LogsPanel: View {
     @ObservedObject var viewModel: PortViewModel

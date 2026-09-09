@@ -14,6 +14,10 @@ class MenuBarController: NSObject, ObservableObject {
 
     @Published var isPanelShown = false
 
+    /// When the dropdown was last opened — bound/released events after this
+    /// drive the icon's "changed since you looked" count.
+    private var glanceResetDate = Date()
+
     nonisolated(unsafe) private var metricsTimer: Timer?
     /// Refreshes port data while the dropdown is open, honoring the
     /// "Auto-refresh interval" setting. Previously that setting did nothing.
@@ -67,8 +71,11 @@ class MenuBarController: NSObject, ObservableObject {
     }
 
     private func refreshCapsuleMetrics() {
-        let alertState: AlertState = portViewModel.alertState
-        updateMenuBarIcon(alertState: alertState)
+        updateMenuBarIcon(
+            alertState: portViewModel.alertState,
+            hasFrozen: portViewModel.hasFrozenProcess,
+            changeCount: portViewModel.timelineChangeCount(since: glanceResetDate)
+        )
     }
 
     @objc private func togglePanel() {
@@ -122,6 +129,9 @@ class MenuBarController: NSObject, ObservableObject {
         panel?.setContentSize(NSSize(width: panelWidth, height: panelHeight))
         panel?.showBelow(button: button)
         isPanelShown = true
+        // The glance count clears as the user looks — anything after this
+        // accumulates toward the next badge.
+        glanceResetDate = Date()
 
         // Scope event monitor to when panel is open
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -209,19 +219,30 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
 
-    func updateMenuBarIcon(alertState: AlertState = .normal) {
+    /// Glanceability: critical beats frozen beats the resting symbol, and a
+    /// count of port changes since the dropdown was last opened rides next
+    /// to the icon until the next glance clears it.
+    func updateMenuBarIcon(alertState: AlertState = .normal, hasFrozen: Bool = false, changeCount: Int = 0) {
         guard let button = statusItem?.button else { return }
 
-        let symbolName = alertState == .critical
-            ? "exclamationmark.triangle.fill"
-            : "network.badge.shield.half.filled"
+        let symbolName: String
+        var colored = false
+        if alertState == .critical {
+            symbolName = "exclamationmark.triangle.fill"
+            colored = true
+        } else if hasFrozen {
+            symbolName = "pause.circle.fill"
+        } else {
+            symbolName = "network.badge.shield.half.filled"
+        }
 
         if let icon = NSImage(systemSymbolName: symbolName, accessibilityDescription: "PortPilot") {
             icon.size = NSSize(width: 18, height: 18)
-            icon.isTemplate = alertState != .critical
+            icon.isTemplate = !colored
             button.image = icon
+            button.title = changeCount > 0 ? "\(changeCount)" : ""
         } else {
-            button.title = "PP"
+            button.title = changeCount > 0 ? "PP · \(changeCount)" : "PP"
         }
     }
 
@@ -266,6 +287,7 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     static let portAvailableCategoryIdentifier = "PORT_AVAILABLE"
     static let reservedPortCategoryIdentifier = "RESERVED_PORT"
     static let connectionAlertCategoryIdentifier = "CONNECTION_ALERT"
+    static let guardActionCategoryIdentifier = "GUARD_ACTION"
 
     override init() {
         self.portWatcher = PortWatcher(portManager: portManager)
@@ -332,11 +354,19 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
             options: [.customDismissAction]
         )
 
+        let guardActionCategory = UNNotificationCategory(
+            identifier: Self.guardActionCategoryIdentifier,
+            actions: [dismissAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
         center.setNotificationCategories([
             portOccupiedCategory,
             portAvailableCategory,
             reservedPortCategory,
-            connectionAlertCategory
+            connectionAlertCategory,
+            guardActionCategory
         ])
     }
 
@@ -519,6 +549,22 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
                 "blocklistedCount": blocklistedCount,
                 "suspiciousProcesses": suspiciousProcesses.map { ["processName": $0.processName, "count": $0.connectionCount] }
             ]
+        )
+    }
+
+    // MARK: - Guard Notifications
+
+    /// Loud, one-per-victim notice that the port guard evicted a squatter.
+    /// The eviction already happened — the notification is the audit trail.
+    func sendGuardEviction(port: Int, command: String, pid: Int) {
+        guard notificationsEnabled else { return }
+
+        sendNotification(
+            title: "Port Guard",
+            body: "Evicted \(command) (PID \(pid)) from port \(port)",
+            identifier: "guard-evict-\(port)-\(pid)",
+            categoryIdentifier: Self.guardActionCategoryIdentifier,
+            userInfo: ["port": port, "pid": pid]
         )
     }
 

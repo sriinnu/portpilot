@@ -12,6 +12,8 @@ Build and installation instructions: [README.md](README.md). Source tree and int
 | Freeze a process without losing its state/port | `portpilot pause 3000` (resume: `portpilot resume 3000`) |
 | List everything listening (ports + Unix sockets) | `portpilot list` / TUI Sockets tab |
 | Find active tunnels (SSH forwards, kubectl, Cloudflare) | TUI Ports tab (TYPE column); menu bar dropdown List View groups by connection type |
+| Keep a port yours across restarts | macOS app: Settings → Guard → arm the port (see [Port guard](#port-guard)) |
+| See what bound/released/killed recently | macOS app main window → Timeline inspector tab |
 | Check whether a local daemon is running | TUI Sockets tab (PID + socket path) |
 | Inspect established connections by process | `portpilot connections` |
 | Free a port range before starting services | `portpilot find --start 8000 --end 8999` |
@@ -138,7 +140,8 @@ Menu bar dropdown:
 |--------|-----|
 | Open dropdown | Click the menu bar icon |
 | Filter by protocol | All / TCP / UDP chips |
-| Switch grouping | List View (by connection type) / Tree View (by process) toggle |
+| Switch grouping | List View (by connection type) / Tree View toggle; Tree View has a Process/Project axis — Project groups by git repo, then working directory |
+| Check what changed since last look | The menu bar icon carries a change count until the dropdown is opened; a paused glyph means a frozen process, red means critical connection alerts |
 | View cronjobs | Schedules section (read-only list) |
 | Kill a process | Hover a row, click the kill action |
 | Open main window | "Open PortPilot App" at the bottom |
@@ -148,8 +151,10 @@ Main window:
 | Action | How |
 |--------|-----|
 | Select port | Click a row in the port list |
-| Inspect process | Configuration panel shows PID, path, working directory, CPU, uptime, connections |
-| Start/stop TCP proxy | Configuration panel → Quick Proxy → set target port → Start/Stop |
+| Inspect process | Overview panel: process story (uptime, repo/branch, framework, parent, tunnel) followed by the full field grid |
+| Review port history | Timeline inspector tab — bound/released/killed/paused/resumed/guard events, newest first; "This port" filters to the selection |
+| Guard a port | Settings → Guard → Arm. Holders at arm time are grandfathered; later binders are evicted |
+| Start/stop TCP proxy | Overview panel → Quick Proxy → set target port → Start/Stop |
 | Filter | Protocol and type filters in the sidebar; system-process toggle in the toolbar |
 | Kill process | Kill action on the selected port |
 | Cronjob controls | Schedules section: pause/resume (personal crontab only, stored with a recoverable marker), Run Now, Stop, run history. System cron entries are read-only. |
@@ -224,6 +229,17 @@ Processes are classified from the executable path (`proc_pidpath` on macOS), eva
 | Windows | `netstat -ano` + `tasklist /FO CSV /NH` |
 
 Process execution has a 10-second timeout; shared caches are NSLock-guarded.
+
+### Port guard
+
+macOS app only (Settings → Guard). A guard on port N means: processes holding N when the guard was armed are allowed to stay (grandfathered), and any process that binds N afterwards is killed within ~2 seconds — SIGTERM first, SIGKILL if it survives. Semantics worth knowing:
+
+- **Grandfathering is per-pid, snapshot-at-arm** — restarting your own service re-binds the port and gets evicted. Disarm, restart, re-arm.
+- A port-usage snapshot that hasn't landed yet holds fire (nil snapshot = no evictions), so arming on a busy port is safe.
+- Guards are always sweeping, independent of the background-monitoring toggle.
+- A guarded port cannot be reserved and vice versa — the Settings panes refuse the overlap in both directions.
+- Every eviction sends a notification (Guard category) and writes a `guard` event to the Timeline and activity log.
+- Guard state persists across launches via app UserDefaults; there is no CLI surface for guards.
 
 ### Blocklist
 

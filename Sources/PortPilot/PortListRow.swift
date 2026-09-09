@@ -8,6 +8,7 @@ struct PortListRow: View {
     let port: PortProcess
     let isSelected: Bool
     let isFavorite: Bool
+    var isGuarded: Bool = false
     let onSelect: () -> Void
     let onKill: () -> Void
     let onPauseResume: () -> Void
@@ -126,6 +127,12 @@ struct PortListRow: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Theme.Status.warning.opacity(0.14))
                             )
+                    }
+                    if isGuarded {
+                        Image(systemName: "shield.fill")
+                            .font(appSettings.appMonoFont(size: 8, weight: .bold))
+                            .foregroundColor(Theme.Action.treeView)
+                            .help("Guarded — new binders on this port are evicted")
                     }
                     if let uptime = processUptime {
                         Text(uptime)

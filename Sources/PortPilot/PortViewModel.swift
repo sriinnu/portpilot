@@ -129,11 +129,18 @@ class PortViewModel: ObservableObject {
     /// Cached grouped connections - updated whenever allConnections changes
     @Published private var connectionsGroupedCache: [(processName: String, connections: [EstablishedConnection], totalCount: Int)] = []
 
-    // Cronjobs (for Schedules tab)
-    @Published var cronjobs: [CronjobEntry] = []
-    @Published var isLoadingCronjobs: Bool = false
-    @Published var cronRunHistory: [String: CronRunRecord] = [:]
-    @Published var runningCronjobIDs: Set<String> = []
+    // Cronjobs (for Schedules tab) — owned by the controller; these
+    // forwards keep view call sites stable. The VM relays the controller's
+    // objectWillChange so views observing the VM stay live.
+    let cron: CronjobController
+    var cronjobs: [CronjobEntry] { cron.jobs }
+    var isLoadingCronjobs: Bool { cron.isLoading }
+    var cronRunHistory: [String: CronRunRecord] { cron.runHistory }
+    var runningCronjobIDs: Set<String> { cron.runningIDs }
+
+    // Port guard — armed enforcement, independent of the monitoring toggle.
+    let portGuard: PortGuardStore
+    func isGuarded(_ port: Int) -> Bool { portGuard.isGuarded(port) }
 
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
@@ -165,8 +172,9 @@ class PortViewModel: ObservableObject {
     @Published var successMessage: String?
     @Published var lastRefresh: Date?
 
-    // Logs
-    @Published var logs: [LogEntry] = []
+    // Logs — owned by the activity store; `logs` forwards for existing call sites.
+    let activityLog = ActivityLogStore()
+    var logs: [LogEntry] { activityLog.entries }
 
     // Proxy sessions
     @Published var proxySessions: [ProxySession] = []
@@ -211,12 +219,32 @@ class PortViewModel: ObservableObject {
         case all = "All"
     }
 
+    private var cancellables: Set<AnyCancellable> = []
+
     init() {
+        // First: cron and portGuard have no defaults, and their error hooks
+        // capture self — assign before anything else uses self.
+        cron = CronjobController(log: activityLog)
+        portGuard = PortGuardStore(log: activityLog)
+        cron.onError = { [weak self] message in self?.raiseError(message) }
+        portGuard.onError = { [weak self] message in self?.raiseError(message) }
+
+        // One central relay: store mutations re-render views that observe
+        // the VM, so no view has to observe the stores directly.
+        activityLog.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        cron.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        portGuard.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
         loadFavorites()
         loadConnectionNames()
         refreshPorts()
         setupProxyCallbacks()
-        setupCronRunCallbacks()
     }
 
     var portCount: Int { filteredPorts.count }
@@ -252,265 +280,21 @@ class PortViewModel: ObservableObject {
 
     // MARK: - Tunnel Detection
 
-    /// Known database process names
-    static let databaseProcesses: Set<String> = [
-        "postgres", "postmaster", "pg_ctl",      // PostgreSQL
-        "mysqld", "mariadb",                     // MySQL/MariaDB
-        "mongod", "mongos",                      // MongoDB
-        "redis-server", "redis-cli", "redis-sentinel",  // Redis
-        "memcached",                             // Memcached
-        "sqlserver",                             // SQL Server
-        "oracle",                                // Oracle
-        "cassandra",                             // Cassandra
-        "cockroach",                             // CockroachDB
-        "neo4j",                                 // Neo4j
-        "influxd",                               // InfluxDB
-        "clickhouse-server",                     // ClickHouse
-        "duckdb",                                // DuckDB
-        "qdrant",                                // Qdrant vector DB
-        "weaviate",                              // Weaviate vector DB
-        "milvus",                                // Milvus vector DB
-        "pgbouncer",                             // PgBouncer connection pooler
-        "haproxy",                               // HAProxy
-    ]
-
     func connectionType(for port: PortProcess) -> ConnectionType {
         // Scans fullCommand with a dozen contains() per call — and rows call
         // it twice per render (icon + color). Cached per data snapshot.
         if let cached = connectionTypeCache[port.id] {
             return cached
         }
-        let resolved = resolveConnectionType(for: port)
+        let resolved = TunnelInspector.resolveConnectionType(for: port)
         connectionTypeCache[port.id] = resolved
         return resolved
     }
 
-    private func resolveConnectionType(for port: PortProcess) -> ConnectionType {
-        let basename = port.command.lowercased()
-        let full = (port.fullCommand ?? "").lowercased()
-
-        // Check for database processes first
-        if Self.databaseProcesses.contains(basename) {
-            return .database
-        }
-
-        // Check full command for database patterns
-        for dbProcess in Self.databaseProcesses {
-            if full.contains(dbProcess) {
-                return .database
-            }
-        }
-
-        switch basename {
-        case "cloudflared":
-            return .cloudflare
-        case "kubectl":
-            return .kubernetes
-        case "ssh":
-            return .ssh
-        default:
-            // Also check fullCommand for tunnel patterns
-            if full.contains("kubectl") && full.contains("port-forward") {
-                return .kubernetes
-            }
-            if full.contains("ssh") && (full.contains(" -l ") || full.contains(" -r ") || full.contains(" -d ")) {
-                return .ssh
-            }
-            if full.contains("cloudflared") && (full.contains("tunnel") || full.contains("access")) {
-                return .cloudflare
-            }
-            return .local
-        }
-    }
-
-    func tunnelName(for port: PortProcess) -> String? {
-        guard let full = port.fullCommand else { return nil }
-        let type = connectionType(for: port)
-
-        switch type {
-        case .ssh:
-            // Extract remote host: look for user@host or bare host argument
-            let tokens = full.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-            for token in tokens {
-                if token.contains("@") && !token.hasPrefix("-") {
-                    // user@remote-host → "remote-host"
-                    let parts = token.split(separator: "@", maxSplits: 1)
-                    if parts.count == 2 {
-                        return String(parts[1])
-                    }
-                }
-            }
-            return nil
-
-        case .kubernetes:
-            // Extract resource name: port-forward (svc|pod|deploy)/name → name
-            if let range = full.range(of: #"port-forward\s+(?:svc|pod|deploy|service|deployment)/(\S+)"#, options: .regularExpression) {
-                let match = String(full[range])
-                let parts = match.split(separator: " ", omittingEmptySubsequences: true)
-                if parts.count >= 2 {
-                    let resource = String(parts[1])
-                    // Extract just the name after the /
-                    if let slashIdx = resource.firstIndex(of: "/") {
-                        return String(resource[resource.index(after: slashIdx)...])
-                    }
-                }
-            }
-            return nil
-
-        case .cloudflare:
-            // Extract tunnel name: tunnel run <name> → name
-            if let range = full.range(of: #"tunnel\s+run\s+(\S+)"#, options: .regularExpression) {
-                let match = String(full[range])
-                let name = match.split(separator: " ").last.map(String.init)
-                return name
-            }
-            // Extract hostname: --hostname <host>
-            if let range = full.range(of: #"--hostname\s+(\S+)"#, options: .regularExpression) {
-                let match = String(full[range])
-                let host = match.split(separator: " ").last.map(String.init)
-                return host
-            }
-            return nil
-
-        case .database:
-            return nil
-        case .local:
-            return nil
-        }
-    }
-
-    func tunnelDetail(for port: PortProcess) -> String? {
-        guard let full = port.fullCommand else { return nil }
-        let type = connectionType(for: port)
-
-        switch type {
-        case .ssh:
-            return parseSSHTunnelDetail(full)
-        case .kubernetes:
-            return parseKubectlTunnelDetail(full)
-        case .cloudflare:
-            return parseCloudflareTunnelDetail(full)
-        case .database:
-            return port.command
-        case .local:
-            return nil
-        }
-    }
-
-    func kubeNamespace(for port: PortProcess) -> String {
-        guard let full = port.fullCommand else { return "default" }
-        let tokens = full.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        for (i, token) in tokens.enumerated() {
-            if (token == "-n" || token == "--namespace") && i + 1 < tokens.count {
-                return tokens[i + 1]
-            }
-        }
-        return "default"
-    }
-
-    func portMappingInfo(for port: PortProcess) -> PortMappingInfo {
-        guard let full = port.fullCommand else {
-            return PortMappingInfo(localPort: port.port, remotePort: nil, remoteHost: nil, protocolName: port.protocolName)
-        }
-        let type = connectionType(for: port)
-
-        switch type {
-        case .ssh:
-            // Parse -L localPort:host:remotePort
-            if let range = full.range(of: #"-[LR]\s+(\S+)"#, options: .regularExpression) {
-                let match = String(full[range])
-                let spec = match.drop(while: { $0 != " " }).trimmingCharacters(in: .whitespaces)
-                let parts = spec.split(separator: ":")
-                if parts.count >= 3 {
-                    let remoteHost = String(parts[1])
-                    let remotePort = Int(parts[2])
-                    return PortMappingInfo(localPort: port.port, remotePort: remotePort, remoteHost: remoteHost, protocolName: port.protocolName)
-                }
-            }
-
-        case .kubernetes:
-            // Parse port-forward ... localPort:remotePort
-            if let range = full.range(of: #"port-forward\s+\S+\s+(\d+):(\d+)"#, options: .regularExpression) {
-                let match = String(full[range])
-                let tokens = match.split(separator: " ", omittingEmptySubsequences: true)
-                if tokens.count >= 3 {
-                    let portSpec = tokens[2].split(separator: ":")
-                    if portSpec.count == 2, let remotePort = Int(portSpec[1]) {
-                        let resource = String(tokens[1])
-                        return PortMappingInfo(localPort: port.port, remotePort: remotePort, remoteHost: resource, protocolName: port.protocolName)
-                    }
-                }
-            }
-
-        case .cloudflare:
-            // Parse --url localhost:port or extract origin info
-            if let range = full.range(of: #"--url\s+\S+:(\d+)"#, options: .regularExpression) {
-                let match = String(full[range])
-                let urlPart = match.split(separator: " ").last ?? ""
-                let parts = urlPart.split(separator: ":")
-                if let remotePort = Int(parts.last ?? "") {
-                    return PortMappingInfo(localPort: port.port, remotePort: remotePort, remoteHost: "cloudflare", protocolName: port.protocolName)
-                }
-            }
-
-        case .database:
-            break
-        case .local:
-            break
-        }
-
-        return PortMappingInfo(localPort: port.port, remotePort: nil, remoteHost: nil, protocolName: port.protocolName)
-    }
-
-    private func parseSSHTunnelDetail(_ command: String) -> String? {
-        // Match -L localPort:host:remotePort
-        if let range = command.range(of: #"-[LR]\s+(\S+)"#, options: .regularExpression) {
-            let match = String(command[range])
-            // Remove the flag prefix (-L or -R + space)
-            let spec = match.drop(while: { $0 != " " }).trimmingCharacters(in: .whitespaces)
-            let parts = spec.split(separator: ":")
-            if parts.count >= 3 {
-                return "→ \(parts[1]):\(parts[2])"
-            } else if parts.count == 2 {
-                return "→ \(parts[0]):\(parts[1])"
-            }
-        }
-        // Match -D port (SOCKS proxy)
-        if let range = command.range(of: #"-D\s+(\d+)"#, options: .regularExpression) {
-            let match = String(command[range])
-            let proxyPort = match.split(separator: " ").last ?? ""
-            return "SOCKS :\(proxyPort)"
-        }
-        return nil
-    }
-
-    private func parseKubectlTunnelDetail(_ command: String) -> String? {
-        // Match port-forward (svc|pod|deploy)/name localPort:remotePort
-        if let range = command.range(of: #"port-forward\s+(svc|pod|deploy|service|deployment)/(\S+)\s+(\d+:\d+)"#, options: .regularExpression) {
-            let match = String(command[range])
-            let parts = match.split(separator: " ", omittingEmptySubsequences: true)
-            if parts.count >= 3 {
-                let resource = parts[1]
-                let ports = parts[2]
-                return "\(resource):\(ports.split(separator: ":").last ?? ports)"
-            }
-        }
-        return nil
-    }
-
-    private func parseCloudflareTunnelDetail(_ command: String) -> String? {
-        // Match tunnel run <name>
-        if let range = command.range(of: #"tunnel\s+run\s+(\S+)"#, options: .regularExpression) {
-            let match = String(command[range])
-            let name = match.split(separator: " ").last ?? ""
-            return "tunnel: \(name)"
-        }
-        // Match access tcp
-        if command.contains("access tcp") {
-            return "access tcp"
-        }
-        return nil
-    }
+    func tunnelName(for port: PortProcess) -> String? { TunnelInspector.tunnelName(for: port) }
+    func tunnelDetail(for port: PortProcess) -> String? { TunnelInspector.tunnelDetail(for: port) }
+    func kubeNamespace(for port: PortProcess) -> String { TunnelInspector.kubeNamespace(for: port) }
+    func portMappingInfo(for port: PortProcess) -> PortMappingInfo { TunnelInspector.portMappingInfo(for: port) }
 
     // MARK: - Port Categorization
 
@@ -611,6 +395,7 @@ class PortViewModel: ObservableObject {
 
                 dockerInfoCache.removeAll()
                 parentProcessNameCache = snapshot.parentProcessNames
+                let previousPorts = allPortsCache
                 allPortsCache = snapshot.processes.sorted {
                     // I keep network ports ahead of sockets so the main list stays stable.
                     if $0.isUnixSocket != $1.isUnixSocket { return !$0.isUnixSocket }
@@ -620,6 +405,12 @@ class PortViewModel: ObservableObject {
                 ports = allPortsCache
                 connectionTypeCache.removeAll()
                 lastRefresh = Date()
+                // Only full scans feed the timeline — a ranged refresh would
+                // read as mass frees (everything outside the range), then a
+                // storm of binds when the range clears.
+                if startPort == nil && endPort == nil {
+                    emitTimelineEvents(previous: previousPorts, current: allPortsCache)
+                }
                 applyFilters()
                 // Clear stale selection if the selected port no longer exists
                 if let sel = selectedPort, !filteredPorts.contains(where: { $0.id == sel.id }) {
@@ -643,6 +434,51 @@ class PortViewModel: ObservableObject {
                 )
             }
         }
+    }
+
+    /// Timeline: flips after the first snapshot lands so the initial
+    /// population doesn't fire a storm of "bound" events.
+    private var hasPortBaseline = false
+
+    /// Diff two port snapshots into timeline events. Network ports only —
+    /// Unix sockets churn constantly and would bury the signal.
+    private func emitTimelineEvents(previous: [PortProcess], current: [PortProcess]) {
+        guard hasPortBaseline else {
+            hasPortBaseline = true
+            return
+        }
+
+        let previousKeys = Set(previous.filter { !$0.isUnixSocket }.map(Self.timelineKey))
+        let currentKeys = Set(current.filter { !$0.isUnixSocket }.map(Self.timelineKey))
+
+        for process in current where !process.isUnixSocket {
+            if !previousKeys.contains(Self.timelineKey(process)) {
+                addLog(
+                    source: "timeline",
+                    message: "\(process.command) bound :\(process.port)",
+                    level: .success,
+                    port: process.port,
+                    event: .bound
+                )
+            }
+        }
+        for process in previous where !process.isUnixSocket {
+            if !currentKeys.contains(Self.timelineKey(process)) {
+                addLog(
+                    source: "timeline",
+                    message: "\(process.command) released :\(process.port)",
+                    level: .info,
+                    port: process.port,
+                    event: .freed
+                )
+            }
+        }
+    }
+
+    /// A process instance on the wire: same port held by a new pid is a
+    /// release + a bind, which is exactly the story the timeline should tell.
+    private static func timelineKey(_ process: PortProcess) -> String {
+        "\(process.port):\(process.protocolName):\(process.pid)"
     }
 
     /// I keep shell and process discovery off the main actor and return one UI-ready snapshot.
@@ -767,127 +603,13 @@ class PortViewModel: ObservableObject {
             .sorted { $0.totalCount > $1.totalCount }
     }
 
-    private var latestCronjobsRefreshID = UUID()
-
-    /// Refresh all cronjobs (scheduled tasks).
-    func refreshCronjobs() {
-        isLoadingCronjobs = true
-        let refreshID = UUID()
-        latestCronjobsRefreshID = refreshID
-
-        let snapshotTask = Task.detached(priority: .userInitiated) {
-            Self.loadCronjobsSnapshot()
-        }
-
-        Task {
-            let jobs = await snapshotTask.value
-            guard latestCronjobsRefreshID == refreshID else { return }
-            cronjobs = jobs
-            isLoadingCronjobs = false
-            for job in jobs {
-                cronRunHistory[job.id] = CronRunManager.shared.record(for: job.id)
-            }
-            runningCronjobIDs = Set(jobs.map(\.id).filter { CronRunManager.shared.isRunning($0) })
-        }
-    }
-
-    nonisolated private static func loadCronjobsSnapshot() -> [CronjobEntry] {
-        PortManager().getCronjobs()
-    }
-
     // MARK: - Cronjob Control
 
-    /// Wire up CronRunManager's callbacks so "Run Now" progress/results surface in the UI and Activity log.
-    func setupCronRunCallbacks() {
-        CronRunManager.shared.onUpdate = { [weak self] jobID, record in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.cronRunHistory[jobID] = record
-                if record.isRunning {
-                    self.runningCronjobIDs.insert(jobID)
-                } else {
-                    self.runningCronjobIDs.remove(jobID)
-                }
-            }
-        }
-        CronRunManager.shared.onLog = { [weak self] message, isError in
-            DispatchQueue.main.async {
-                self?.addLog(source: "cron", message: message, level: isError ? .error : .success)
-            }
-        }
-    }
-
-    /// Trigger a cronjob's command immediately, outside of its schedule.
-    func runCronjobNow(_ job: CronjobEntry) {
-        let started = CronRunManager.shared.runNow(job: job)
-        if !started {
-            addLog(source: "cron", message: "\(job.command) is already running", level: .info)
-        }
-    }
-
-    /// Stop a cronjob run — whatever PortPilot started, plus a best-effort sweep for
-    /// matching processes the cron daemon may have kicked off independently.
-    func stopCronjob(_ job: CronjobEntry) {
-        let command = job.command
-        let jobID = job.id
-
-        // Both kill paths walk process trees and TERM-wait — doing either on
-        // the main actor hung the UI for up to ~3s per Stop click.
-        let stopTask = Task.detached(priority: .userInitiated) {
-            let stoppedTracked = CronRunManager.shared.stop(jobID: jobID)
-            let killedCount = PortManager().stopRunningProcesses(matching: command)
-            return (stoppedTracked, killedCount)
-        }
-
-        Task {
-            let (stoppedTracked, killedCount) = await stopTask.value
-            if stoppedTracked || killedCount > 0 {
-                addLog(source: "cron", message: "Stopped \(command)", level: .info)
-            } else {
-                addLog(source: "cron", message: "\(command) is not currently running", level: .info)
-            }
-        }
-    }
-
-    /// Pause a user crontab entry so the cron daemon skips it until resumed.
-    func pauseCronjob(_ job: CronjobEntry) {
-        let command = job.command
-
-        let pauseTask = Task.detached(priority: .userInitiated) {
-            try PortManager().pauseCronjob(job)
-        }
-
-        Task {
-            do {
-                try await pauseTask.value
-                addLog(source: "cron", message: "Paused \(command)", level: .info)
-                refreshCronjobs()
-            } catch {
-                raiseError(error.localizedDescription)
-                addLog(source: "cron", message: "Failed to pause \(command): \(error.localizedDescription)", level: .error)
-            }
-        }
-    }
-
-    /// Resume a paused user crontab entry.
-    func resumeCronjob(_ job: CronjobEntry) {
-        let command = job.command
-
-        let resumeTask = Task.detached(priority: .userInitiated) {
-            try PortManager().resumeCronjob(job)
-        }
-
-        Task {
-            do {
-                try await resumeTask.value
-                addLog(source: "cron", message: "Started \(command)", level: .info)
-                refreshCronjobs()
-            } catch {
-                raiseError(error.localizedDescription)
-                addLog(source: "cron", message: "Failed to start \(command): \(error.localizedDescription)", level: .error)
-            }
-        }
-    }
+    func refreshCronjobs() { cron.refresh() }
+    func runCronjobNow(_ job: CronjobEntry) { cron.runNow(job) }
+    func stopCronjob(_ job: CronjobEntry) { cron.stop(job) }
+    func pauseCronjob(_ job: CronjobEntry) { cron.pause(job) }
+    func resumeCronjob(_ job: CronjobEntry) { cron.resume(job) }
 
     /// Kill a process by PID (used from Connections tab).
     func killProcess(pid: Int) {
@@ -971,7 +693,7 @@ class PortViewModel: ObservableObject {
             let killed = await killTask.value
             if killed {
                 successMessage = "Killed \(port.command) on port \(port.port)"
-                addLog(source: "kill", message: "Killed pid \(pid) (\(port.command)) on port \(port.port)", level: .success, port: port.port)
+                addLog(source: "kill", message: "Killed pid \(pid) (\(port.command)) on port \(port.port)", level: .success, port: port.port, event: .killed)
             } else {
                 raiseError("Failed to kill \(port.command) (pid \(pid))")
                 isLoading = false
@@ -1012,7 +734,7 @@ class PortViewModel: ObservableObject {
             if delivered {
                 let verb = signal == "pause" ? "Paused" : "Resumed"
                 successMessage = "\(verb) \(process.command) on port \(process.port)"
-                addLog(source: signal, message: "\(verb) pid \(pid) (\(process.command)) on port \(process.port)", level: .success, port: process.port)
+                addLog(source: signal, message: "\(verb) pid \(pid) (\(process.command)) on port \(process.port)", level: .success, port: process.port, event: signal == "pause" ? .paused : .resumed)
             } else {
                 raiseError("Failed to \(signal) \(process.command) (pid \(pid))")
                 addLog(source: signal, message: "Failed to \(signal) pid \(pid) on port \(process.port)", level: .error, port: process.port)
@@ -1057,7 +779,7 @@ class PortViewModel: ObservableObject {
             let killedCount = targets.count - failures.count
             if killedCount > 0 {
                 successMessage = "Killed \(killedCount) port(s)"
-                addLog(source: "kill", message: "Killed \(killedCount) process(es)", level: .success)
+                addLog(source: "kill", message: "Killed \(killedCount) process(es)", level: .success, event: .killed)
             }
             refreshPorts()
         }
@@ -1152,29 +874,20 @@ class PortViewModel: ObservableObject {
 
     // MARK: - Log Management
 
-    func addLog(source: String, message: String, level: LogEntry.LogLevel, port: Int? = nil) {
-        let entry = LogEntry(timestamp: Date(), source: source, message: message, level: level, portNumber: port)
-        logs.append(entry)
-
-        // Keep last 500 entries
-        if logs.count > 500 {
-            logs.removeFirst(logs.count - 500)
-        }
+    func addLog(source: String, message: String, level: LogEntry.LogLevel, port: Int? = nil, event: LogEntry.LogEvent? = nil) {
+        activityLog.add(source: source, message: message, level: level, port: port, event: event)
     }
 
     func logsForPort(_ port: Int) -> [LogEntry] {
-        logs.filter { $0.portNumber == port || $0.portNumber == nil }
+        activityLog.entries(for: port)
     }
 
     func clearLogs() {
-        logs.removeAll()
+        activityLog.clear()
     }
 
     func copyLogs() {
-        let text = logs.map { "\($0.formattedTime) [\($0.source)] \($0.message)" }.joined(separator: "\n")
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        activityLog.copyAll()
     }
 
     // MARK: - Process Intelligence
@@ -1395,6 +1108,21 @@ extension PortViewModel {
 
 // MARK: - Alert Detection
 extension PortViewModel {
+    /// True while any known port process is SIGSTOPped — the menubar icon
+    /// switches to a paused glyph so a frozen server isn't forgotten.
+    var hasFrozenProcess: Bool {
+        allPortsCache.contains { $0.isStopped }
+    }
+
+    /// Bound/released events since `date` — the menubar's "changed since
+    /// you last looked" count. Resets when the dropdown opens.
+    func timelineChangeCount(since date: Date) -> Int {
+        activityLog.entries.filter { entry in
+            guard let event = entry.event, entry.timestamp > date else { return false }
+            return event == .bound || event == .freed
+        }.count
+    }
+
     /// Count of blocklisted connections
     var blocklistedCount: Int {
         allConnections.filter { $0.isBlocklisted }.count

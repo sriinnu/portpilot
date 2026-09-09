@@ -1,6 +1,6 @@
 # PortPilot
 
-PortPilot inspects what is running on the machine: listening TCP/UDP ports, Unix-socket daemons, established connections, and cronjobs. It ships as a macOS menu bar app (`PortPilot.app`), a cross-platform CLI (`portpilot`), and a terminal UI (`portpilot-tui`). It classifies processes by executable path, kills processes by port, and runs a local TCP proxy.
+PortPilot inspects what is running on the machine: listening TCP/UDP ports, Unix-socket daemons, established connections, and cronjobs. It ships as a macOS menu bar app (`PortPilot.app`), a cross-platform CLI (`portpilot`), and a terminal UI (`portpilot-tui`). It classifies processes by executable path, kills or pauses processes by port, guards ports against squatters, tracks port lifecycle events on a timeline, and runs a local TCP proxy.
 
 Related docs: [ARCHITECTURE.md](ARCHITECTURE.md) (source tree, tech stack), [CHANGELOG.md](CHANGELOG.md) (release history).
 

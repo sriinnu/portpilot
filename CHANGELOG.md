@@ -2,7 +2,19 @@
 
 All notable changes to PortPilot will be documented in this file.
 
-## [3.1.0] - 2026-07-09
+## [3.3.0] - 2026-09-09
+
+### Added
+- **Port guard** — arm a guard on a port from Settings → Guard. Holders present at arm time are grandfathered; anything new that binds the port is evicted within ~2 seconds (SIGTERM first, SIGKILL if it lingers), with a notification and an activity-log entry per eviction. Guards stay armed regardless of the background-monitoring toggle, and a port cannot be both guarded and reserved — the two refuse each other in both directions.
+- **Timeline tab** — port lifecycle as a first-class stream in the inspector: bound, released, killed, paused, resumed, and guard events, newest first, rendered from the structured event field rather than message parsing, with a "This port" filter. Port changing hands reads as one release plus one bind.
+- **Menubar glanceability** — the menu bar icon carries a count of port changes since the dropdown was last opened (cleared by the next glance), switches to a paused glyph while any known process is SIGSTOPped, and turns critical on connection alerts.
+- **Project grouping** — the dropdown's Tree View gains a Process/Project axis: groups by git repo (falling back to the working directory), so the ports one project owns read as one group with an honest label.
+- **Narrative overview** — the inspector's Overview pane opens with the process story — uptime and start time, repo/branch, framework, parent process, tunnel target, frozen state — assembled from enrichment the refresh already resolved. Missing facts are omitted, not guessed.
+
+### Changed
+- I split the `PortViewModel` god object into domain stores — `ActivityLogStore`, `CronjobController`, `PortGuardStore`, and `TunnelInspector` — with the view model relaying their change notifications so views keep observing one object. No behavior change; ~250 lines lighter and each domain is now testable in isolation.
+
+## [3.2.0] - 2026-09-09
 
 ### Added
 - I added a Pause/Resume toggle for cronjobs in the Schedules tab. Personal crontab entries can be paused (commented out with a recoverable `#PORTPILOT_PAUSED#` marker) and resumed without losing the original schedule or command; system cronjobs stay read-only.
@@ -29,6 +41,9 @@ All notable changes to PortPilot will be documented in this file.
 - **Build & notarize scripts** — `build-and-notarize.sh`, `notarize.sh`, `setup-notarization.sh`
 - **More menu** — dropdown menu with Refresh, Kill All (with confirmation), Settings, Quit and click-outside dismiss
 - **Connection type sections** — ports grouped by Local, Database, Kubernetes, Cloudflare, SSH with colored icons
+- **Nord theme** — cool-toned palette joining the existing theme set
+- **Pause/Resume for processes** — SIGSTOP/SIGCONT from port rows and the dropdown; a frozen process keeps its port and full state
+- **dev-install script** — `scripts/dev-install.sh` builds Release and installs to `/Applications`; `--clean` wipes build state first
 
 ### Changed
 - **Theme sync** — dropdown, settings, and main window all derive colors from the same theme palette
@@ -47,6 +62,7 @@ All notable changes to PortPilot will be documented in this file.
 - **NotificationManager** delegate callback dispatched to main thread for `@Published` safety
 - **Strong self captures** in Tasks and closures replaced with `[weak self]`
 - **Retain cycle** in MenuBarPanel `close()` animation fixed with `[weak self]`
+- **End-to-end review sweep (correctness, threading, a11y)** — cronjob stop matching pinned to exec+args prefix instead of basename; docker façade errors surfaced instead of swallowed; port-watcher callbacks and cron stop moved off the main thread; consume-once error ownership in the model; PID-direct kills from every surface so a late binder can't be killed by mistake
 
 ## [3.0.0] - 2025-03-15
 

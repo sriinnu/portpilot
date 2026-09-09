@@ -10,6 +10,7 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case metrics = "Metrics"
     case logs = "Logs"
+    case timeline = "Timeline"
 
     /// Stable identity for SwiftUI iteration — the raw label doubles as id.
     var id: String { rawValue }
@@ -20,6 +21,7 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         case .overview: return "doc.text.magnifyingglass"
         case .metrics: return "waveform.path.ecg"
         case .logs: return "text.alignleft"
+        case .timeline: return "clock.arrow.circlepath"
         }
     }
 }
