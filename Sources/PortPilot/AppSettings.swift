@@ -25,8 +25,36 @@ enum VisualTheme: String, CaseIterable, Identifiable {
     case paperwhite = "Paperwhite"
     case synthwave = "Synthwave"
     case solarized = "Solarized"
+    case nord = "Nord"
 
     var id: String { rawValue }
+
+    /// This theme's full color palette — the single source every theme
+    /// lookup (and the settings preview card) derives from.
+    var palette: ThemePalette {
+        switch self {
+        case .classic:    return .classic
+        case .graphite:   return .graphite
+        case .sunset:     return .sunset
+        case .oceanic:    return .oceanic
+        case .noir:       return .noir
+        case .retro:      return .retro
+        case .terminal:   return .terminal
+        case .paperwhite: return .paperwhite
+        case .synthwave:  return .synthwave
+        case .solarized:  return .solarized
+        case .nord:       return .nord
+        }
+    }
+
+    /// Themes whose character only lands on dark surfaces — picking one in
+    /// Light appearance deserves a nudge, not silence.
+    var isDarkNative: Bool {
+        switch self {
+        case .noir, .terminal, .synthwave: return true
+        default: return false
+        }
+    }
 
     /// Recommended UI font for this theme
     var recommendedFont: String {
@@ -41,6 +69,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .paperwhite: return "Helvetica Neue"
         case .synthwave: return "Avenir Next"
         case .solarized: return "System Default"
+        case .nord: return "Helvetica Neue"
         }
     }
 
@@ -57,6 +86,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .paperwhite: return "Menlo"
         case .synthwave: return "Menlo"
         case .solarized: return "Menlo"
+        case .nord: return "Menlo"
         }
     }
 
@@ -73,6 +103,27 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .paperwhite: return "Crisp white, editorial calm"
         case .synthwave: return "Magenta + cyan, late 1984"
         case .solarized: return "Developer classic, warm cream"
+        case .nord: return "Polar blues, quiet and cold"
+        }
+    }
+
+    /// Idealized surface tone for the settings preview card. Everything
+    /// else the card shows (accent, primary, secondary) comes live from
+    /// `palette` — only the surface tone is curated per theme, since real
+    /// surfaces are computed blends, not palette entries.
+    var previewSurface: Color {
+        switch self {
+        case .classic:    return Color(white: 0.95)
+        case .graphite:   return Color(red: 0.93, green: 0.94, blue: 0.96)
+        case .sunset:     return Color(red: 0.98, green: 0.95, blue: 0.92)
+        case .oceanic:    return Color(red: 0.90, green: 0.95, blue: 0.98)
+        case .noir:       return Color(white: 0.18)
+        case .retro:      return Color(red: 0.96, green: 0.93, blue: 0.88)
+        case .terminal:   return Color(red: 0.06, green: 0.08, blue: 0.07)
+        case .paperwhite: return Color(white: 0.99)
+        case .synthwave:  return Color(red: 0.10, green: 0.07, blue: 0.20)
+        case .solarized:  return Color(red: 0.99, green: 0.96, blue: 0.89)
+        case .nord:       return Color(red: 0.91, green: 0.93, blue: 0.96)
         }
     }
 }

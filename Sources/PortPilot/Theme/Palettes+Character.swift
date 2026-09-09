@@ -380,4 +380,80 @@ extension ThemePalette {
             dark: NSColor(red: 0.58, green: 0.65, blue: 0.67, alpha: 0.6)
         )
     )
+
+    // MARK: - Nord — polar blues and frost, the quiet dev favorite
+    static let nord = ThemePalette(
+        cloudflare: ThemeColorPair(
+            light: NSColor(red: 0.72, green: 0.44, blue: 0.35, alpha: 1),   // deep nord12 orange
+            dark: NSColor(red: 0.87, green: 0.60, blue: 0.50, alpha: 1)
+        ),
+        kubernetes: ThemeColorPair(
+            light: NSColor(red: 0.44, green: 0.62, blue: 0.61, alpha: 1),   // nord7 teal
+            dark: NSColor(red: 0.53, green: 0.75, blue: 0.82, alpha: 1)     // nord8 frost blue
+        ),
+        local: ThemeColorPair(
+            light: NSColor(red: 0.52, green: 0.63, blue: 0.42, alpha: 1),   // nord14 green
+            dark: NSColor(red: 0.67, green: 0.79, blue: 0.55, alpha: 1)
+        ),
+        database: ThemeColorPair(
+            light: NSColor(red: 0.70, green: 0.45, blue: 0.36, alpha: 1),   // nord12
+            dark: NSColor(red: 0.85, green: 0.59, blue: 0.48, alpha: 1)
+        ),
+        ssh: ThemeColorPair(
+            light: NSColor(red: 0.58, green: 0.46, blue: 0.56, alpha: 1),   // nord15 aurora purple
+            dark: NSColor(red: 0.75, green: 0.61, blue: 0.72, alpha: 1)
+        ),
+        orbstack: ThemeColorPair(
+            light: NSColor(red: 0.31, green: 0.43, blue: 0.60, alpha: 1),   // nord10
+            dark: NSColor(red: 0.45, green: 0.58, blue: 0.73, alpha: 1)     // nord9
+        ),
+        proxy: ThemeColorPair(
+            light: NSColor(red: 0.58, green: 0.46, blue: 0.56, alpha: 1),
+            dark: NSColor(red: 0.75, green: 0.61, blue: 0.72, alpha: 1)
+        ),
+        connected: ThemeColorPair(
+            light: NSColor(red: 0.52, green: 0.63, blue: 0.42, alpha: 1),   // nord14
+            dark: NSColor(red: 0.67, green: 0.79, blue: 0.55, alpha: 1)
+        ),
+        connectedBackground: ThemeColorPair(
+            light: NSColor(red: 0.52, green: 0.63, blue: 0.42, alpha: 0.14),
+            dark: NSColor(red: 0.67, green: 0.79, blue: 0.55, alpha: 0.20)
+        ),
+        error: ThemeColorPair(
+            light: NSColor(red: 0.65, green: 0.32, blue: 0.36, alpha: 1),   // nord11 red
+            dark: NSColor(red: 0.82, green: 0.45, blue: 0.49, alpha: 1)
+        ),
+        warning: ThemeColorPair(
+            light: NSColor(red: 0.75, green: 0.61, blue: 0.32, alpha: 1),   // deep nord13
+            dark: NSColor(red: 0.90, green: 0.78, blue: 0.50, alpha: 1)
+        ),
+        accent: ThemeColorPair(
+            light: NSColor(red: 0.31, green: 0.43, blue: 0.60, alpha: 1),   // nord10
+            dark: NSColor(red: 0.45, green: 0.58, blue: 0.73, alpha: 1)     // nord9
+        ),
+        sponsors: ThemeColorPair(
+            light: NSColor(red: 0.70, green: 0.33, blue: 0.46, alpha: 1),
+            dark: NSColor(red: 0.85, green: 0.47, blue: 0.59, alpha: 1)
+        ),
+        treeView: ThemeColorPair(
+            light: NSColor(red: 0.36, green: 0.49, blue: 0.68, alpha: 1),   // nord9-deep
+            dark: NSColor(red: 0.53, green: 0.68, blue: 0.82, alpha: 1)
+        ),
+        system: ThemeColorPair(
+            light: NSColor(red: 0.42, green: 0.46, blue: 0.53, alpha: 1),   // nord3 snow-storm
+            dark: NSColor(red: 0.72, green: 0.77, blue: 0.84, alpha: 1)     // nord4
+        ),
+        userApp: ThemeColorPair(
+            light: NSColor(red: 0.31, green: 0.43, blue: 0.60, alpha: 1),
+            dark: NSColor(red: 0.45, green: 0.58, blue: 0.73, alpha: 1)
+        ),
+        developerTool: ThemeColorPair(
+            light: NSColor(red: 0.75, green: 0.61, blue: 0.32, alpha: 1),   // nord13 gold
+            dark: NSColor(red: 0.90, green: 0.78, blue: 0.50, alpha: 1)
+        ),
+        other: ThemeColorPair(
+            light: NSColor(red: 0.42, green: 0.46, blue: 0.53, alpha: 0.6),
+            dark: NSColor(red: 0.72, green: 0.77, blue: 0.84, alpha: 0.6)
+        )
+    )
 }

@@ -25,6 +25,15 @@ enum Theme {
     /// AppSettings through every view.
     static var isRetro: Bool { AppSettings.shared.visualTheme == .retro }
 
+    /// Themes with square-corner geometry — Retro's index cards and
+    /// Terminal's CRT both read wrong with soft iOS radii.
+    static var usesTightGeometry: Bool {
+        switch AppSettings.shared.visualTheme {
+        case .retro, .terminal: return true
+        default: return false
+        }
+    }
+
     /// I resolve the symbol variant from the selected icon pack.
     private static func icon(_ filled: String, _ minimal: String) -> String {
         switch AppSettings.shared.iconPack {
@@ -83,7 +92,9 @@ enum Theme {
 
     enum Badge {
         static var accentBackground: Color { Theme.palette.accent.color }
-        static let accentText = Color.white
+        /// Text on the accent. White by default; Noir dark-mode's near-white
+        /// accent flips this to near-black so chips stay readable.
+        static var accentText: Color { Theme.palette.onAccent?.color ?? .white }
         static var connectedBackground: Color { Theme.palette.connectedBackground.color }
         static var connectedText: Color { Theme.palette.connected.color }
     }
@@ -354,7 +365,7 @@ enum Theme {
         // Filter chips — use theme accent
         static var chipBackground: Color { Surface.groupedFill }
         static var chipSelectedBackground: Color { Badge.accentBackground }
-        static var chipSelectedText: Color { Color.white }
+        static var chipSelectedText: Color { Badge.accentText }
         static var chipBorder: Color { Surface.groupedStroke }
 
         // Accent — use the theme's accent color
@@ -381,15 +392,15 @@ enum Theme {
         // Separator
         static var separator: Color { Color.primary.opacity(0.08) }
 
-        // Panel sizing — Retro tightens radii significantly so cards feel more
-        // like index cards than iOS glass. Other themes stay soft.
+        // Panel sizing — Retro's index cards and Terminal's CRT tighten radii
+        // significantly; other themes stay soft.
         static let panelWidth: CGFloat = 420
         static let panelHeight: CGFloat = 680
-        static var panelCornerRadius: CGFloat { Theme.isRetro ? 10 : 20 }
-        static var cardCornerRadius: CGFloat { Theme.isRetro ? 4 : 12 }
-        static var tileCornerRadius: CGFloat { Theme.isRetro ? 4 : 10 }
-        static var chipCornerRadius: CGFloat { Theme.isRetro ? 3 : 7 }
-        static var cardStrokeWidth: CGFloat { Theme.isRetro ? 1.0 : 0.5 }
+        static var panelCornerRadius: CGFloat { Theme.usesTightGeometry ? 10 : 20 }
+        static var cardCornerRadius: CGFloat { Theme.usesTightGeometry ? 4 : 12 }
+        static var tileCornerRadius: CGFloat { Theme.usesTightGeometry ? 4 : 10 }
+        static var chipCornerRadius: CGFloat { Theme.usesTightGeometry ? 3 : 7 }
+        static var cardStrokeWidth: CGFloat { Theme.usesTightGeometry ? 1.0 : 0.5 }
 
         // Live traffic strip — tile + sparkline chrome for the new header
         static var metricTileBackground: Color { Surface.groupedFill.opacity(0.85) }

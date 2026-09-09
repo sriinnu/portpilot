@@ -259,22 +259,26 @@ struct AppearanceSettingsView: View {
 
                 // Color Theme
                 LiquidCard(title: "Color Theme", icon: "paintpalette", footer: "Each theme comes with a recommended font pairing.") {
-                    // Top row: 3 themes
-                    HStack(spacing: 10) {
-                        ForEach(Array(VisualTheme.allCases.prefix(3)), id: \.self) { theme in
+                    // Adaptive grid — the theme count isn't fixed anymore
+                    // (the old prefix(3)/suffix(3) rows only knew how to
+                    // show exactly six).
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 10)], spacing: 10) {
+                        ForEach(VisualTheme.allCases) { theme in
                             ThemePreviewCard(theme: theme, isActive: appSettings.visualTheme == theme)
                                 .onTapGesture { appSettings.visualTheme = theme }
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityLabel("Theme \(theme.rawValue)")
                         }
                     }
-                    // Bottom row: 3 themes
-                    HStack(spacing: 10) {
-                        ForEach(Array(VisualTheme.allCases.suffix(3)), id: \.self) { theme in
-                            ThemePreviewCard(theme: theme, isActive: appSettings.visualTheme == theme)
-                                .onTapGesture { appSettings.visualTheme = theme }
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityLabel("Theme \(theme.rawValue)")
+
+                    if appSettings.visualTheme.isDarkNative && appSettings.appearanceMode == .light {
+                        HStack(spacing: 6) {
+                            Image(systemName: "moon.stars")
+                                .font(.system(size: 11))
+                                .foregroundColor(Theme.Status.warning)
+                            Text("\(appSettings.visualTheme.rawValue) shows its character in Dark appearance.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
                         }
                     }
 
@@ -411,7 +415,8 @@ struct ThemePreviewCard: View {
         VStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 10)
                 .fill(backgroundColor)
-                .frame(width: 132, height: 76)
+                .frame(maxWidth: .infinity)
+                .frame(height: 76)
                 .overlay(
                     VStack(alignment: .leading, spacing: 6) {
                         RoundedRectangle(cornerRadius: 4)
@@ -448,65 +453,14 @@ struct ThemePreviewCard: View {
         }
     }
 
-    private var backgroundColor: Color {
-        switch theme {
-        case .classic:    return Color(white: 0.95)
-        case .graphite:   return Color(red: 0.93, green: 0.94, blue: 0.96)
-        case .sunset:     return Color(red: 0.98, green: 0.95, blue: 0.92)
-        case .oceanic:    return Color(red: 0.90, green: 0.95, blue: 0.98)
-        case .noir:       return Color(white: 0.18)
-        case .retro:      return Color(red: 0.96, green: 0.93, blue: 0.88)
-        case .terminal:   return Color(red: 0.06, green: 0.08, blue: 0.07)
-        case .paperwhite: return Color(white: 0.99)
-        case .synthwave:  return Color(red: 0.10, green: 0.07, blue: 0.20)
-        case .solarized:  return Color(red: 0.99, green: 0.96, blue: 0.89)
-        }
-    }
-
-    private var accentColor: Color {
-        switch theme {
-        case .classic:    return Color(red: 0.20, green: 0.45, blue: 0.90)
-        case .graphite:   return Color(red: 0.26, green: 0.45, blue: 0.72)
-        case .sunset:     return Color(red: 0.86, green: 0.40, blue: 0.30)
-        case .oceanic:    return Color(red: 0.12, green: 0.46, blue: 0.72)
-        case .noir:       return Color(white: 0.90)
-        case .retro:      return Color(red: 0.65, green: 0.42, blue: 0.18)
-        case .terminal:   return Color(red: 0.20, green: 1.00, blue: 0.36)
-        case .paperwhite: return Color(red: 0.00, green: 0.40, blue: 1.00)
-        case .synthwave:  return Color(red: 1.00, green: 0.30, blue: 0.78)
-        case .solarized:  return Color(red: 0.16, green: 0.63, blue: 0.60)
-        }
-    }
-
-    private var primaryColor: Color {
-        switch theme {
-        case .classic:    return Color(red: 0.20, green: 0.68, blue: 0.30)
-        case .graphite:   return Color(red: 0.24, green: 0.64, blue: 0.48)
-        case .sunset:     return Color(red: 0.92, green: 0.56, blue: 0.24)
-        case .oceanic:    return Color(red: 0.12, green: 0.62, blue: 0.52)
-        case .noir:       return Color(white: 0.75)
-        case .retro:      return Color(red: 0.38, green: 0.55, blue: 0.28)
-        case .terminal:   return Color(red: 0.20, green: 1.00, blue: 0.36)
-        case .paperwhite: return Color(red: 0.18, green: 0.70, blue: 0.32)
-        case .synthwave:  return Color(red: 0.00, green: 0.94, blue: 1.00)
-        case .solarized:  return Color(red: 0.52, green: 0.60, blue: 0.00)
-        }
-    }
-
-    private var secondaryColor: Color {
-        switch theme {
-        case .classic:    return Color(red: 0.55, green: 0.30, blue: 0.75)
-        case .graphite:   return Color(red: 0.36, green: 0.42, blue: 0.70)
-        case .sunset:     return Color(red: 0.62, green: 0.34, blue: 0.66)
-        case .oceanic:    return Color(red: 0.36, green: 0.32, blue: 0.68)
-        case .noir:       return Color(white: 0.50)
-        case .retro:      return Color(red: 0.52, green: 0.35, blue: 0.55)
-        case .terminal:   return Color(red: 1.00, green: 0.78, blue: 0.20)
-        case .paperwhite: return Color(red: 1.00, green: 0.58, blue: 0.00)
-        case .synthwave:  return Color(red: 0.72, green: 0.48, blue: 1.00)
-        case .solarized:  return Color(red: 0.71, green: 0.54, blue: 0.00)
-        }
-    }
+    // Preview colors derive live from the theme's real palette — the old
+    // four hardcoded switches here could (and did) drift from what the app
+    // actually renders. Only the surface tone is curated (real surfaces are
+    // computed blends, not palette entries).
+    private var backgroundColor: Color { theme.previewSurface }
+    private var accentColor: Color { theme.palette.accent.color }
+    private var primaryColor: Color { theme.palette.connected.color }
+    private var secondaryColor: Color { theme.palette.ssh.color }
 }
 
 // MARK: - Icon Pack Preview Card
