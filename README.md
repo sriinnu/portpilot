@@ -141,6 +141,8 @@ portpilot kill 5173                        # SIGTERM the process on the port
 portpilot kill 5173 --force                # SIGKILL
 portpilot kill :8080                       # colon prefix accepted
 portpilot kill --timeout 3000 5173         # graceful-kill timeout in ms
+portpilot pause 5173                       # SIGSTOP — socket stays bound, state kept
+portpilot resume 5173                      # SIGCONT — resumes where it froze
 portpilot pid 8080                         # print PID for a port
 portpilot pids 3000 3001 3002              # PIDs for multiple ports
 portpilot find --start 8000 --end 8999     # free ports in a range

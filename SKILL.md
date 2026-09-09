@@ -9,6 +9,7 @@ Build and installation instructions: [README.md](README.md). Source tree and int
 | Task | Command |
 |------|---------|
 | Port conflict: find and kill what holds a port | `portpilot kill 3000` |
+| Freeze a process without losing its state/port | `portpilot pause 3000` (resume: `portpilot resume 3000`) |
 | List everything listening (ports + Unix sockets) | `portpilot list` / TUI Sockets tab |
 | Find active tunnels (SSH forwards, kubectl, Cloudflare) | TUI Ports tab (TYPE column); menu bar dropdown List View groups by connection type |
 | Check whether a local daemon is running | TUI Sockets tab (PID + socket path) |
@@ -38,6 +39,18 @@ portpilot kill-all             # every listed process
 ```
 
 `kill` exits non-zero if processes survive SIGKILL (`partialKill` error lists the surviving PIDs).
+
+### Pause / resume processes
+
+```bash
+portpilot pause 3000            # SIGSTOP — socket stays bound, process freezes with its state
+portpilot resume 3000           # SIGCONT — picks up exactly where it froze
+```
+
+Use pause instead of kill when the process holds state you want back
+(dev server with warm caches, a long build step, a tunnel). A frozen
+process still owns its port — discovery lists it (macOS app shows a
+`PAUSED` chip) and clients connecting to it hang until resume.
 
 ### Get PIDs
 
