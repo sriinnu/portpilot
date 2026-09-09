@@ -34,6 +34,10 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @EnvironmentObject var viewModel: PortViewModel
+    // Without this, a theme click only repainted the pane that observed
+    // AppSettings itself — the sidebar and window background stayed stale
+    // because nothing invalidated this body.
+    @ObservedObject private var appSettings = AppSettings.shared
     @State private var selection: SettingsPane = .general
 
     var body: some View {
