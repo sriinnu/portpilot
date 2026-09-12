@@ -2,6 +2,11 @@
 
 All notable changes to PortPilot will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Papercraft theme** — sticker-book brights on craft paper, storybook-inspired. Star-gold accent with deep-navy accent text (the onAccent mechanism Noir introduced), Luigi-green connected, denim/sky blues, brick-orange OrbStack, peach-pink sponsors, cardboard-tan system. Red stays reserved for errors — the accent never wears the alert color. Font pairing: Arial Rounded MT Bold + Menlo.
+
 ## [3.3.0] - 2026-09-09
 
 ### Added
