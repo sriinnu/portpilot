@@ -72,7 +72,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .synthwave: return "Avenir Next"
         case .solarized: return "System Default"
         case .nord: return "Helvetica Neue"
-        case .papercraft: return "Arial Rounded MT Bold"
+        case .papercraft: return "Georgia"
         }
     }
 
@@ -108,7 +108,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .synthwave: return "Magenta + cyan, late 1984"
         case .solarized: return "Developer classic, warm cream"
         case .nord: return "Polar blues, quiet and cold"
-        case .papercraft: return "Sticker-book brights on craft paper"
+        case .papercraft: return "Layered paper strata at dusk"
         }
     }
 
