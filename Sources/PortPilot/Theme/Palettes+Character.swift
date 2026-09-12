@@ -456,4 +456,87 @@ extension ThemePalette {
             dark: NSColor(red: 0.72, green: 0.77, blue: 0.84, alpha: 0.6)
         )
     )
+
+    // MARK: - Papercraft — sticker-book brights, storybook-paper inspired.
+    // Star-gold accent with deep-navy onAccent text (the menu-highlight
+    // look); red stays reserved for errors on purpose — a monitoring app
+    // shouldn't wear its alert color as chrome.
+    static let papercraft = ThemePalette(
+        cloudflare: ThemeColorPair(
+            light: NSColor(red: 0.29, green: 0.64, blue: 0.85, alpha: 1),   // sky blue
+            dark: NSColor(red: 0.45, green: 0.78, blue: 0.95, alpha: 1)
+        ),
+        kubernetes: ThemeColorPair(
+            light: NSColor(red: 0.16, green: 0.38, blue: 0.69, alpha: 1),   // denim blue
+            dark: NSColor(red: 0.35, green: 0.58, blue: 0.88, alpha: 1)
+        ),
+        local: ThemeColorPair(
+            light: NSColor(red: 0.26, green: 0.69, blue: 0.28, alpha: 1),   // luigi green
+            dark: NSColor(red: 0.42, green: 0.82, blue: 0.42, alpha: 1)
+        ),
+        database: ThemeColorPair(
+            light: NSColor(red: 0.72, green: 0.50, blue: 0.22, alpha: 1),   // treasure brown-gold
+            dark: NSColor(red: 0.88, green: 0.68, blue: 0.38, alpha: 1)
+        ),
+        ssh: ThemeColorPair(
+            light: NSColor(red: 0.48, green: 0.22, blue: 0.62, alpha: 1),   // waluigi purple
+            dark: NSColor(red: 0.68, green: 0.45, blue: 0.82, alpha: 1)
+        ),
+        orbstack: ThemeColorPair(
+            light: NSColor(red: 0.80, green: 0.36, blue: 0.12, alpha: 1),   // brick orange
+            dark: NSColor(red: 0.95, green: 0.55, blue: 0.25, alpha: 1)
+        ),
+        proxy: ThemeColorPair(
+            light: NSColor(red: 0.48, green: 0.22, blue: 0.62, alpha: 1),
+            dark: NSColor(red: 0.68, green: 0.45, blue: 0.82, alpha: 1)
+        ),
+        connected: ThemeColorPair(
+            light: NSColor(red: 0.20, green: 0.62, blue: 0.24, alpha: 1),   // luigi green
+            dark: NSColor(red: 0.38, green: 0.80, blue: 0.38, alpha: 1)
+        ),
+        connectedBackground: ThemeColorPair(
+            light: NSColor(red: 0.20, green: 0.62, blue: 0.24, alpha: 0.12),
+            dark: NSColor(red: 0.38, green: 0.80, blue: 0.38, alpha: 0.20)
+        ),
+        error: ThemeColorPair(
+            light: NSColor(red: 0.85, green: 0.13, blue: 0.10, alpha: 1),   // mario red
+            dark: NSColor(red: 0.98, green: 0.32, blue: 0.28, alpha: 1)
+        ),
+        warning: ThemeColorPair(
+            light: NSColor(red: 0.88, green: 0.52, blue: 0.06, alpha: 1),   // amber-orange
+            dark: NSColor(red: 1.00, green: 0.70, blue: 0.15, alpha: 1)
+        ),
+        accent: ThemeColorPair(
+            light: NSColor(red: 0.95, green: 0.70, blue: 0.05, alpha: 1),   // star gold
+            dark: NSColor(red: 1.00, green: 0.82, blue: 0.12, alpha: 1)
+        ),
+        onAccent: ThemeColorPair(
+            light: NSColor(red: 0.10, green: 0.16, blue: 0.30, alpha: 1),   // deep navy text on gold
+            dark: NSColor(red: 0.08, green: 0.13, blue: 0.25, alpha: 1)
+        ),
+        sponsors: ThemeColorPair(
+            light: NSColor(red: 0.95, green: 0.48, blue: 0.66, alpha: 1),   // peach pink
+            dark: NSColor(red: 1.00, green: 0.62, blue: 0.76, alpha: 1)
+        ),
+        treeView: ThemeColorPair(
+            light: NSColor(red: 0.16, green: 0.38, blue: 0.69, alpha: 1),   // denim blue
+            dark: NSColor(red: 0.35, green: 0.58, blue: 0.88, alpha: 1)
+        ),
+        system: ThemeColorPair(
+            light: NSColor(red: 0.55, green: 0.43, blue: 0.30, alpha: 1),   // cardboard tan
+            dark: NSColor(red: 0.75, green: 0.63, blue: 0.50, alpha: 1)
+        ),
+        userApp: ThemeColorPair(
+            light: NSColor(red: 0.29, green: 0.64, blue: 0.85, alpha: 1),   // sky blue
+            dark: NSColor(red: 0.45, green: 0.78, blue: 0.95, alpha: 1)
+        ),
+        developerTool: ThemeColorPair(
+            light: NSColor(red: 0.93, green: 0.55, blue: 0.10, alpha: 1),   // construction orange
+            dark: NSColor(red: 1.00, green: 0.70, blue: 0.25, alpha: 1)
+        ),
+        other: ThemeColorPair(
+            light: NSColor(red: 0.55, green: 0.43, blue: 0.30, alpha: 0.6),
+            dark: NSColor(red: 0.75, green: 0.63, blue: 0.50, alpha: 0.6)
+        )
+    )
 }

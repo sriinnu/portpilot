@@ -26,6 +26,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
     case synthwave = "Synthwave"
     case solarized = "Solarized"
     case nord = "Nord"
+    case papercraft = "Papercraft"
 
     var id: String { rawValue }
 
@@ -44,6 +45,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .synthwave:  return .synthwave
         case .solarized:  return .solarized
         case .nord:       return .nord
+        case .papercraft: return .papercraft
         }
     }
 
@@ -70,6 +72,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .synthwave: return "Avenir Next"
         case .solarized: return "System Default"
         case .nord: return "Helvetica Neue"
+        case .papercraft: return "Arial Rounded MT Bold"
         }
     }
 
@@ -87,6 +90,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .synthwave: return "Menlo"
         case .solarized: return "Menlo"
         case .nord: return "Menlo"
+        case .papercraft: return "Menlo"
         }
     }
 
@@ -104,6 +108,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .synthwave: return "Magenta + cyan, late 1984"
         case .solarized: return "Developer classic, warm cream"
         case .nord: return "Polar blues, quiet and cold"
+        case .papercraft: return "Sticker-book brights on craft paper"
         }
     }
 
@@ -124,6 +129,7 @@ enum VisualTheme: String, CaseIterable, Identifiable {
         case .synthwave:  return Color(red: 0.10, green: 0.07, blue: 0.20)
         case .solarized:  return Color(red: 0.99, green: 0.96, blue: 0.89)
         case .nord:       return Color(red: 0.91, green: 0.93, blue: 0.96)
+        case .papercraft: return Color(red: 0.97, green: 0.93, blue: 0.85)  // warm craft cream
         }
     }
 }
