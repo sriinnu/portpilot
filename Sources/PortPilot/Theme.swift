@@ -213,6 +213,10 @@ enum Theme {
         static func panelBorder(for appearance: NSAppearance) -> NSColor {
             Theme.palette.accent.resolved(for: appearance).withAlphaComponent(isDark(appearance) ? 0.34 : 0.16)
         }
+
+        /// The active theme's layered paper strata, nil on flat themes —
+        /// callers fall back to their usual solid fill.
+        static var strata: LinearGradient? { Theme.palette.strataGradient }
     }
 
     // MARK: - SF Symbol Constants

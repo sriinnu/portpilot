@@ -423,7 +423,7 @@ struct ThemePreviewCard: View {
     var body: some View {
         VStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 10)
-                .fill(backgroundColor)
+                .fill(backgroundFill)
                 .frame(maxWidth: .infinity)
                 .frame(height: 76)
                 .overlay(
@@ -465,8 +465,11 @@ struct ThemePreviewCard: View {
     // Preview colors derive live from the theme's real palette — the old
     // four hardcoded switches here could (and did) drift from what the app
     // actually renders. Only the surface tone is curated (real surfaces are
-    // computed blends, not palette entries).
-    private var backgroundColor: Color { theme.previewSurface }
+    // computed blends, not palette entries); strata themes preview their
+    // real gradient.
+    private var backgroundFill: AnyShapeStyle {
+        theme.palette.strataGradient.map { AnyShapeStyle($0) } ?? AnyShapeStyle(theme.previewSurface)
+    }
     private var accentColor: Color { theme.palette.accent.color }
     private var primaryColor: Color { theme.palette.connected.color }
     private var secondaryColor: Color { theme.palette.ssh.color }

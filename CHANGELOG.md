@@ -5,7 +5,8 @@ All notable changes to PortPilot will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **Papercraft theme** — sticker-book brights on craft paper, storybook-inspired. Star-gold accent with deep-navy accent text (the onAccent mechanism Noir introduced), Luigi-green connected, denim/sky blues, brick-orange OrbStack, peach-pink sponsors, cardboard-tan system. Red stays reserved for errors — the accent never wears the alert color. Font pairing: Arial Rounded MT Bold + Menlo.
+- **Papercraft theme** — layered paper dioramas. Light mode is the sunset sky (coral → amber → cream strata), dark mode the ocean scene (deep indigo → teal → dusk teal). Coral accent with cream accent text; forest-teal connected, plum ssh, sienna database, peach cloudflare. Font pairing: Georgia + Menlo.
+- **Strata gradients in the theme system** — palettes can now declare three optional strata stops (`strataTop/Middle/Bottom`); the menu bar dropdown, the main window's traffic band, and the settings preview card render them as a top-to-bottom gradient. Flat themes are untouched — nil strata keeps the existing solid fills everywhere.
 
 ## [3.3.0] - 2026-09-09
 
