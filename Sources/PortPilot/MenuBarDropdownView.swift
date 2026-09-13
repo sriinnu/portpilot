@@ -99,11 +99,13 @@ struct MenuBarDropdownView: View {
             footerView
         }
         .frame(width: Theme.Liquid.panelWidth)
-        // Paper strata on diorama themes; flat themes keep the panel's
-        // translucent material untouched. Cards above sit on it like cut
-        // paper sheets.
+        // Paper strata on diorama themes — muted, over an opaque base, so
+        // it tints like paper instead of wallpaper. Flat themes keep the
+        // panel's translucent material untouched.
         .background {
-            if let strata = Theme.Surface.strata { strata }
+            if let strata = Theme.Surface.strataOverlay {
+                Theme.Liquid.panelBackground.overlay(strata)
+            }
         }
         .overlay {
             if showMoreMenu {
