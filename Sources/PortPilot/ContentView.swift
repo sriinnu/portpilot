@@ -135,9 +135,7 @@ struct ContentView: View {
                     )
                     .padding(.trailing, 14).padding(.vertical, 10)
                 }
-                .background {
-                    if let strata = Theme.Surface.strata { strata } else { Theme.Surface.groupedFill }
-                }
+                .background(Theme.Surface.groupedFill)
             }
 
             Divider()

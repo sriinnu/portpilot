@@ -515,16 +515,16 @@ extension ThemePalette {
             dark: NSColor(red: 0.18, green: 0.12, blue: 0.10, alpha: 1)     // espresso on light coral
         ),
         strataTop: ThemeColorPair(
-            light: NSColor(red: 0.96, green: 0.62, blue: 0.48, alpha: 1),   // coral sky
-            dark: NSColor(red: 0.10, green: 0.13, blue: 0.24, alpha: 1)     // deep indigo sea
+            light: NSColor(red: 0.96, green: 0.64, blue: 0.50, alpha: 1),   // coral sky — deepest of the three so the band step shows
+            dark: NSColor(red: 0.10, green: 0.13, blue: 0.28, alpha: 1)     // deep indigo sea — darkest band, charcoal bases eat dim stops
         ),
         strataMiddle: ThemeColorPair(
-            light: NSColor(red: 0.99, green: 0.80, blue: 0.58, alpha: 1),   // amber band
-            dark: NSColor(red: 0.13, green: 0.32, blue: 0.36, alpha: 1)     // teal band
+            light: NSColor(red: 0.99, green: 0.83, blue: 0.64, alpha: 1),   // amber band — stepped between coral and cream
+            dark: NSColor(red: 0.12, green: 0.40, blue: 0.42, alpha: 1)     // teal band — one value step up from the indigo
         ),
         strataBottom: ThemeColorPair(
-            light: NSColor(red: 1.00, green: 0.94, blue: 0.84, alpha: 1),   // cream horizon
-            dark: NSColor(red: 0.18, green: 0.44, blue: 0.44, alpha: 1)     // dusk teal glow
+            light: NSColor(red: 1.00, green: 0.95, blue: 0.86, alpha: 1),   // cream horizon — lightest sheet
+            dark: NSColor(red: 0.22, green: 0.52, blue: 0.48, alpha: 1)     // dusk teal glow — lightest dark band, the value ladder's top
         ),
         sponsors: ThemeColorPair(
             light: NSColor(red: 0.92, green: 0.42, blue: 0.48, alpha: 1),   // rose

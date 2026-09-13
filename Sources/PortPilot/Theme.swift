@@ -217,6 +217,83 @@ enum Theme {
         /// The active theme's layered paper strata, nil on flat themes —
         /// callers fall back to their usual solid fill.
         static var strata: LinearGradient? { Theme.palette.strataGradient }
+
+        /// The strata laid as stacked paper: each color holds a band,
+        /// then gives way over a seam built like a real cut sheet — the
+        /// upper sheet's cast shadow first, then the lower sheet's lit
+        /// lip, like cut layers of a paper diorama. A continuous gradient
+        /// smears into a single tint; held bands with shadowed seams are
+        /// what read as layered paper. The shadow matters most on pale
+        /// sheets: cream lightened toward white has no headroom, so the
+        /// lip alone vanishes — the shadow line is what makes the seam
+        /// read there. Stops stay translucent so it tints the base like
+        /// colored paper over cream/charcoal rather than wallpaper.
+        /// Takes a palette so preview cards can render each theme's own
+        /// strata — the active one would paint every card the same sunset.
+        /// Dark bases swallow tints, so dark keeps its own strength.
+        static func strataOverlay(
+            for palette: ThemePalette,
+            strength: Double = 0.70,
+            darkStrength: Double = 0.68
+        ) -> LinearGradient? {
+            guard let topPair = palette.strataTop, let bottomPair = palette.strataBottom else { return nil }
+            func wash(_ pair: ThemeColorPair) -> Color {
+                ThemeColorPair(
+                    light: pair.light.withAlphaComponent(strength),
+                    dark: pair.dark.withAlphaComponent(darkStrength)
+                ).color
+            }
+            func paperEdge(_ pair: ThemeColorPair) -> Color {
+                wash(ThemeColorPair(
+                    light: pair.light.blendedSafely(with: .white, fraction: 0.45),
+                    dark: pair.dark.blendedSafely(with: .white, fraction: 0.35)
+                ))
+            }
+            func paperShadow(_ pair: ThemeColorPair) -> Color {
+                wash(ThemeColorPair(
+                    light: pair.light.blendedSafely(with: .black, fraction: 0.26),
+                    dark: pair.dark.blendedSafely(with: .black, fraction: 0.46)
+                ))
+            }
+            // Hairline — shadow + lip together span ~18px on the panel,
+            // ~2px on the preview cards. The dark shadow runs deep because
+            // the seam must dip below BOTH sheets' values — dusk-teal
+            // dimmed only a little is the same luminance as the teal band
+            // above it, and the seam dissolves into a gradient.
+            func appendSeam(of lowerPair: ThemeColorPair, at start: Double, to stops: inout [Gradient.Stop]) {
+                let shadowWidth = 0.008
+                let lipWidth = 0.009
+                let shadow = paperShadow(lowerPair)
+                stops.append(.init(color: shadow, location: start))
+                stops.append(.init(color: shadow, location: start + shadowWidth))
+                let lip = paperEdge(lowerPair)
+                stops.append(.init(color: lip, location: start + shadowWidth))
+                stops.append(.init(color: lip, location: start + shadowWidth + lipWidth))
+            }
+            let topBand = wash(topPair)
+            let bottomBand = wash(bottomPair)
+            var stops: [Gradient.Stop] = [
+                .init(color: topBand, location: 0.00),
+                .init(color: topBand, location: 0.345)
+            ]
+            if let middlePair = palette.strataMiddle {
+                let middleBand = wash(middlePair)
+                appendSeam(of: middlePair, at: 0.352, to: &stops)
+                stops.append(.init(color: middleBand, location: 0.376))
+                stops.append(.init(color: middleBand, location: 0.645))
+                appendSeam(of: bottomPair, at: 0.652, to: &stops)
+                stops.append(.init(color: bottomBand, location: 0.676))
+            } else {
+                stops.append(.init(color: bottomBand, location: 0.40))
+            }
+            stops.append(.init(color: bottomBand, location: 1.00))
+            return LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+        }
+
+        /// The active theme's muted strata, for surfaces that render now.
+        static var strataOverlay: LinearGradient? {
+            strataOverlay(for: Theme.palette)
+        }
     }
 
     // MARK: - SF Symbol Constants
