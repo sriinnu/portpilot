@@ -4,6 +4,8 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-09-13
+
 ### Added
 - **Papercraft theme** — layered paper dioramas. Light mode is the sunset sky (coral → amber → cream strata), dark mode the ocean scene (deep indigo → teal → dusk teal). Coral accent with cream accent text; forest-teal connected, plum ssh, sienna database, peach cloudflare. Font pairing: Georgia + Menlo.
 - **Layered-paper strata in the theme system** — palettes can declare three optional strata stops (`strataTop/Middle/Bottom`), rendered as stacked sheets rather than a gradient: each color holds a flat band, and bands meet at a seam built like cut paper — the upper sheet's cast shadow over the lower sheet's lit lip. Laid muted and translucent over the menu bar dropdown and the settings theme previews (each card shows its own theme's strata); flat themes keep the existing solid fills everywhere.
