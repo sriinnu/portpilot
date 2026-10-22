@@ -10,6 +10,7 @@ Sources/
 │   ├── MenuBarDropdownView.swift     # Liquid display dropdown (Top Activity, List/Tree View, Schedules)
 │   ├── MenuBarPanel.swift            # Floating NSPanel
 │   ├── PortListPanel.swift           # Port list with classification badges
+│   ├── SecurityCenterView.swift       # Threat findings: Kill/Freeze/alert-list actions
 │   ├── ConfigurationPanel.swift      # Overview inspector: process story + config + proxy
 │   ├── TimelinePanel.swift           # Timeline inspector tab (lifecycle events)
 │   ├── TunnelInspector.swift         # Pure tunnel/connection-type parsers
@@ -22,7 +23,8 @@ Sources/
 │   ├── Stores/                       # Domain stores owned by the view model
 │   │   ├── ActivityLogStore.swift    # LogEntry model + capped activity log
 │   │   ├── CronjobController.swift   # Cronjob refresh/run/stop/pause/resume
-│   │   └── PortGuardStore.swift      # Armed eviction sweep (2s, TERM-first)
+│   │   ├── PortGuardStore.swift      # Armed eviction sweep (2s, TERM-first)
+│   │   └── ThreatMonitorStore.swift  # Background threat poll (15s) → detect → page-if-novel
 │   ├── Liquid/                       # Shared UI components (sidebar, strips, sparklines, palette)
 │   └── Theme/                        # Palette definitions
 ├── TerminalTUI/                # Reusable TUI engine (zero dependencies)
@@ -45,6 +47,10 @@ Sources/
 ├── PortManagerLib/             # Shared library (all platforms)
 │   ├── PortManager.swift             # Port + socket discovery core, PortProcess model
 │   ├── PortManager+Connections.swift # Established connections + blocklist matching
+│   ├── ThreatModels.swift            # Threat vocabulary: severity, signals, findings, baseline
+│   ├── ThreatDetector.swift          # Pure detection rules (static, injectable blocklist)
+│   ├── ThreatHistoryStore.swift      # Capped JSON forensic ring (~/.portpilot/threat-history.json)
+│   ├── BlocklistStore.swift          # Single owner for blocklist reads + edits
 │   ├── PortManager+CronDiscovery.swift # crontab parsing
 │   ├── PortManager+CronControl.swift # cronjob pause/resume with recoverable marker
 │   ├── PortManager+Docker.swift      # docker façade (containers behind ports)

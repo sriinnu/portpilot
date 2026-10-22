@@ -5,16 +5,19 @@ import Foundation
 /// that binds it afterwards gets TERM'd (escalating to KILL) and logged
 /// loudly.
 ///
-/// Enforcement is a pid-level sweep, not a state-change listener: a
+/// Enforcement is a process-incarnation sweep, not a state-change listener: a
 /// squatter that replaces a dying holder between two ticks never shows a
 /// free→occupied transition, but the pid diff still catches it. The sweep
 /// runs on a private utility queue on the store's own timer — armed
 /// whenever guards exist, regardless of the background-monitoring toggle.
 ///
 /// Confinement: `guardedPorts` is @Published and main-confined (UI reads
-/// and enables/disables happen on main); `armedPorts`, `grandfatheredPids`,
-/// the timer, and the generation counter are queue-confined.
-final class PortGuardStore: ObservableObject {
+/// and enables/disables happen on main); enforcement state is queue-confined.
+/// `@unchecked Sendable` is justified by explicit confinement: published UI
+/// state and callbacks are touched on MainActor, enforcement state only on
+/// `queue`, and PortManager's sole mutable cache is protected by its lock.
+/// The revocation gate owns an NSLock for its main-actor/queue shared state.
+final class PortGuardStore: ObservableObject, @unchecked Sendable {
     @Published private(set) var guardedPorts: [Int] = []
 
     /// Wired by the owner after init — the VM's error hook captures self,
@@ -31,12 +34,12 @@ final class PortGuardStore: ObservableObject {
     private var sweepInProgress = false
     /// Queue-confined mirror of `guardedPorts` — the sweep's port list.
     private var armedPorts: [Int] = []
-    /// Queue-confined. Key present = snapshot landed ([] = port was free);
-    /// key absent = snapshot still in flight, enforcement holds fire.
-    private var grandfatheredPids: [Int: Set<Int>] = [:]
-    /// Queue-confined: bumped on disarm so a late snapshot completion from
-    /// the disarmed generation lands nowhere.
-    private var generation = 0
+    /// Queue-confined generations corresponding to the current baselines.
+    private var armedGenerations: [Int: UUID] = [:]
+    private let enforcementGate = PortGuardEnforcementGate()
+    /// Queue-confined. Key present = a complete identity snapshot landed
+    /// ([] = port was free); key absent = enforcement holds fire.
+    private var baselineState = PortGuardBaselineState()
 
     init(log: ActivityLogStore) {
         self.log = log
@@ -44,12 +47,22 @@ final class PortGuardStore: ObservableObject {
         // Persisted guards survive relaunch — but pids don't. Whatever holds
         // the guarded ports right now gets grandfathered so launching
         // PortPilot never turns into a surprise massacre.
-        let ports = AppSettings.shared.guardedPorts.sorted()
+        let ports = Array(Set(AppSettings.shared.guardedPorts)).sorted()
         guardedPorts = ports
+        let generations = Dictionary(uniqueKeysWithValues: ports.map {
+            ($0, enforcementGate.activate(port: $0))
+        })
         queue.async { [weak self] in
             guard let self else { return }
-            self.armedPorts = ports
-            self.snapshotGrandfathers(for: ports, reason: "restored")
+            for port in ports {
+                guard let enforcementGeneration = generations[port],
+                      self.enforcementGate.permits(port: port, generation: enforcementGeneration) else { continue }
+                self.armedPorts.append(port)
+                self.armedGenerations[port] = enforcementGeneration
+                let generation = self.baselineState.beginSnapshot(port: port)
+                self.snapshotGrandfather(for: port, generation: generation, enforcementGeneration: enforcementGeneration, reason: "restored")
+            }
+            self.startTimerIfArmed()
         }
     }
 
@@ -72,31 +85,39 @@ final class PortGuardStore: ObservableObject {
             return "Port \(port) is reserved — remove it from Reserved Ports first"
         }
 
+        let enforcementGeneration = enforcementGate.activate(port: port)
         guardedPorts.append(port)
         guardedPorts.sort()
         AppSettings.shared.guardedPorts = guardedPorts
 
         queue.async { [weak self] in
             guard let self else { return }
+            guard self.enforcementGate.permits(port: port, generation: enforcementGeneration) else { return }
             if !self.armedPorts.contains(port) {
                 self.armedPorts.append(port)
                 self.armedPorts.sort()
             }
-            self.snapshotGrandfathers(for: [port], reason: "armed")
+            self.armedGenerations[port] = enforcementGeneration
+            let generation = self.baselineState.beginSnapshot(port: port)
+            self.snapshotGrandfather(for: port, generation: generation, enforcementGeneration: enforcementGeneration, reason: "armed")
+            self.startTimerIfArmed()
         }
         return nil
     }
 
     @MainActor
     func disable(port: Int) {
+        // Revoke before publishing/persisting or queueing cleanup. The queue
+        // may be inside a termination wait; its next signal must fail the gate.
+        enforcementGate.invalidate(port: port)
         guardedPorts.removeAll { $0 == port }
         AppSettings.shared.guardedPorts = guardedPorts
 
         queue.async { [weak self] in
             guard let self else { return }
-            self.generation += 1
+            self.baselineState.disable(port: port)
+            self.armedGenerations.removeValue(forKey: port)
             self.armedPorts.removeAll { $0 == port }
-            self.grandfatheredPids.removeValue(forKey: port)
             self.stopTimerIfDisarmed()
         }
         log.add(source: "guard", message: "Guard disarmed on port \(port)", level: .info, port: port)
@@ -109,32 +130,37 @@ final class PortGuardStore: ObservableObject {
 
     // MARK: - Grandfather Snapshots
 
-    /// Record the pids currently holding the given ports so the guard
-    /// spares them. Snapshot must land before enforcement starts for that
-    /// port — nil in `grandfatheredPids` means "hold fire".
-    private func snapshotGrandfathers(for ports: [Int], reason: String) {
-        let gen = generation
-        Task.detached(priority: .userInitiated) { [portManager, queue] in
-            var found: [Int: [Int]] = [:]
-            for port in ports {
-                found[port] = (try? portManager.getListeningProcesses(
-                    startPort: port, endPort: port, enrich: false
-                ))?.map(\.pid) ?? []
+    /// Capture a complete fingerprint snapshot. Discovery errors and holders
+    /// without kernel incarnation tokens leave the port unarmed; they are never
+    /// converted into an empty "port was free" baseline.
+    private func snapshotGrandfather(for port: Int, generation: UInt64, enforcementGeneration: UUID, reason: String) {
+        Task.detached(priority: .userInitiated) { [weak self, portManager, queue] in
+            let result: Result<[ProcessIdentity], Error>
+            do {
+                let identities = try portManager.getStableListeningProcessIdentities(port: port)
+                result = .success(identities)
+            } catch {
+                result = .failure(error)
             }
 
             queue.async { [weak self] in
-                guard let self, self.generation == gen else { return }
-                for (port, pids) in found {
-                    self.grandfatheredPids[port] = Set(pids)
-                }
-                self.startTimerIfArmed()
+                guard let self else { return }
+                guard self.enforcementGate.permits(port: port, generation: enforcementGeneration),
+                      self.armedGenerations[port] == enforcementGeneration else { return }
 
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    for (port, pids) in found {
-                        let detail = pids.isEmpty
+                switch result {
+                case .success(let identities):
+                    guard self.baselineState.completeSnapshot(
+                        port: port,
+                        generation: generation,
+                        identities: identities
+                    ) else { return }
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        guard self.enforcementGate.permits(port: port, generation: enforcementGeneration) else { return }
+                        let detail = identities.isEmpty
                             ? "port is free"
-                            : "\(pids.count) current holder(s) grandfathered"
+                            : "\(identities.count) current holder(s) grandfathered"
                         self.log.add(
                             source: "guard",
                             message: "Guard \(reason) on port \(port) — \(detail)",
@@ -142,6 +168,19 @@ final class PortGuardStore: ObservableObject {
                             port: port,
                             event: .guardAction
                         )
+                    }
+                case .failure(let error):
+                    guard self.baselineState.completeSnapshot(
+                        port: port,
+                        generation: generation,
+                        identities: nil
+                    ) else { return }
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        guard self.enforcementGate.permits(port: port, generation: enforcementGeneration) else { return }
+                        let message = "Guard on port \(port) is waiting for a complete process snapshot: \(error.localizedDescription)"
+                        self.log.add(source: "guard", message: message, level: .error, port: port)
+                        self.onError?(message)
                     }
                 }
             }
@@ -175,22 +214,50 @@ final class PortGuardStore: ObservableObject {
         defer { sweepInProgress = false }
 
         for port in armedPorts {
-            guard let grandfathered = grandfatheredPids[port] else { continue }
+            guard let enforcementGeneration = armedGenerations[port],
+                  enforcementGate.permits(port: port, generation: enforcementGeneration) else { continue }
+            guard let grandfathered = baselineState.baseline(for: port) else {
+                if !baselineState.isSnapshotInFlight(for: port) {
+                    let generation = baselineState.beginSnapshot(port: port)
+                    snapshotGrandfather(for: port, generation: generation, enforcementGeneration: enforcementGeneration, reason: "retry")
+                }
+                continue
+            }
 
-            let holders = (try? portManager.getListeningProcesses(
-                startPort: port, endPort: port, enrich: false
-            )) ?? []
+            let holders: [PortProcess]
+            do {
+                holders = try portManager.getListeningProcesses(
+                    startPort: port, endPort: port, enrich: true
+                )
+            } catch {
+                reportSweepFailure(port: port, generation: enforcementGeneration, detail: "discovery failed: \(error.localizedDescription)")
+                continue
+            }
+            let current = holders.compactMap(ProcessIdentity.init(process:))
+            guard current.count == holders.count else {
+                reportSweepFailure(port: port, generation: enforcementGeneration, detail: "a current holder could not be fingerprinted")
+                continue
+            }
             let victims = PortGuardPolicy.victims(
-                currentPids: holders.map(\.pid),
+                current: current,
                 grandfathered: grandfathered
             )
             guard !victims.isEmpty else { continue }
 
-            let victimInfo = holders.filter { victims.contains($0.pid) }
-            // TERM first; killProcess escalates stragglers to KILL itself.
-            _ = portManager.killProcess(pids: victims, force: false)
+            let victimPIDs = Set(victims.map(\.pid))
+            let victimInfo = holders.filter { victimPIDs.contains($0.pid) }
+            // TERM first; the typed API escalates confirmed same-incarnation stragglers.
+            let gate = enforcementGate
+            let result = portManager.terminateProcesses(identities: victims, force: false) {
+                gate.permits(port: port, generation: enforcementGeneration)
+            }
 
-            let evicted = victimInfo.map { (command: $0.command, pid: $0.pid) }
+            let evicted = victimInfo
+                .filter { result.terminated.contains($0.pid) }
+                .map { (command: $0.command, pid: $0.pid) }
+            let cancelled = result.cancelled
+            let unresolved = result.unresolved.filter { !cancelled.contains($0) }
+            let departed = result.alreadyExited
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 for process in evicted {
@@ -207,7 +274,40 @@ final class PortGuardStore: ObservableObject {
                         pid: process.pid
                     )
                 }
+                if !departed.isEmpty {
+                    self.log.add(
+                        source: "guard",
+                        message: "Guard found pid(s) \(departed.map(String.init).joined(separator: ", ")) already gone from port \(port)",
+                        level: .info,
+                        port: port,
+                        event: .guardAction
+                    )
+                }
+                if !cancelled.isEmpty {
+                    self.log.add(
+                        source: "guard",
+                        message: "Guard enforcement cancelled for pid(s) \(cancelled.map(String.init).joined(separator: ", ")) on port \(port) after the guard changed",
+                        level: .info,
+                        port: port,
+                        event: .guardAction
+                    )
+                }
+                if !unresolved.isEmpty {
+                    let message = "Guard could not confirm eviction of pid(s) \(unresolved.map(String.init).joined(separator: ", ")) from port \(port)"
+                    self.log.add(source: "guard", message: message, level: .error, port: port)
+                    self.onError?(message)
+                }
             }
+        }
+    }
+
+    private func reportSweepFailure(port: Int, generation: UUID, detail: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard self.enforcementGate.permits(port: port, generation: generation) else { return }
+            let message = "Guard skipped port \(port): \(detail)"
+            self.log.add(source: "guard", message: message, level: .error, port: port)
+            self.onError?(message)
         }
     }
 }

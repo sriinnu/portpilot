@@ -3,219 +3,317 @@ import Foundation
 #if canImport(Network)
 import Network
 
-/// Represents an active proxy session
+/// Source-IP admission policy, not client authentication or encryption.
+/// Custom CIDRs opt into an all-interface listener; broad /0 policies expose it widely.
+public enum ProxyAccessPolicy: Hashable, Sendable {
+    case loopback
+    case allowedCIDRs([String])
+
+    public func validate() throws {
+        switch self {
+        case .loopback:
+            return
+        case .allowedCIDRs(let values):
+            guard !values.isEmpty, values.allSatisfy({ ProxyCIDR($0) != nil }) else {
+                throw ProxyError.invalidAccessPolicy("Enter one or more valid IPv4 or IPv6 CIDRs.")
+            }
+        }
+    }
+
+    public func permits(address: String) -> Bool {
+        let host = address.split(separator: "%", maxSplits: 1).first.map(String.init) ?? address
+        switch self {
+        case .loopback:
+            return ProxyCIDR("127.0.0.0/8")?.contains(host) == true
+                || ProxyCIDR("::1/128")?.contains(host) == true
+        case .allowedCIDRs(let values):
+            return values.compactMap(ProxyCIDR.init).contains { $0.contains(host) }
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .loopback: return "This Mac only"
+        case .allowedCIDRs(let values): return values.joined(separator: ", ")
+        }
+    }
+}
+
+private struct ProxyCIDR {
+    let bytes: Data
+    let prefixLength: Int
+
+    init?(_ value: String) {
+        let parts = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let hostPart = parts.first, !hostPart.isEmpty else { return nil }
+        let host = String(hostPart)
+
+        if let address = IPv4Address(host) {
+            let prefix = parts.count == 2 ? Int(parts[1]) : 32
+            guard let prefix, (0...32).contains(prefix) else { return nil }
+            self.bytes = address.rawValue
+            self.prefixLength = prefix
+        } else if let address = IPv6Address(host) {
+            let prefix = parts.count == 2 ? Int(parts[1]) : 128
+            guard let prefix, (0...128).contains(prefix) else { return nil }
+            self.bytes = address.rawValue
+            self.prefixLength = prefix
+        } else {
+            return nil
+        }
+    }
+
+    func contains(_ host: String) -> Bool {
+        let candidate: Data
+        if bytes.count == 4, let address = IPv4Address(host) {
+            candidate = address.rawValue
+        } else if bytes.count == 16, let address = IPv6Address(host) {
+            candidate = address.rawValue
+        } else {
+            return false
+        }
+
+        let fullBytes = prefixLength / 8
+        let remainingBits = prefixLength % 8
+        if fullBytes > 0 && candidate.prefix(fullBytes) != bytes.prefix(fullBytes) { return false }
+        guard remainingBits > 0 else { return true }
+        let mask = UInt8.max << (8 - remainingBits)
+        return (candidate[fullBytes] & mask) == (bytes[fullBytes] & mask)
+    }
+}
+
 public struct ProxySession: Identifiable, Hashable {
     public let id: UUID
     public let listenPort: Int
     public let targetHost: String
     public let targetPort: Int
+    public let accessPolicy: ProxyAccessPolicy
+    public let connectionLimit: Int
+    public let idleTimeout: TimeInterval
     public let createdAt: Date
     public var isActive: Bool
     public var bytesForwarded: UInt64
     public var activeConnections: Int
 
-    public init(id: UUID = UUID(), listenPort: Int, targetHost: String, targetPort: Int) {
+    public init(
+        id: UUID = UUID(), listenPort: Int, targetHost: String, targetPort: Int,
+        accessPolicy: ProxyAccessPolicy = .loopback,
+        connectionLimit: Int = 64, idleTimeout: TimeInterval = 300
+    ) {
         self.id = id
         self.listenPort = listenPort
         self.targetHost = targetHost
         self.targetPort = targetPort
+        self.accessPolicy = accessPolicy
+        self.connectionLimit = connectionLimit
+        self.idleTimeout = idleTimeout
         self.createdAt = Date()
         self.isActive = false
         self.bytesForwarded = 0
         self.activeConnections = 0
     }
 
-    public static func == (lhs: ProxySession, rhs: ProxySession) -> Bool {
-        lhs.id == rhs.id
-    }
+    public static func == (lhs: ProxySession, rhs: ProxySession) -> Bool { lhs.id == rhs.id }
+    public func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
 
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
+private final class ProxyConnectionPair {
+    let id = UUID()
+    let inbound: NWConnection
+    let outbound: NWConnection
+    var idleWorkItem: DispatchWorkItem?
+    var isClosed = false
+
+    init(inbound: NWConnection, outbound: NWConnection) {
+        self.inbound = inbound
+        self.outbound = outbound
     }
 }
 
-/// Manages TCP proxy sessions using Network.framework
 public final class TCPProxyManager {
     public static let shared = TCPProxyManager()
 
     private var listeners: [UUID: NWListener] = [:]
-    private var connections: [UUID: [(inbound: NWConnection, outbound: NWConnection)]] = [:]
+    private var connections: [UUID: [UUID: ProxyConnectionPair]] = [:]
+    private var sessions: [UUID: ProxySession] = [:]
     private let queue = DispatchQueue(label: "com.portpilot.proxy", qos: .userInitiated)
     private let lock = NSLock()
+    private let restrictCustomPolicyToLoopback: Bool
 
-    // Callbacks
     public var onSessionUpdated: ((ProxySession) -> Void)?
     public var onError: ((UUID, String) -> Void)?
     public var onLog: ((String) -> Void)?
 
-    private var sessions: [UUID: ProxySession] = [:]
+    public init() { restrictCustomPolicyToLoopback = false }
 
-    public init() {}
+    /// Exercise admission policy without opening a wildcard test listener.
+    /// Production custom policies retain their explicit all-interface behavior.
+    internal init(loopbackOnlyForTesting: Bool) {
+        restrictCustomPolicyToLoopback = loopbackOnlyForTesting
+    }
 
-    /// Start a new proxy session
-    public func startProxy(listenPort: Int, targetHost: String, targetPort: Int) throws -> ProxySession {
-        let session = ProxySession(listenPort: listenPort, targetHost: targetHost, targetPort: targetPort)
+    public func startProxy(
+        listenPort: Int, targetHost: String, targetPort: Int,
+        accessPolicy: ProxyAccessPolicy = .loopback,
+        connectionLimit: Int = 64, idleTimeout: TimeInterval = 300
+    ) throws -> ProxySession {
+        guard (1...65_535).contains(listenPort) else { throw ProxyError.invalidPort(listenPort) }
+        guard (1...65_535).contains(targetPort) else { throw ProxyError.invalidPort(targetPort) }
+        guard (1...4_096).contains(connectionLimit) else { throw ProxyError.invalidConnectionLimit(connectionLimit) }
+        guard idleTimeout >= 1 else { throw ProxyError.invalidIdleTimeout(idleTimeout) }
+        try accessPolicy.validate()
 
+        let port = NWEndpoint.Port(rawValue: UInt16(listenPort))!
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
 
-        guard let port = NWEndpoint.Port(rawValue: UInt16(listenPort)) else {
-            throw ProxyError.invalidPort(listenPort)
-        }
-
         let listener: NWListener
         do {
-            listener = try NWListener(using: parameters, on: port)
+            switch accessPolicy {
+            case .loopback:
+                parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
+                listener = try NWListener(using: parameters)
+            case .allowedCIDRs:
+                if restrictCustomPolicyToLoopback {
+                    parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
+                    listener = try NWListener(using: parameters)
+                } else {
+                    listener = try NWListener(using: parameters, on: port)
+                }
+            }
         } catch {
             throw ProxyError.listenerFailed(error.localizedDescription)
         }
 
-        var activeSession = session
-        activeSession.isActive = true
-
-        lock.lock()
-        sessions[session.id] = activeSession
-        connections[session.id] = []
-        lock.unlock()
+        var session = ProxySession(
+            listenPort: listenPort, targetHost: targetHost, targetPort: targetPort,
+            accessPolicy: accessPolicy, connectionLimit: connectionLimit, idleTimeout: idleTimeout
+        )
+        session.isActive = true
 
         listener.stateUpdateHandler = { [weak self] state in
-            guard let self = self else { return }
+            guard let self else { return }
             switch state {
             case .ready:
                 DispatchQueue.main.async {
-                    self.onLog?("Proxy listening on port \(listenPort) \u{2192} \(targetHost):\(targetPort)")
+                    self.onLog?("Proxy listening (\(accessPolicy.displayName)) on port \(listenPort) → \(targetHost):\(targetPort)")
                 }
             case .failed(let error):
-                DispatchQueue.main.async {
-                    self.onError?(session.id, "Listener failed: \(error.localizedDescription)")
-                }
+                DispatchQueue.main.async { self.onError?(session.id, "Listener failed: \(error.localizedDescription)") }
                 self.stopProxy(id: session.id)
             case .cancelled:
-                DispatchQueue.main.async {
-                    self.onLog?("Proxy on port \(listenPort) cancelled")
-                }
+                DispatchQueue.main.async { self.onLog?("Proxy on port \(listenPort) cancelled") }
             default:
                 break
             }
         }
-
-        listener.newConnectionHandler = { [weak self] inboundConnection in
-            self?.handleNewConnection(inboundConnection, session: session, targetHost: targetHost, targetPort: targetPort)
+        listener.newConnectionHandler = { [weak self] inbound in
+            self?.handleNewConnection(inbound, sessionID: session.id)
         }
-
-        listener.start(queue: queue)
 
         lock.lock()
+        sessions[session.id] = session
+        connections[session.id] = [:]
         listeners[session.id] = listener
         lock.unlock()
+        listener.start(queue: queue)
 
-        DispatchQueue.main.async {
-            self.onSessionUpdated?(activeSession)
-        }
-        return activeSession
+        DispatchQueue.main.async { self.onSessionUpdated?(session) }
+        return session
     }
 
-    /// Stop a proxy session
     public func stopProxy(id: UUID) {
         lock.lock()
         let listener = listeners.removeValue(forKey: id)
-        let conns = connections.removeValue(forKey: id)
-        var session = sessions[id]
+        let pairs = Array((connections.removeValue(forKey: id) ?? [:]).values)
+        let session = sessions.removeValue(forKey: id)
+        for pair in pairs { pair.isClosed = true }
         lock.unlock()
 
         listener?.cancel()
-        if let conns = conns {
-            for pair in conns {
-                pair.inbound.cancel()
-                pair.outbound.cancel()
-            }
+        for pair in pairs {
+            pair.idleWorkItem?.cancel()
+            pair.inbound.cancel()
+            pair.outbound.cancel()
         }
-
-        if session != nil {
-            session!.isActive = false
-            session!.activeConnections = 0
-            let updatedSession = session!
-            lock.lock()
-            sessions.removeValue(forKey: id)
-            lock.unlock()
-            DispatchQueue.main.async {
-                self.onSessionUpdated?(updatedSession)
-            }
-        } else {
-            lock.lock()
-            sessions.removeValue(forKey: id)
-            lock.unlock()
+        if var session {
+            session.isActive = false
+            session.activeConnections = 0
+            DispatchQueue.main.async { self.onSessionUpdated?(session) }
         }
     }
 
-    /// Stop all proxy sessions
     public func stopAll() {
         lock.lock()
-        let ids = Array(listeners.keys)
+        let ids = Array(sessions.keys)
         lock.unlock()
-        for id in ids {
-            stopProxy(id: id)
-        }
+        for id in ids { stopProxy(id: id) }
     }
 
-    /// Get all active sessions
     public func getActiveSessions() -> [ProxySession] {
         lock.lock()
         defer { lock.unlock() }
-        return Array(sessions.values).filter { $0.isActive }
+        return Array(sessions.values).filter(\.isActive)
     }
 
-    /// Get session by ID
     public func getSession(id: UUID) -> ProxySession? {
         lock.lock()
         defer { lock.unlock() }
         return sessions[id]
     }
 
-    // MARK: - Connection Handling
-
-    private func handleNewConnection(_ inbound: NWConnection, session: ProxySession, targetHost: String, targetPort: Int) {
-        DispatchQueue.main.async {
-            self.onLog?("New connection on proxy port \(session.listenPort)")
+    private func handleNewConnection(_ inbound: NWConnection, sessionID: UUID) {
+        let remoteAddress: String
+        if case .hostPort(let host, _) = inbound.endpoint {
+            remoteAddress = String(describing: host)
+        } else {
+            remoteAddress = ""
         }
 
-        let host = NWEndpoint.Host(targetHost)
-        guard let port = NWEndpoint.Port(rawValue: UInt16(targetPort)) else {
-            DispatchQueue.main.async {
-                self.onError?(session.id, "Invalid target port: \(targetPort)")
-            }
+        lock.lock()
+        guard let session = sessions[sessionID], session.isActive,
+              session.accessPolicy.permits(address: remoteAddress),
+              (connections[sessionID]?.count ?? session.connectionLimit) < session.connectionLimit else {
+            lock.unlock()
+            DispatchQueue.main.async { self.onLog?("Rejected proxy client \(remoteAddress.isEmpty ? "unknown" : remoteAddress)") }
             inbound.cancel()
             return
         }
 
-        let outbound = NWConnection(host: host, port: port, using: .tcp)
-
-        lock.lock()
-        connections[session.id]?.append((inbound: inbound, outbound: outbound))
+        let targetPort = NWEndpoint.Port(rawValue: UInt16(session.targetPort))!
+        let outbound = NWConnection(host: NWEndpoint.Host(session.targetHost), port: targetPort, using: .tcp)
+        let pair = ProxyConnectionPair(inbound: inbound, outbound: outbound)
+        connections[sessionID]?[pair.id] = pair
+        var updated = session
+        updated.activeConnections = connections[sessionID]?.count ?? 0
+        sessions[sessionID] = updated
         lock.unlock()
-        updateConnectionCount(session.id)
 
-        inbound.stateUpdateHandler = { [weak self] state in
+        DispatchQueue.main.async {
+            self.onLog?("Accepted proxy client \(remoteAddress)")
+            self.onSessionUpdated?(updated)
+        }
+        resetIdleTimer(pair, sessionID: sessionID, timeout: session.idleTimeout)
+
+        inbound.stateUpdateHandler = { [weak self, weak pair] state in
+            guard let self, let pair else { return }
             switch state {
             case .ready:
-                self?.relay(from: inbound, to: outbound, sessionId: session.id, label: "client\u{2192}target")
+                self.relay(from: pair.inbound, to: pair.outbound, pair: pair, sessionID: sessionID, label: "client→target")
             case .failed, .cancelled:
-                outbound.cancel()
-                self?.removeConnection(sessionId: session.id, inbound: inbound)
-            default:
-                break
+                self.closePair(pair, sessionID: sessionID)
+            default: break
             }
         }
-
-        outbound.stateUpdateHandler = { [weak self] state in
+        outbound.stateUpdateHandler = { [weak self, weak pair] state in
+            guard let self, let pair else { return }
             switch state {
             case .ready:
-                self?.relay(from: outbound, to: inbound, sessionId: session.id, label: "target\u{2192}client")
+                self.relay(from: pair.outbound, to: pair.inbound, pair: pair, sessionID: sessionID, label: "target→client")
             case .failed, .cancelled:
-                inbound.cancel()
-                self?.removeConnection(sessionId: session.id, inbound: inbound)
-            default:
-                break
+                self.closePair(pair, sessionID: sessionID)
+            default: break
             }
         }
 
@@ -223,76 +321,95 @@ public final class TCPProxyManager {
         outbound.start(queue: queue)
     }
 
-    private func relay(from source: NWConnection, to destination: NWConnection, sessionId: UUID, label: String) {
-        source.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
-            guard let self = self else { return }
-
-            if let data = data, !data.isEmpty {
+    private func relay(
+        from source: NWConnection, to destination: NWConnection,
+        pair: ProxyConnectionPair, sessionID: UUID, label: String
+    ) {
+        source.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self, weak pair] data, _, isComplete, error in
+            guard let self, let pair else { return }
+            if let data, !data.isEmpty {
                 self.lock.lock()
-                if var session = self.sessions[sessionId] {
+                let live = !pair.isClosed && self.connections[sessionID]?[pair.id] != nil
+                if live, var session = self.sessions[sessionID] {
                     session.bytesForwarded += UInt64(data.count)
-                    self.sessions[sessionId] = session
+                    self.sessions[sessionID] = session
                 }
                 self.lock.unlock()
-
-                destination.send(content: data, completion: .contentProcessed { sendError in
-                    if let sendError = sendError {
-                        DispatchQueue.main.async {
-                            self.onLog?("Send error (\(label)): \(sendError.localizedDescription)")
-                        }
-                        source.cancel()
-                        destination.cancel()
-                        return
+                guard live else { return }
+                self.resetIdleTimer(pair, sessionID: sessionID, timeout: self.sessionIdleTimeout(sessionID))
+                destination.send(content: data, completion: .contentProcessed { [weak self, weak pair] sendError in
+                    guard let self, let pair else { return }
+                    if let sendError {
+                        DispatchQueue.main.async { self.onLog?("Send error (\(label)): \(sendError.localizedDescription)") }
+                        self.closePair(pair, sessionID: sessionID)
+                    } else {
+                        self.relay(from: source, to: destination, pair: pair, sessionID: sessionID, label: label)
                     }
-                    self.relay(from: source, to: destination, sessionId: sessionId, label: label)
                 })
-            }
-
-            if isComplete {
+            } else if isComplete {
                 destination.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in })
-                return
-            }
-
-            if let error = error {
-                DispatchQueue.main.async {
-                    self.onLog?("Receive error (\(label)): \(error.localizedDescription)")
-                }
-                source.cancel()
-                destination.cancel()
+                self.closePair(pair, sessionID: sessionID)
+            } else if let error {
+                DispatchQueue.main.async { self.onLog?("Receive error (\(label)): \(error.localizedDescription)") }
+                self.closePair(pair, sessionID: sessionID)
+            } else {
+                self.relay(from: source, to: destination, pair: pair, sessionID: sessionID, label: label)
             }
         }
     }
 
-    private func removeConnection(sessionId: UUID, inbound: NWConnection) {
+    private func sessionIdleTimeout(_ sessionID: UUID) -> TimeInterval {
         lock.lock()
-        connections[sessionId]?.removeAll { $0.inbound === inbound }
+        defer { lock.unlock() }
+        return sessions[sessionID]?.idleTimeout ?? 1
+    }
+
+    private func resetIdleTimer(_ pair: ProxyConnectionPair, sessionID: UUID, timeout: TimeInterval) {
+        let item = DispatchWorkItem { [weak self, weak pair] in
+            guard let self, let pair else { return }
+            DispatchQueue.main.async { self.onLog?("Closed idle proxy connection") }
+            self.closePair(pair, sessionID: sessionID)
+        }
+        lock.lock()
+        guard !pair.isClosed, connections[sessionID]?[pair.id] != nil else {
+            lock.unlock()
+            return
+        }
+        let previous = pair.idleWorkItem
+        pair.idleWorkItem = item
         lock.unlock()
-        updateConnectionCount(sessionId)
+        previous?.cancel()
+        queue.asyncAfter(deadline: .now() + timeout, execute: item)
     }
 
-    private func updateConnectionCount(_ sessionId: UUID) {
+    private func closePair(_ pair: ProxyConnectionPair, sessionID: UUID) {
         lock.lock()
-        if var session = sessions[sessionId] {
-            session.activeConnections = connections[sessionId]?.count ?? 0
-            sessions[sessionId] = session
-            let updated = session
+        guard !pair.isClosed, connections[sessionID]?.removeValue(forKey: pair.id) != nil else {
             lock.unlock()
-            DispatchQueue.main.async { [weak self] in
-                self?.onSessionUpdated?(updated)
-            }
-        } else {
-            lock.unlock()
+            return
         }
+        pair.isClosed = true
+        pair.idleWorkItem?.cancel()
+        var updated = sessions[sessionID]
+        if updated != nil {
+            updated!.activeConnections = connections[sessionID]?.count ?? 0
+            sessions[sessionID] = updated!
+        }
+        lock.unlock()
+
+        pair.inbound.cancel()
+        pair.outbound.cancel()
+        if let updated { DispatchQueue.main.async { self.onSessionUpdated?(updated) } }
     }
 
-    deinit {
-        stopAll()
-    }
+    deinit { stopAll() }
 }
 
-// MARK: - Proxy Errors
 public enum ProxyError: LocalizedError {
     case invalidPort(Int)
+    case invalidConnectionLimit(Int)
+    case invalidIdleTimeout(TimeInterval)
+    case invalidAccessPolicy(String)
     case listenerFailed(String)
     case connectionFailed(String)
     case sessionNotFound(UUID)
@@ -300,6 +417,9 @@ public enum ProxyError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidPort(let port): return "Invalid port number: \(port)"
+        case .invalidConnectionLimit(let limit): return "Invalid proxy connection limit: \(limit)"
+        case .invalidIdleTimeout(let timeout): return "Invalid proxy idle timeout: \(timeout)"
+        case .invalidAccessPolicy(let reason): return "Invalid proxy access policy: \(reason)"
         case .listenerFailed(let reason): return "Failed to start listener: \(reason)"
         case .connectionFailed(let reason): return "Connection failed: \(reason)"
         case .sessionNotFound(let id): return "Proxy session not found: \(id)"
