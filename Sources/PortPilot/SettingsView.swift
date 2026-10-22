@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 enum SettingsPane: String, CaseIterable, Identifiable {
     case general = "General"
@@ -9,6 +10,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case reserved = "Reserved"
     case guardPorts = "Guard"
     case programs = "Programs"
+    case security = "Security FAQ"
     case about = "About"
 
     var id: String { rawValue }
@@ -29,6 +31,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             return "shield.fill"
         case .programs:
             return "app.fill"
+        case .security:
+            return "shield.lefthalf.filled"
         case .about:
             return "info.circle"
         }
@@ -72,6 +76,8 @@ struct SettingsView: View {
             GuardedPortsSettingsView()
         case .programs:
             CustomProgramsSettingsView()
+        case .security:
+            SecurityFAQView()
         case .about:
             AboutSettingsView()
         }
@@ -599,8 +605,24 @@ struct MenuBarSettingsView: View {
                     Toggle("Show menu bar icon", isOn: $appSettings.showMenuBarIcon).font(.system(size: 13))
                     Toggle("Show dock icon", isOn: $appSettings.showDockIcon).font(.system(size: 13))
 
-                    if appSettings.showMenuBarIcon {
-                        Toggle("Launch at login", isOn: $appSettings.launchAtLogin).font(.system(size: 13))
+                    Toggle("Launch at login", isOn: $appSettings.launchAtLogin)
+                        .font(.system(size: 13))
+                        .disabled(appSettings.loginItemChangeInProgress)
+                    if appSettings.loginItemChangeInProgress {
+                        Text("Updating macOS Login Items…")
+                            .font(.system(size: 11)).foregroundColor(.secondary)
+                    } else {
+                        Text(appSettings.loginItemStatus.detail)
+                            .font(.system(size: 11))
+                            .foregroundColor(appSettings.loginItemStatus == .requiresApproval ? Theme.Status.warning : .secondary)
+                    }
+                    if appSettings.loginItemStatus == .requiresApproval {
+                        Button("Open Login Items Settings") { SMAppService.openSystemSettingsLoginItems() }
+                            .buttonStyle(.link)
+                    }
+                    if let error = appSettings.loginItemError {
+                        Text("Couldn't change launch at login: \(error)")
+                            .font(.system(size: 11)).foregroundColor(Theme.Status.error)
                     }
 
                     if !appSettings.showDockIcon && !appSettings.showMenuBarIcon {
@@ -750,7 +772,7 @@ struct ReservedPortsSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                LiquidCard(title: "Reserved Ports", icon: "lock.shield", footer: "Reserved ports are protected from accidental kills. Add ports that should stay protected.") {
+                LiquidCard(title: "Reserved Ports", icon: "lock.shield", footer: "Reserved ports show warnings; they do not prevent Kill or Freeze. Check the process before acting.") {
                     HStack {
                         TextField("Port number", text: $newReservedPort)
                             .textFieldStyle(.roundedBorder)

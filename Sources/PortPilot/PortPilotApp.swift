@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var autoRefreshTimer: Timer?
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private let mainNavigation = MainWindowNavigation()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Enforce single instance
@@ -54,6 +55,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .openMainWindow, object: nil
         )
         NotificationCenter.default.addObserver(
+            self, selector: #selector(handleOpenSecurityCenter),
+            name: .openSecurityCenter, object: nil
+        )
+        NotificationCenter.default.addObserver(
             self, selector: #selector(handleMenuBarVisibility(_:)),
             name: .menuBarIconVisibilityChanged, object: nil
         )
@@ -71,14 +76,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         openMainWindow()
     }
 
-    func openMainWindow() {
-        if let window = mainWindow, window.isVisible {
+    @objc private func handleOpenSecurityCenter() {
+        openMainWindow(destination: .security)
+    }
+
+    func openMainWindow(destination: MainTab? = nil) {
+        if let destination { mainNavigation.selectedTab = destination }
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = mainWindow {
+            window.deminiaturize(nil)
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
             return
         }
 
-        let contentView = ContentView()
+        let contentView = ContentView(navigation: mainNavigation)
             .environmentObject(sharedViewModel)
             .frame(minWidth: 800, minHeight: 500)
 
@@ -169,5 +181,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        AppSettings.shared.refreshLaunchAtLoginStatus()
     }
 }

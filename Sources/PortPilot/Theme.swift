@@ -67,6 +67,43 @@ enum Theme {
         static var warning: Color { Theme.palette.warning.color }
     }
 
+    // MARK: - Severity Colors (threat engine)
+    //
+    // FIXED semantic colors — deliberately NOT palette-derived. A critical
+    // finding must read as critical under Papercraft cream and Terminal
+    // phosphor alike; deriving severity from per-theme accents lets a theme
+    // accidentally mute the one signal that must never be muted. Light/dark
+    // pairs are contrast-checked against both system appearances.
+
+    enum Severity {
+        static let critical = Color(light: NSColor(red: 0.80, green: 0.16, blue: 0.16, alpha: 1),
+                                    dark: NSColor(red: 1.00, green: 0.38, blue: 0.38, alpha: 1))
+        static let warning = Color(light: NSColor(red: 0.75, green: 0.45, blue: 0.05, alpha: 1),
+                                   dark: NSColor(red: 1.00, green: 0.70, blue: 0.25, alpha: 1))
+        static let info = Color(light: NSColor(red: 0.15, green: 0.42, blue: 0.80, alpha: 1),
+                                dark: NSColor(red: 0.45, green: 0.68, blue: 1.00, alpha: 1))
+        static let quiet = Color(light: NSColor(red: 0.20, green: 0.62, blue: 0.30, alpha: 1),
+                                 dark: NSColor(red: 0.35, green: 0.80, blue: 0.45, alpha: 1))
+
+        /// Severity icon names — one table so badges, cards, and the menubar
+        /// never drift into three different vocabularies.
+        static func icon(for severity: ThreatSeverity) -> String {
+            switch severity {
+            case .critical: return "shield.fill"
+            case .warning: return "exclamationmark.triangle.fill"
+            case .info: return "info.circle.fill"
+            }
+        }
+
+        static func color(for severity: ThreatSeverity) -> Color {
+            switch severity {
+            case .critical: return critical
+            case .warning: return warning
+            case .info: return info
+            }
+        }
+    }
+
     // MARK: - Alert Colors
 
     enum Alert {

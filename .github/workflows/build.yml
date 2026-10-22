@@ -1,4 +1,4 @@
-name: Build and Release
+name: Internal Build and Test
 
 on:
   push:
@@ -8,8 +8,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# No workflow-wide write scope — pull requests run this file too. The release
-# job below gets `contents: write` and nothing else does.
+# Internal validation artifacts only. Public releases require a separately
+# approved trusted signing workflow; this workflow has no publish authority.
 permissions:
   contents: read
 
@@ -27,13 +27,13 @@ jobs:
         # --arch both: a native-only build ships arm64 and breaks on Intel
         run: swift build -c release --arch arm64 --arch x86_64
 
-      - name: Build macOS app (universal, ad-hoc signed)
+      - name: Build internal macOS app (universal, ad-hoc signed)
         run: >
           xcodebuild -project PortPilot.xcodeproj -target PortPilot
           -configuration Release SYMROOT=.build/xcode
           ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build
 
-      - name: Package macOS artifacts
+      - name: Package internal macOS validation artifacts (not a release)
         run: |
           mkdir -p artifacts
           # Multi-arch SwiftPM builds do NOT produce .build/release — the
@@ -41,14 +41,13 @@ jobs:
           # from .build/release/ failed with "no such file").
           cp .build/apple/Products/Release/portpilot artifacts/portpilot-macos-cli
           cp .build/apple/Products/Release/portpilot-tui artifacts/portpilot-macos-tui
-          # "unsigned" in the name on purpose: CI signs ad-hoc. Signed +
-          # notarized builds come from the maintainer's local release flow.
-          ditto -c -k --sequesterRsrc --keepParent .build/xcode/Release/PortPilot.app artifacts/PortPilot-macOS-app-unsigned.zip
+          # Ad-hoc validation output must never be attached to a public release.
+          ditto -c -k --sequesterRsrc --keepParent .build/xcode/Release/PortPilot.app artifacts/PortPilot-macOS-app-internal-unsigned.zip
 
-      - name: Upload macOS artifacts
+      - name: Upload internal macOS validation artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: portpilot-macos
+          name: portpilot-macos-internal-unsigned
           path: artifacts/*
 
   build-linux:
@@ -72,54 +71,14 @@ jobs:
       - name: Build CLI + TUI
         run: swift build -c release
 
-      - name: Package Linux artifacts
+      - name: Package internal Linux validation artifacts (not a release)
         run: |
           mkdir -p artifacts
           cp .build/release/portpilot artifacts/portpilot-linux-cli
           cp .build/release/portpilot-tui artifacts/portpilot-linux-tui
 
-      - name: Upload Linux artifacts
+      - name: Upload internal Linux validation artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: portpilot-linux
+          name: portpilot-linux-internal-unsigned
           path: artifacts/*
-
-  release:
-    needs: [build-macos, build-linux]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          path: artifacts
-
-      - name: Create checksums
-        # Checksum from inside the artifact dir so the recorded paths are
-        # bare filenames — `sha256sum -c SHA256SUMS.txt` against the release
-        # assets used to fail on the portpilot-macos/ prefix.
-        run: |
-          cd artifacts/portpilot-macos && sha256sum * > ../macos-sums.txt && cd ../..
-          cd artifacts/portpilot-linux && sha256sum * > ../linux-sums.txt && cd ../..
-          { cat artifacts/macos-sums.txt; cat artifacts/linux-sums.txt; } > artifacts/SHA256SUMS.txt
-          rm artifacts/macos-sums.txt artifacts/linux-sums.txt
-
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
-        with:
-          generate_release_notes: true
-          body_append: |
-            The macOS app zip is ad-hoc signed (unsigned) — right-click → Open on first launch,
-            or use the signed/notarized build from the maintainer's release flow.
-            `portpilot-*-cli` and `portpilot-*-tui` are universal (arm64 + x86_64) on macOS.
-          files: |
-            artifacts/portpilot-macos/PortPilot-macOS-app-unsigned.zip
-            artifacts/portpilot-macos/portpilot-macos-cli
-            artifacts/portpilot-macos/portpilot-macos-tui
-            artifacts/portpilot-linux/portpilot-linux-cli
-            artifacts/portpilot-linux/portpilot-linux-tui
-            artifacts/SHA256SUMS.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

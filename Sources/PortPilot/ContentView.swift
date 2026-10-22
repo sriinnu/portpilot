@@ -4,7 +4,14 @@ import AppKit
 // MARK: - Main Tab
 enum MainTab: String, CaseIterable {
     case ports = "Ports"
+    case security = "Security"
     case schedules = "Schedules"
+}
+
+/// Owned by the window delegate so notification routes survive window creation
+/// and can also select a destination in an already-open window.
+final class MainWindowNavigation: ObservableObject {
+    @Published var selectedTab: MainTab = .ports
 }
 
 // MARK: - Content View
@@ -19,9 +26,14 @@ struct ContentView: View {
     /// auto-consumes errorMessage after 4s (the dropdown banner fades); the
     /// alert outlives that because it owns this copy, not the shared string.
     @State private var alertErrorMessage: String?
-    @State private var selectedMainTab: MainTab = .ports
+    @ObservedObject var navigation = MainWindowNavigation()
     @State private var selectedCronjob: CronjobEntry?
     @State private var inspectorTab: InspectorTab = .overview
+
+    private var selectedMainTab: MainTab {
+        get { navigation.selectedTab }
+        nonmutating set { navigation.selectedTab = newValue }
+    }
 
     private var paletteActions: [CommandItem] {
         [
@@ -52,6 +64,13 @@ struct ContentView: View {
                 subtitle: "Switch back to the port list",
                 tint: Theme.Liquid.accentPurple,
                 action: { selectedMainTab = .ports }
+            ),
+            CommandItem(
+                icon: "shield.lefthalf.filled",
+                title: "Go to Security",
+                subtitle: "Review threat findings",
+                tint: Theme.Status.error,
+                action: { selectedMainTab = .security }
             ),
             CommandItem(
                 icon: "waveform.path.ecg",
@@ -90,6 +109,8 @@ struct ContentView: View {
                 onRefresh: {
                     if selectedMainTab == .schedules {
                         viewModel.refreshCronjobs()
+                    } else if selectedMainTab == .security {
+                        viewModel.threatMonitor.checkNow()
                     } else {
                         viewModel.refreshPorts()
                     }
@@ -102,7 +123,7 @@ struct ContentView: View {
                 isLoading: selectedMainTab == .schedules ? viewModel.isLoadingCronjobs : viewModel.isLoading,
                 portCount: viewModel.portCount,
                 totalCount: viewModel.totalCount,
-                selectedMainTab: $selectedMainTab
+                selectedMainTab: $navigation.selectedTab
             )
 
             // Live traffic strip + protocol donut — ports tab only. Donut is
@@ -141,9 +162,14 @@ struct ContentView: View {
             Divider()
 
             // Main content: sidebar + split list/inspector.
+            // Security is a full page, not a list+inspector split — findings
+            // need width for signal rows and action buttons.
             HStack(spacing: 0) {
-                LiquidSidebar(viewModel: viewModel, selectedMainTab: $selectedMainTab)
+                LiquidSidebar(viewModel: viewModel, selectedMainTab: $navigation.selectedTab)
 
+                if selectedMainTab == .security {
+                    SecurityCenterView()
+                } else {
                 HSplitView {
                     // Left pane: port list or cronjob list
                     if selectedMainTab == .schedules {
@@ -206,6 +232,7 @@ struct ContentView: View {
                         }
                     }
                     .frame(minWidth: 360, idealWidth: 480)
+                }
                 }
             }
 

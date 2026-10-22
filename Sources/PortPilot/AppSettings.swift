@@ -4,6 +4,21 @@ import AppKit
 import SwiftUI
 import ServiceManagement
 
+private struct SystemLoginItemService: LoginItemService {
+    var status: LoginItemStatus {
+        switch SMAppService.mainApp.status {
+        case .enabled: return .enabled
+        case .requiresApproval: return .requiresApproval
+        case .notRegistered: return .disabled
+        case .notFound: return .unavailable
+        @unknown default: return .unavailable
+        }
+    }
+
+    func register() throws { try SMAppService.mainApp.register() }
+    func unregister() throws { try SMAppService.mainApp.unregister() }
+}
+
 // MARK: - Appearance Mode
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system = "System"
@@ -225,33 +240,38 @@ class AppSettings: ObservableObject {
         }
     }
 
-    @Published var launchAtLogin: Bool {
-        didSet {
-            defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
-            // SMAppService is the launch-at-login mechanism on macOS 13+.
-            // The old version only wrote the flag — the toggle was a placebo.
-            registerLaunchAtLogin(launchAtLogin)
-        }
+    @Published private(set) var loginItemStatus: LoginItemStatus = .disabled
+    @Published private(set) var loginItemChangeInProgress = false
+    @Published private(set) var loginItemError: String?
+
+    var launchAtLogin: Bool {
+        get { loginItemStatus.toggleValue }
+        set { registerLaunchAtLogin(newValue) }
     }
 
     private func registerLaunchAtLogin(_ enabled: Bool) {
+        guard !loginItemChangeInProgress else { return }
+        loginItemChangeInProgress = true
+        loginItemError = nil
         Task.detached(priority: .userInitiated) {
-            // Sync variants — already off the main thread, blocking here is fine.
-            let service = SMAppService.mainApp
-            do {
-                if enabled {
-                    if service.status == .notRegistered {
-                        try service.register()
-                    }
-                } else {
-                    if service.status != .notRegistered {
-                        try service.unregister()
-                    }
-                }
-            } catch {
-                NSLog("Launch-at-login change failed: \(error.localizedDescription)")
+            let result = LoginItemChangeResult.apply(enabled: enabled, service: SystemLoginItemService())
+            await MainActor.run {
+                self.loginItemStatus = result.status
+                self.loginItemError = result.errorMessage
+                self.loginItemChangeInProgress = false
+                self.defaults.set(result.status.toggleValue, forKey: Keys.launchAtLogin)
             }
         }
+    }
+
+    /// A user can change approval outside PortPilot while System Settings is
+    /// open. Reading status never registers or unregisters the app.
+    func refreshLaunchAtLoginStatus() {
+        guard !loginItemChangeInProgress else { return }
+        let actualStatus = SystemLoginItemService().status
+        if actualStatus != loginItemStatus { loginItemError = nil }
+        loginItemStatus = actualStatus
+        defaults.set(loginItemStatus.toggleValue, forKey: Keys.launchAtLogin)
     }
 
     @Published var showNotifications: Bool {
@@ -371,25 +391,10 @@ class AppSettings: ObservableObject {
     private init() {
         self.showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? false
         self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
-        // OS truth wins both ways: if the user removed PortPilot from Login
-        // Items in System Settings, fix the flag instead of re-registering
-        // over them — and if they added it there manually, the toggle should
-        // show ON instead of pretending it's off. A pending-approval
-        // registration keeps the stored flag.
-        let storedLaunchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
-        let effectiveLaunchAtLogin: Bool
-        switch SMAppService.mainApp.status {
-        case .enabled:
-            effectiveLaunchAtLogin = true
-        case .requiresApproval:
-            effectiveLaunchAtLogin = storedLaunchAtLogin
-        default:
-            effectiveLaunchAtLogin = false
-        }
-        self.launchAtLogin = effectiveLaunchAtLogin
-        if storedLaunchAtLogin != effectiveLaunchAtLogin {
-            defaults.set(effectiveLaunchAtLogin, forKey: Keys.launchAtLogin)
-        }
+        // OS truth wins, including a visible pending-approval state.
+        let initialLoginStatus = SystemLoginItemService().status
+        self.loginItemStatus = initialLoginStatus
+        defaults.set(initialLoginStatus.toggleValue, forKey: Keys.launchAtLogin)
         self.showNotifications = defaults.object(forKey: Keys.showNotifications) as? Bool ?? true
         self.backgroundMonitoring = defaults.object(forKey: Keys.backgroundMonitoring) as? Bool ?? false
         self.autoRefreshInterval = defaults.object(forKey: Keys.autoRefreshInterval) as? Int ?? 5
@@ -532,6 +537,7 @@ class AppSettings: ObservableObject {
 
 // MARK: - Settings Notification Names
 extension Notification.Name {
+    static let openSecurityCenter = Notification.Name("openSecurityCenter")
     static let menuBarIconVisibilityChanged = Notification.Name("menuBarIconVisibilityChanged")
     static let appPolicyChanged = Notification.Name("appPolicyChanged")
     static let autoRefreshChanged = Notification.Name("autoRefreshChanged")

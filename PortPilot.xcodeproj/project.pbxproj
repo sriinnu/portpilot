@@ -16,6 +16,16 @@
 		107E6A3FAB6F82D6DF30C093 /* PortManager+CronDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F733C15C0B5CBBC3113949DD /* PortManager+CronDiscovery.swift */; };
 		10D96EE61150BDB66AE0029F /* PortPilotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */; };
 		135F70795593D5787A37120D /* MenuBarDropdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */; };
+		142AB4A6802AC82BF8DA8F4C /* BlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B539A10F735606C5C2FCB6F1 /* BlocklistStore.swift */; };
+		15D04A1D64CE3C7F166C5BA7 /* ThreatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82163F08B3D93E505C53CA37 /* ThreatModels.swift */; };
+		AA0000000000000000000002 /* SecuritySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000001 /* SecuritySupport.swift */; };
+		AA0000000000000000000003 /* SecuritySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000001 /* SecuritySupport.swift */; };
+		AB0000000000000000000002 /* FileTransactionLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000001 /* FileTransactionLock.swift */; };
+		AB0000000000000000000003 /* FileTransactionLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000001 /* FileTransactionLock.swift */; };
+		AB0000000000000000000012 /* ProcessSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000011 /* ProcessSafety.swift */; };
+		AB0000000000000000000013 /* ProcessSafety.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000011 /* ProcessSafety.swift */; };
+		AB0000000000000000000022 /* ProductPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000021 /* ProductPresentation.swift */; };
+		AB0000000000000000000023 /* ProductPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000021 /* ProductPresentation.swift */; };
 		1B7317BE6839AE5547446F9B /* PortManager+FrameworkDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBDC13CC40C86EFD5D62334D /* PortManager+FrameworkDetector.swift */; };
 		1E121AAA986D7D528E642EFB /* MainStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECF4872DC69C6F07F761CBD2 /* MainStatusBar.swift */; };
 		26999AF338528CD53D3631D3 /* PortGuardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64593295B71E797F707FD40 /* PortGuardPolicy.swift */; };
@@ -25,6 +35,8 @@
 		36BBA1CD6F505249CD1D6184 /* TCPProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27629EA5FE623F463B619EAB /* TCPProxyManager.swift */; };
 		37A3F492387C9A9C3933A55A /* CommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A2620EEA2B1F7EF6DA8433 /* CommandPalette.swift */; };
 		3CC8F08BC715035E95B24F96 /* InteractiveMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588D0EFE0FBD4393233E704D /* InteractiveMode.swift */; };
+		3F860177BF2E730BAAF86B45 /* SecurityCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFB68A7643F3E84B82C4B46D /* SecurityCenterView.swift */; };
+		AA0000000000000000000012 /* SecurityFAQView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000011 /* SecurityFAQView.swift */; };
 		4177A14E74ABA483D93D2C48 /* PortListHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DED981D7AE195060FCB1A5B /* PortListHeader.swift */; };
 		45B63A44A1DCA31EF12C887F /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = A31E063060BCD5F12FF17B27 /* ArgumentParser */; };
 		4A96674D64553176446E5099 /* PortManager+CronControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */; };
@@ -41,6 +53,9 @@
 		6E28F1020175E3718E988818 /* FavoritesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */; };
 		70E6FBEDAD265544F099479B /* PortGuardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64593295B71E797F707FD40 /* PortGuardPolicy.swift */; };
 		73AD957EA436D2D12E9191A1 /* TunnelInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 057B2F82640E81DB6A406249 /* TunnelInspector.swift */; };
+		7870D1CB430C1A4B217AB4A8 /* ThreatDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C1B82CDCBE969D0494E605 /* ThreatDetector.swift */; };
+		79178A75E8A7CF72953F012C /* ThreatMonitorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875BE591A887B6792CB90E89 /* ThreatMonitorStore.swift */; };
+		81AE1C7443452BD20B6E64EA /* ThreatHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92D1BF971D28AA88F6864578 /* ThreatHistoryStore.swift */; };
 		8358201A85E771E3088A8713 /* PortManager+Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D335FC05100CC2892A4101D /* PortManager+Connections.swift */; };
 		84647CE2A1E70DCD280DB758 /* MainTrafficStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D13BDF79773A43F17B743D /* MainTrafficStrip.swift */; };
 		873918D37E26D4E0006C8831 /* PortManager+FrameworkDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBDC13CC40C86EFD5D62334D /* PortManager+FrameworkDetector.swift */; };
@@ -48,6 +63,7 @@
 		8C01936344F6EFADB66CA10C /* LiquidSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1F60F6CBE190E2A0F9EB02 /* LiquidSidebar.swift */; };
 		8C3BCB5E2BDD443952126871 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D852C65A93061DC605B8E880 /* Theme.swift */; };
 		8C6769A3A70DD1DA6B6F1D42 /* InspectorComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 284248C45524605D5973429E /* InspectorComponents.swift */; };
+		8CBA3EC1D0FEC1BFB197A43C /* ThreatModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82163F08B3D93E505C53CA37 /* ThreatModels.swift */; };
 		9343794A1F217DEC030C0BD7 /* MainWindowToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A861967EF449E3C64C56EE0 /* MainWindowToolbar.swift */; };
 		9810BC9493DDA8EA0A86AFEF /* Palettes+Standard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37A6AF7BD37EF2449BE454C0 /* Palettes+Standard.swift */; };
 		9B0A28A18BA8D2DE42700994 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3F7925D712801392988B9C16 /* Assets.xcassets */; };
@@ -65,6 +81,7 @@
 		BB0285020B57C85A45E9C530 /* CLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CE2A404599C5F45A843D7C /* CLI.swift */; };
 		CDB2B78CFF1B89257D44255F /* CronRunManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F711AA3C5F81B0E5670E2023 /* CronRunManager.swift */; };
 		D041B39F72B6B072D70BCB5D /* LiveMetricsHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6521C0289F50D4452A56A784 /* LiveMetricsHistory.swift */; };
+		D0BD567BD3E7A7F398A9B763 /* BlocklistCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9127CB5A4B46B8F0360C3865 /* BlocklistCommand.swift */; };
 		D36F3790D2FAC34420C04A6B /* CronRunManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F711AA3C5F81B0E5670E2023 /* CronRunManager.swift */; };
 		DF5E4A8F751D7C40856D8F17 /* menubar_icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 64AC2C24FB81D274ADBAA08D /* menubar_icon.png */; };
 		E1A03A464A6EAB4D026ED740 /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */; };
@@ -72,11 +89,14 @@
 		E2851162D6E2FE56F6B01127 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306E20A02CAD6507A9EABC0D /* AppSettings.swift */; };
 		E7F7AF3BD8B9B74B039536CC /* CronjobController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13BC97BB25FC01A457B34DBF /* CronjobController.swift */; };
 		E9B1CE09E6468E7FA89BD554 /* PortManager+CronControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */; };
+		ECA0CC5E1D90C6229D0A0F2F /* ThreatDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C1B82CDCBE969D0494E605 /* ThreatDetector.swift */; };
 		ED267D7980B6D77CD820D0BB /* Palettes+Character.swift in Sources */ = {isa = PBXBuildFile; fileRef = F513CD4DA916564130D1A2F8 /* Palettes+Character.swift */; };
 		ED5628FAAFDFF4140B8FD6DF /* PortManager+Docker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4A83897BFD7F8CD42F50F3 /* PortManager+Docker.swift */; };
 		EEEB821FFD7DF066A9B2C9F1 /* ActivityLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE5FB6FE1A412940C9079FD /* ActivityLogStore.swift */; };
 		F35FDFC0E038FFECFB4BFB2C /* Sparkline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4817059CE1DE690B5A924FB /* Sparkline.swift */; };
 		F438C3C737DDF89CC82661F9 /* PortManager+Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D335FC05100CC2892A4101D /* PortManager+Connections.swift */; };
+		F59A1629F1EEBDFD4568A88C /* ThreatHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92D1BF971D28AA88F6864578 /* ThreatHistoryStore.swift */; };
+		F6AB41C282B24AB96BCCD11C /* BlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B539A10F735606C5C2FCB6F1 /* BlocklistStore.swift */; };
 		F8B95C825566C7102D39B04B /* ProcessClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */; };
 		FBCDFFA1C78CC98B520C00DB /* HistoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */; };
 /* End PBXBuildFile section */
@@ -101,6 +121,7 @@
 		3642965AC0E095B5E0863B11 /* PortListPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListPanel.swift; sourceTree = "<group>"; };
 		36D13BDF79773A43F17B743D /* MainTrafficStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTrafficStrip.swift; sourceTree = "<group>"; };
 		37A6AF7BD37EF2449BE454C0 /* Palettes+Standard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Palettes+Standard.swift"; sourceTree = "<group>"; };
+		39C1B82CDCBE969D0494E605 /* ThreatDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreatDetector.swift; sourceTree = "<group>"; };
 		3AE5FB6FE1A412940C9079FD /* ActivityLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogStore.swift; sourceTree = "<group>"; };
 		3F7925D712801392988B9C16 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4538E828BD932E87FB855FE4 /* PortPilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PortPilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -115,16 +136,25 @@
 		73849239FC92C331256E34F8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		774B16A739CCA03682C7791E /* LogsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsPanel.swift; sourceTree = "<group>"; };
 		7C9C58EDD11939BD17079DF5 /* ProtocolDonut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolDonut.swift; sourceTree = "<group>"; };
+		82163F08B3D93E505C53CA37 /* ThreatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreatModels.swift; sourceTree = "<group>"; };
 		8309BC095CFA83DD1EC0B7FB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		875BE591A887B6792CB90E89 /* ThreatMonitorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreatMonitorStore.swift; sourceTree = "<group>"; };
 		8A861967EF449E3C64C56EE0 /* MainWindowToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowToolbar.swift; sourceTree = "<group>"; };
 		8D335FC05100CC2892A4101D /* PortManager+Connections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+Connections.swift"; sourceTree = "<group>"; };
 		8E705010BB6BCC26217B8BE0 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
+		9127CB5A4B46B8F0360C3865 /* BlocklistCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlocklistCommand.swift; sourceTree = "<group>"; };
+		92D1BF971D28AA88F6864578 /* ThreatHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreatHistoryStore.swift; sourceTree = "<group>"; };
+		AA0000000000000000000001 /* SecuritySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecuritySupport.swift; sourceTree = "<group>"; };
+		AB0000000000000000000001 /* FileTransactionLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransactionLock.swift; sourceTree = "<group>"; };
+		AB0000000000000000000011 /* ProcessSafety.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSafety.swift; sourceTree = "<group>"; };
+		AB0000000000000000000021 /* ProductPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductPresentation.swift; sourceTree = "<group>"; };
 		950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesManager.swift; sourceTree = "<group>"; };
 		A2A2620EEA2B1F7EF6DA8433 /* CommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette.swift; sourceTree = "<group>"; };
 		A4A615345FB63E8E282D8766 /* FontManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontManager.swift; sourceTree = "<group>"; };
 		A67F6CE164D2E1BBC53B9C25 /* AlertState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertState.swift; sourceTree = "<group>"; };
 		AFE340AE1CEDD083FE340742 /* MenuBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanel.swift; sourceTree = "<group>"; };
 		B1EE8E0DA6DF1CF35A0235A5 /* PortManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortManager.swift; sourceTree = "<group>"; };
+		B539A10F735606C5C2FCB6F1 /* BlocklistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlocklistStore.swift; sourceTree = "<group>"; };
 		BC3DF854B1CC1AC689F277AA /* PortGuardStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortGuardStore.swift; sourceTree = "<group>"; };
 		BD2DC2A3AD4425F03FA99D74 /* PortListFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListFooter.swift; sourceTree = "<group>"; };
 		C4817059CE1DE690B5A924FB /* Sparkline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sparkline.swift; sourceTree = "<group>"; };
@@ -138,6 +168,8 @@
 		EBDC13CC40C86EFD5D62334D /* PortManager+FrameworkDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+FrameworkDetector.swift"; sourceTree = "<group>"; };
 		ECF4872DC69C6F07F761CBD2 /* MainStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainStatusBar.swift; sourceTree = "<group>"; };
 		ED33724884A3B350673192EA /* PortListEmptyState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListEmptyState.swift; sourceTree = "<group>"; };
+		EFB68A7643F3E84B82C4B46D /* SecurityCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityCenterView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000011 /* SecurityFAQView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityFAQView.swift; sourceTree = "<group>"; };
 		F425A17AF5886E28CEAECA52 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		F513CD4DA916564130D1A2F8 /* Palettes+Character.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Palettes+Character.swift"; sourceTree = "<group>"; };
 		F708D4774546532BB8331A15 /* ThemePalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePalette.swift; sourceTree = "<group>"; };
@@ -190,6 +222,8 @@
 				6D00CC9727B2DEBDF517DEF8 /* PortPilot.entitlements */,
 				1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */,
 				29FEE26C9EA2D8CFEB70C3CC /* PortViewModel.swift */,
+				EFB68A7643F3E84B82C4B46D /* SecurityCenterView.swift */,
+				AA0000000000000000000011 /* SecurityFAQView.swift */,
 				73849239FC92C331256E34F8 /* SettingsView.swift */,
 				D852C65A93061DC605B8E880 /* Theme.swift */,
 				0D881FD3BE12BC7A446A8494 /* TimelinePanel.swift */,
@@ -225,6 +259,7 @@
 		66F303C5E78C62B382C796F6 /* PortManagerLib */ = {
 			isa = PBXGroup;
 			children = (
+				B539A10F735606C5C2FCB6F1 /* BlocklistStore.swift */,
 				F711AA3C5F81B0E5670E2023 /* CronRunManager.swift */,
 				950D3EAE1DAC9443D0979369 /* FavoritesManager.swift */,
 				30DEE0B5319A7E0284879DD3 /* HistoryManager.swift */,
@@ -237,7 +272,14 @@
 				EBDC13CC40C86EFD5D62334D /* PortManager+FrameworkDetector.swift */,
 				E856A016D49BF0EA323BF579 /* PortWatcher.swift */,
 				2EB20F5EB9A8689F870249FA /* ProcessClassifier.swift */,
+				AA0000000000000000000001 /* SecuritySupport.swift */,
+				AB0000000000000000000001 /* FileTransactionLock.swift */,
+				AB0000000000000000000011 /* ProcessSafety.swift */,
+				AB0000000000000000000021 /* ProductPresentation.swift */,
 				27629EA5FE623F463B619EAB /* TCPProxyManager.swift */,
+				39C1B82CDCBE969D0494E605 /* ThreatDetector.swift */,
+				92D1BF971D28AA88F6864578 /* ThreatHistoryStore.swift */,
+				82163F08B3D93E505C53CA37 /* ThreatModels.swift */,
 			);
 			name = PortManagerLib;
 			path = Sources/PortManagerLib;
@@ -274,6 +316,7 @@
 		E6F92F38F122F389CD7D46FD /* PortKillerCLI */ = {
 			isa = PBXGroup;
 			children = (
+				9127CB5A4B46B8F0360C3865 /* BlocklistCommand.swift */,
 				32CE2A404599C5F45A843D7C /* CLI.swift */,
 				588D0EFE0FBD4393233E704D /* InteractiveMode.swift */,
 			);
@@ -287,6 +330,7 @@
 				3AE5FB6FE1A412940C9079FD /* ActivityLogStore.swift */,
 				13BC97BB25FC01A457B34DBF /* CronjobController.swift */,
 				BC3DF854B1CC1AC689F277AA /* PortGuardStore.swift */,
+				875BE591A887B6792CB90E89 /* ThreatMonitorStore.swift */,
 			);
 			path = Stores;
 			sourceTree = "<group>";
@@ -390,6 +434,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D0BD567BD3E7A7F398A9B763 /* BlocklistCommand.swift in Sources */,
+				F6AB41C282B24AB96BCCD11C /* BlocklistStore.swift in Sources */,
 				BB0285020B57C85A45E9C530 /* CLI.swift in Sources */,
 				D36F3790D2FAC34420C04A6B /* CronRunManager.swift in Sources */,
 				6E28F1020175E3718E988818 /* FavoritesManager.swift in Sources */,
@@ -404,7 +450,14 @@
 				A5C7B7031CBD15F652D56C54 /* PortManager.swift in Sources */,
 				B323941FDAF42AF131E25F4C /* PortWatcher.swift in Sources */,
 				A8C2647D076157EE14C94959 /* ProcessClassifier.swift in Sources */,
+				AA0000000000000000000002 /* SecuritySupport.swift in Sources */,
+				AB0000000000000000000002 /* FileTransactionLock.swift in Sources */,
+				AB0000000000000000000012 /* ProcessSafety.swift in Sources */,
+				AB0000000000000000000022 /* ProductPresentation.swift in Sources */,
 				36BBA1CD6F505249CD1D6184 /* TCPProxyManager.swift in Sources */,
+				7870D1CB430C1A4B217AB4A8 /* ThreatDetector.swift in Sources */,
+				F59A1629F1EEBDFD4568A88C /* ThreatHistoryStore.swift in Sources */,
+				8CBA3EC1D0FEC1BFB197A43C /* ThreatModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -415,6 +468,7 @@
 				EEEB821FFD7DF066A9B2C9F1 /* ActivityLogStore.swift in Sources */,
 				05310515E4BC93003B3D650C /* AlertState.swift in Sources */,
 				E2851162D6E2FE56F6B01127 /* AppSettings.swift in Sources */,
+				142AB4A6802AC82BF8DA8F4C /* BlocklistStore.swift in Sources */,
 				37A3F492387C9A9C3933A55A /* CommandPalette.swift in Sources */,
 				0AE5E0C4D87AADF5DAFEB5D2 /* ConfigurationPanel.swift in Sources */,
 				5D7BACC7B281C23E9110B48B /* ContentView.swift in Sources */,
@@ -456,13 +510,23 @@
 				53FADF13C4BE66641E932DA1 /* PortViewModel.swift in Sources */,
 				680841545D8FF9CC9A107352 /* PortWatcher.swift in Sources */,
 				F8B95C825566C7102D39B04B /* ProcessClassifier.swift in Sources */,
+				AA0000000000000000000003 /* SecuritySupport.swift in Sources */,
+				AB0000000000000000000003 /* FileTransactionLock.swift in Sources */,
+				AB0000000000000000000013 /* ProcessSafety.swift in Sources */,
+				AB0000000000000000000023 /* ProductPresentation.swift in Sources */,
 				0813736798DBF4D53B93BA16 /* ProtocolDonut.swift in Sources */,
+				3F860177BF2E730BAAF86B45 /* SecurityCenterView.swift in Sources */,
+				AA0000000000000000000012 /* SecurityFAQView.swift in Sources */,
 				B6056CDF3AC5F27F7445D59E /* SettingsView.swift in Sources */,
 				F35FDFC0E038FFECFB4BFB2C /* Sparkline.swift in Sources */,
 				B897DFA2984AFA8DA0EF4370 /* TCPProxyManager.swift in Sources */,
 				8C3BCB5E2BDD443952126871 /* Theme.swift in Sources */,
 				E1B9459CF5A0F9DA25B3B237 /* ThemeColorPair.swift in Sources */,
 				A6E31A0536890687E7989409 /* ThemePalette.swift in Sources */,
+				ECA0CC5E1D90C6229D0A0F2F /* ThreatDetector.swift in Sources */,
+				81AE1C7443452BD20B6E64EA /* ThreatHistoryStore.swift in Sources */,
+				15D04A1D64CE3C7F166C5BA7 /* ThreatModels.swift in Sources */,
+				79178A75E8A7CF72953F012C /* ThreatMonitorStore.swift in Sources */,
 				366BC85BC26DBF7E78069FCF /* TimelinePanel.swift in Sources */,
 				73AD957EA436D2D12E9191A1 /* TunnelInspector.swift in Sources */,
 			);

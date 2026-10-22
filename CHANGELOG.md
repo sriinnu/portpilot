@@ -4,6 +4,13 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-10-22
+
+### Security
+- Harden process-incarnation binding, Guard cancellation/baselines, cron transactions and alert-list persistence; add source-backed security guidance and an in-app FAQ.
+- Require signed release artifacts, commits and annotated tags; replace automatic release/publish/install paths with fail-closed local verification. Display test builds as `3.05.0001`.
+- See `docs/SECURITY_REVIEW_2026-10-22.md` for findings, safe regression paths and remaining limits.
+
 ## [3.4.0] - 2026-09-13
 
 ### Added

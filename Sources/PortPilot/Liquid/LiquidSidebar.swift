@@ -87,6 +87,18 @@ struct LiquidSidebar: View {
                 selected: selectedMainTab == .ports,
                 action: { selectedMainTab = .ports }
             )
+            // Security sits between Ports and Schedules: findings are more
+            // urgent than cron, quieter than the port list. The badge shows
+            // live finding count — severity color comes from the findings
+            // themselves via Theme.Severity, never the nav tint.
+            navItem(
+                label: "Security",
+                icon: "shield.lefthalf.filled",
+                count: viewModel.threatMonitor.findings.count,
+                tint: Theme.Status.error,
+                selected: selectedMainTab == .security,
+                action: { selectedMainTab = .security }
+            )
             navItem(
                 label: "Schedules",
                 icon: "clock.fill",
@@ -167,10 +179,9 @@ struct LiquidSidebar: View {
     private var footer: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(Theme.Status.connected)
+                .fill(viewModel.threatMonitor.chromePresentation.chromeColor)
                 .frame(width: 6, height: 6)
-                .shadow(color: Theme.Status.connected.opacity(0.5), radius: 2)
-            Text("Monitoring live")
+            Text(viewModel.threatMonitor.chromePresentation.compactLabel)
                 .font(appSettings.appFont(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
         }

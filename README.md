@@ -1,6 +1,6 @@
 # PortPilot
 
-PortPilot inspects what is running on the machine: listening TCP/UDP ports, Unix-socket daemons, established connections, and cronjobs. It ships as a macOS menu bar app (`PortPilot.app`), a cross-platform CLI (`portpilot`), and a terminal UI (`portpilot-tui`). It classifies processes by executable path, kills or pauses processes by port, guards ports against squatters, tracks port lifecycle events on a timeline, and runs a local TCP proxy.
+PortPilot inspects what is running on the machine: listening TCP/UDP ports, Unix-socket daemons, established connections, and cronjobs. It ships as a macOS menu bar app (`PortPilot.app`), a CLI (`portpilot`), and a terminal UI (`portpilot-tui`), with selected Linux/WSL paths and planned/partial native Windows support. It classifies processes by executable path, kills or pauses processes by port, guards ports against squatters, tracks port lifecycle events on a timeline, and runs a local TCP proxy.
 
 Related docs: [ARCHITECTURE.md](ARCHITECTURE.md) (source tree, tech stack), [CHANGELOG.md](CHANGELOG.md) (release history).
 
@@ -9,7 +9,7 @@ Related docs: [ARCHITECTURE.md](ARCHITECTURE.md) (source tree, tech stack), [CHA
 | Component | Requires |
 |-----------|----------|
 | macOS app | macOS 13.0+, Xcode 15+, Swift 5.9+, [xcodegen](https://github.com/yonaskolb/XcodeGen) |
-| CLI / TUI | Swift 5.9+ (macOS, Linux, WSL, Windows) |
+| CLI / TUI | Swift 5.9+ (macOS; selected Linux/WSL paths; native Windows planned/partial) |
 | npm scripts | Node.js 18+ (optional wrappers around the build commands) |
 
 ## Installation
@@ -69,9 +69,9 @@ swift build -c release --product portpilot-tui
 sudo cp .build/release/portpilot .build/release/portpilot-tui /usr/local/bin/
 ```
 
-### Build from source (Windows: CLI)
+### Experimental source path (Windows: CLI, not validated)
 
-Requires [Swift for Windows](https://www.swift.org/install/windows/):
+Native Windows support has not been validated; do not assume macOS security parity. The experimental path requires [Swift for Windows](https://www.swift.org/install/windows/):
 
 ```powershell
 swift build -c release --product portpilot
@@ -150,8 +150,14 @@ portpilot kill-all                         # kill every listed process
 portpilot connections                      # established connections, grouped by process
 portpilot connections --suspect            # only processes with >50 connections
 portpilot connections --blocklist          # only blocklisted remote hosts
+portpilot connections --threats            # threat-engine assessment (same as Security Center)
+portpilot connections --threats --json     # findings as JSON for scripts/agents
+portpilot connections --watch 15           # headless auto-alert every 15s (Ctrl+C to stop)
 portpilot connections --kill 12345         # kill by PID
 portpilot connections --json
+portpilot blocklist list                   # list blocklisted hosts
+portpilot blocklist add 203.0.113.9        # flag an IP, domain, .suffix, or IPv4 CIDR
+portpilot blocklist remove 203.0.113.9     # un-blocklist
 portpilot cronjobs                         # user + system crontab entries
 portpilot cronjobs --user-only             # personal crontab only
 portpilot cronjobs --system-only           # /etc/crontab and /etc/cron.d only
@@ -172,13 +178,14 @@ portpilot interactive                      # basic interactive kill mode
 portpilot-tui        # or: portpilot tui
 ```
 
-Tabs: Ports, Sockets, Schedules, Connections. Blocklisted connections are marked in the Connections tab.
+Tabs: Ports, Sockets, Schedules, Connections. Blocklisted connections are marked in the Connections tab; press `!` there for a threats-only view (same engine as `connections --threats`).
 
 | Key | Action |
 |-----|--------|
 | `↑↓` / `j` `k` | Navigate |
 | `Enter` | Kill process (confirmation prompt) |
 | `/` | Search / clear filter |
+| `!` | Threats-only filter (Connections tab) |
 | `Tab` | Switch tab |
 | `i` | Process detail view (info + connections) |
 | `r` | Refresh |
@@ -186,13 +193,13 @@ Tabs: Ports, Sockets, Schedules, Connections. Blocklisted connections are marked
 
 ## Configuration
 
-`~/.portpilot/blocklist.txt` — one entry per line: domain, domain suffix (leading `.` matches subdomains), IP, IPv6 prefix, or CIDR range.
+`~/.portpilot/blocklist.txt` — one entry per line: domain (with or without a leading `.`, matching the base name and subdomains), exact IPv4/IPv6 address, or IPv4 CIDR range. IPv6 CIDRs are not supported by this matcher. This list flags connections for detection; it does not block traffic. See the app's **Settings → Security FAQ** or [mission.md](mission.md) for precautions.
 
 ```
 upload.dev
 52.45.119.88
 192.168.1.0/24
-2a06:98c1:310b
+2001:db8::1
 .evil.com
 ```
 
@@ -204,7 +211,7 @@ Matching connections are flagged in `portpilot connections`, the TUI, and the me
 |----------|-----|----------------|-------------|
 | macOS 13+ | Menu bar + window | `lsof` + `proc_pidpath` | `lsof` |
 | Linux / WSL | - | `ss -tulnp` | `ss` |
-| Windows | - | `netstat -ano` + `tasklist /FO CSV` | `netstat` |
+| Windows (planned/partial, unvalidated) | - | `netstat -ano` + `tasklist /FO CSV` source path | `netstat` source path |
 
 ## Using TerminalTUI as a library
 

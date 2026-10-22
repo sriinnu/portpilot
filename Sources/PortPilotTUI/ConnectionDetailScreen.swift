@@ -9,12 +9,14 @@ import PortManagerLib
 struct ConnectionDetailScreen: TUIScreen {
 
     private let connection: EstablishedConnection
+    private let expectedIdentity: ProcessIdentity?
     private let portManager = PortManager()
     private var confirmingKill: Bool = false
-    private var killFailed: Bool = false
+    private var killError: String?
 
     init(connection: EstablishedConnection) {
         self.connection = connection
+        self.expectedIdentity = ProcessIdentity(connection: connection)
     }
 
     mutating func render(into screen: inout Screen) {
@@ -64,16 +66,14 @@ struct ConnectionDetailScreen: TUIScreen {
 
         // Kill failures used to vanish — the screen just stayed as if nothing
         // happened. Surface the outcome on the bar until the next keypress.
-        if killFailed {
-            let msg = "Kill failed: pid \(connection.pid) survived SIGKILL — not your process?"
+        if let killError {
+            let msg = "Kill refused/failed: \(killError)"
             screen.put(row: msgRow, col: 0, text: fitString(msg, width: w), style: ANSI.bold + ANSI.fg(.red))
         }
     }
 
     mutating func handleKey(_ key: KeyEvent) -> ScreenAction {
-        if killFailed {
-            killFailed = false
-        }
+        killError = nil
 
         if confirmingKill {
             switch key {
@@ -101,14 +101,15 @@ struct ConnectionDetailScreen: TUIScreen {
 
     mutating func onResize(width: Int, height: Int) {}
 
-    /// PID-direct with TERM→KILL escalation. Pops on success, shows the
-    /// failure on the bar instead of silently doing nothing.
+    /// Use the observed process incarnation; a reused PID must not retarget it.
     private mutating func killProcess() -> ScreenAction {
-        let survivors = portManager.killProcess(pids: [connection.pid])
-        if survivors.isEmpty {
-            return .pop
+        guard let expectedIdentity else {
+            killError = ProcessTerminationOutcome.identityUnavailable.userFacingDescription
+            return .continue
         }
-        killFailed = true
+        let result = portManager.terminateProcesses(identities: [expectedIdentity])
+        if result.isComplete { return .pop }
+        killError = result.outcomes[connection.pid]?.userFacingDescription ?? "No termination result"
         return .continue
     }
 

@@ -36,6 +36,12 @@ struct MainWindowToolbar: View {
 
             if selectedMainTab == .ports {
                 ToolbarPortSummary(portCount: portCount, totalCount: totalCount)
+            } else if selectedMainTab == .security {
+                // Threat count doubles as the tab's live badge — same number
+                // as the sidebar, so two surfaces never disagree.
+                Text("\(viewModel.threatMonitor.findings.count) findings")
+                    .font(appSettings.appFont(size: 12, weight: .semibold))
+                    .foregroundColor(viewModel.threatMonitor.findings.isEmpty ? .secondary : Theme.Severity.color(for: viewModel.threatMonitor.assessment?.highestSeverity ?? .warning))
             } else {
                 Text("Schedules")
                     .font(appSettings.appFont(size: 12, weight: .semibold))
@@ -71,7 +77,7 @@ struct MainWindowToolbar: View {
                 Image(systemName: Theme.Icon.search)
                     .foregroundColor(.secondary)
                     .font(appSettings.appFont(size: 12))
-                TextField(selectedMainTab == .ports ? "Search ports, processes..." : "Search cronjobs...", text: $searchText)
+                TextField(searchPrompt, text: $searchText)
                     .textFieldStyle(.plain)
                     .font(appSettings.appFont(size: 13))
                 if !searchText.isEmpty {
@@ -114,6 +120,16 @@ struct MainWindowToolbar: View {
         .padding(.horizontal, Theme.Spacing.sectionInset)
         .padding(.vertical, Theme.Spacing.sm)
         .background(Theme.Surface.windowBackground)
+    }
+
+    /// Search prompt follows the tab — a stale "Search cronjobs…" on the
+    /// Security page would promise filtering the page doesn't do.
+    private var searchPrompt: String {
+        switch selectedMainTab {
+        case .ports: return "Search ports, processes..."
+        case .schedules: return "Search cronjobs..."
+        case .security: return "Search ports, processes..."
+        }
     }
 }
 
