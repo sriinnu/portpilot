@@ -45,6 +45,8 @@ class FontManager: ObservableObject {
         "Avenir Next",
         "Inter",
         "IBM Plex Sans",
+        "Georgia",
+        "New York",
     ]
 
     /// Curated list of recommended monospaced fonts

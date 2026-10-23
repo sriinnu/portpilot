@@ -4,6 +4,21 @@ import AppKit
 import SwiftUI
 import ServiceManagement
 
+private struct SystemLoginItemService: LoginItemService {
+    var status: LoginItemStatus {
+        switch SMAppService.mainApp.status {
+        case .enabled: return .enabled
+        case .requiresApproval: return .requiresApproval
+        case .notRegistered: return .disabled
+        case .notFound: return .unavailable
+        @unknown default: return .unavailable
+        }
+    }
+
+    func register() throws { try SMAppService.mainApp.register() }
+    func unregister() throws { try SMAppService.mainApp.unregister() }
+}
+
 // MARK: - Appearance Mode
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system = "System"
@@ -14,124 +29,32 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 }
 
 // MARK: - Visual Theme
-enum VisualTheme: String, CaseIterable, Identifiable {
-    case classic = "Classic"
-    case graphite = "Graphite"
-    case sunset = "Sunset"
-    case oceanic = "Oceanic"
-    case noir = "Noir"
-    case retro = "Retro"
-    case terminal = "Terminal"
-    case paperwhite = "Paperwhite"
-    case synthwave = "Synthwave"
-    case solarized = "Solarized"
-    case nord = "Nord"
-    case papercraft = "Papercraft"
+typealias VisualTheme = InterfaceDirection
 
-    var id: String { rawValue }
-
-    /// This theme's full color palette — the single source every theme
-    /// lookup (and the settings preview card) derives from.
-    var palette: ThemePalette {
-        switch self {
-        case .classic:    return .classic
-        case .graphite:   return .graphite
-        case .sunset:     return .sunset
-        case .oceanic:    return .oceanic
-        case .noir:       return .noir
-        case .retro:      return .retro
-        case .terminal:   return .terminal
-        case .paperwhite: return .paperwhite
-        case .synthwave:  return .synthwave
-        case .solarized:  return .solarized
-        case .nord:       return .nord
-        case .papercraft: return .papercraft
-        }
-    }
-
-    /// Themes whose character only lands on dark surfaces — picking one in
-    /// Light appearance deserves a nudge, not silence.
-    var isDarkNative: Bool {
-        switch self {
-        case .noir, .terminal, .synthwave: return true
-        default: return false
-        }
-    }
-
-    /// Recommended UI font for this theme
+extension InterfaceDirection {
+    var palette: ThemePalette { ThemePalette.direction(self) }
     var recommendedFont: String {
         switch self {
-        case .classic: return "System Default"
-        case .graphite: return "SF Pro"
-        case .sunset: return "Avenir Next"
-        case .oceanic: return "SF Pro Rounded"
-        case .noir: return "Helvetica Neue"
-        case .retro: return "American Typewriter"
-        case .terminal: return "Menlo"
-        case .paperwhite: return "Helvetica Neue"
-        case .synthwave: return "Avenir Next"
-        case .solarized: return "System Default"
-        case .nord: return "Helvetica Neue"
-        case .papercraft: return "Georgia"
+        case .relay, .shell: return "Menlo"
+        case .fieldwork: return "Georgia"
+        case .play: return "SF Pro Rounded"
+        default: return "System Default"
         }
     }
-
-    /// Recommended monospaced font for this theme
-    var recommendedMonoFont: String {
-        switch self {
-        case .classic: return "System Monospaced"
-        case .graphite: return "SF Mono"
-        case .sunset: return "Menlo"
-        case .oceanic: return "SF Mono"
-        case .noir: return "Fira Code"
-        case .retro: return "Courier New"
-        case .terminal: return "Menlo"
-        case .paperwhite: return "Menlo"
-        case .synthwave: return "Menlo"
-        case .solarized: return "Menlo"
-        case .nord: return "Menlo"
-        case .papercraft: return "Menlo"
-        }
-    }
-
-    /// Short description of the theme's character
+    var recommendedMonoFont: String { "System Monospaced" }
     var subtitle: String {
         switch self {
-        case .classic: return "Vibrant and balanced"
-        case .graphite: return "Calm and professional"
-        case .sunset: return "Warm and expressive"
-        case .oceanic: return "Deep and focused"
-        case .noir: return "Sharp and minimal"
-        case .retro: return "Warm and nostalgic"
-        case .terminal: return "Phosphor green, CRT nights"
-        case .paperwhite: return "Crisp white, editorial calm"
-        case .synthwave: return "Magenta + cyan, late 1984"
-        case .solarized: return "Developer classic, warm cream"
-        case .nord: return "Polar blues, quiet and cold"
-        case .papercraft: return "Layered paper strata at dusk"
+        case .instrument: return "Quiet. Precise. Familiar."
+        case .relay: return "The operational console."
+        case .fieldwork: return "A workspace, not a list of numbers."
+        case .focus: return "Understand one thing completely."
+        case .shell: return "Your workspace. At the prompt."
+        case .play: return "Serious tools can have a little soul."
+        case .orbit: return "Everything has a place."
         }
     }
-
-    /// Idealized surface tone for the settings preview card. Everything
-    /// else the card shows (accent, primary, secondary) comes live from
-    /// `palette` — only the surface tone is curated per theme, since real
-    /// surfaces are computed blends, not palette entries.
-    var previewSurface: Color {
-        switch self {
-        case .classic:    return Color(white: 0.95)
-        case .graphite:   return Color(red: 0.93, green: 0.94, blue: 0.96)
-        case .sunset:     return Color(red: 0.98, green: 0.95, blue: 0.92)
-        case .oceanic:    return Color(red: 0.90, green: 0.95, blue: 0.98)
-        case .noir:       return Color(white: 0.18)
-        case .retro:      return Color(red: 0.96, green: 0.93, blue: 0.88)
-        case .terminal:   return Color(red: 0.06, green: 0.08, blue: 0.07)
-        case .paperwhite: return Color(white: 0.99)
-        case .synthwave:  return Color(red: 0.10, green: 0.07, blue: 0.20)
-        case .solarized:  return Color(red: 0.99, green: 0.96, blue: 0.89)
-        case .nord:       return Color(red: 0.91, green: 0.93, blue: 0.96)
-        case .papercraft: return Color(red: 0.97, green: 0.93, blue: 0.85)  // warm craft cream
-        }
-    }
+    var previewSurface: Color { palette.window!.color }
+    var radius: CGFloat { self == .relay || self == .shell ? 4 : self == .play ? 16 : 10 }
 }
 
 // MARK: - Icon Pack
@@ -225,33 +148,38 @@ class AppSettings: ObservableObject {
         }
     }
 
-    @Published var launchAtLogin: Bool {
-        didSet {
-            defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
-            // SMAppService is the launch-at-login mechanism on macOS 13+.
-            // The old version only wrote the flag — the toggle was a placebo.
-            registerLaunchAtLogin(launchAtLogin)
-        }
+    @Published private(set) var loginItemStatus: LoginItemStatus = .disabled
+    @Published private(set) var loginItemChangeInProgress = false
+    @Published private(set) var loginItemError: String?
+
+    var launchAtLogin: Bool {
+        get { loginItemStatus.toggleValue }
+        set { registerLaunchAtLogin(newValue) }
     }
 
     private func registerLaunchAtLogin(_ enabled: Bool) {
+        guard !loginItemChangeInProgress else { return }
+        loginItemChangeInProgress = true
+        loginItemError = nil
         Task.detached(priority: .userInitiated) {
-            // Sync variants — already off the main thread, blocking here is fine.
-            let service = SMAppService.mainApp
-            do {
-                if enabled {
-                    if service.status == .notRegistered {
-                        try service.register()
-                    }
-                } else {
-                    if service.status != .notRegistered {
-                        try service.unregister()
-                    }
-                }
-            } catch {
-                NSLog("Launch-at-login change failed: \(error.localizedDescription)")
+            let result = LoginItemChangeResult.apply(enabled: enabled, service: SystemLoginItemService())
+            await MainActor.run {
+                self.loginItemStatus = result.status
+                self.loginItemError = result.errorMessage
+                self.loginItemChangeInProgress = false
+                self.defaults.set(result.status.toggleValue, forKey: Keys.launchAtLogin)
             }
         }
+    }
+
+    /// A user can change approval outside PortPilot while System Settings is
+    /// open. Reading status never registers or unregisters the app.
+    func refreshLaunchAtLoginStatus() {
+        guard !loginItemChangeInProgress else { return }
+        let actualStatus = SystemLoginItemService().status
+        if actualStatus != loginItemStatus { loginItemError = nil }
+        loginItemStatus = actualStatus
+        defaults.set(loginItemStatus.toggleValue, forKey: Keys.launchAtLogin)
     }
 
     @Published var showNotifications: Bool {
@@ -315,7 +243,9 @@ class AppSettings: ObservableObject {
     @Published var visualTheme: VisualTheme {
         didSet {
             defaults.set(visualTheme.rawValue, forKey: Keys.visualTheme)
-            refreshVisibleChrome()
+            selectedFont = visualTheme.recommendedFont
+            selectedMonoFont = visualTheme.recommendedMonoFont
+            applyAppearance()
         }
     }
 
@@ -371,25 +301,10 @@ class AppSettings: ObservableObject {
     private init() {
         self.showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? false
         self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
-        // OS truth wins both ways: if the user removed PortPilot from Login
-        // Items in System Settings, fix the flag instead of re-registering
-        // over them — and if they added it there manually, the toggle should
-        // show ON instead of pretending it's off. A pending-approval
-        // registration keeps the stored flag.
-        let storedLaunchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
-        let effectiveLaunchAtLogin: Bool
-        switch SMAppService.mainApp.status {
-        case .enabled:
-            effectiveLaunchAtLogin = true
-        case .requiresApproval:
-            effectiveLaunchAtLogin = storedLaunchAtLogin
-        default:
-            effectiveLaunchAtLogin = false
-        }
-        self.launchAtLogin = effectiveLaunchAtLogin
-        if storedLaunchAtLogin != effectiveLaunchAtLogin {
-            defaults.set(effectiveLaunchAtLogin, forKey: Keys.launchAtLogin)
-        }
+        // OS truth wins, including a visible pending-approval state.
+        let initialLoginStatus = SystemLoginItemService().status
+        self.loginItemStatus = initialLoginStatus
+        defaults.set(initialLoginStatus.toggleValue, forKey: Keys.launchAtLogin)
         self.showNotifications = defaults.object(forKey: Keys.showNotifications) as? Bool ?? true
         self.backgroundMonitoring = defaults.object(forKey: Keys.backgroundMonitoring) as? Bool ?? false
         self.autoRefreshInterval = defaults.object(forKey: Keys.autoRefreshInterval) as? Int ?? 5
@@ -400,8 +315,9 @@ class AppSettings: ObservableObject {
 
         let modeString = defaults.string(forKey: Keys.appearanceMode) ?? "System"
         self.appearanceMode = AppearanceMode(rawValue: modeString) ?? .system
-        let visualThemeString = defaults.string(forKey: Keys.visualTheme) ?? VisualTheme.classic.rawValue
-        self.visualTheme = VisualTheme(rawValue: visualThemeString) ?? .classic
+        let restoredTheme = VisualTheme.restoring(defaults.string(forKey: Keys.visualTheme))
+        self.visualTheme = restoredTheme
+        defaults.set(restoredTheme.rawValue, forKey: Keys.visualTheme)
         let iconPackString = defaults.string(forKey: Keys.iconPack) ?? IconPack.filled.rawValue
         self.iconPack = IconPack(rawValue: iconPackString) ?? .filled
 
@@ -422,7 +338,7 @@ class AppSettings: ObservableObject {
     func applyAppearance() {
         DispatchQueue.main.async {
             let appearance: NSAppearance?
-            switch self.appearanceMode {
+            switch self.visualTheme.isDarkNative ? AppearanceMode.dark : self.appearanceMode {
             case .system:
                 appearance = nil
             case .light:
@@ -532,6 +448,7 @@ class AppSettings: ObservableObject {
 
 // MARK: - Settings Notification Names
 extension Notification.Name {
+    static let openSecurityCenter = Notification.Name("openSecurityCenter")
     static let menuBarIconVisibilityChanged = Notification.Name("menuBarIconVisibilityChanged")
     static let appPolicyChanged = Notification.Name("appPolicyChanged")
     static let autoRefreshChanged = Notification.Name("autoRefreshChanged")

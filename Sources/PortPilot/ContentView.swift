@@ -4,7 +4,14 @@ import AppKit
 // MARK: - Main Tab
 enum MainTab: String, CaseIterable {
     case ports = "Ports"
+    case security = "Security"
     case schedules = "Schedules"
+}
+
+/// Owned by the window delegate so notification routes survive window creation
+/// and can also select a destination in an already-open window.
+final class MainWindowNavigation: ObservableObject {
+    @Published var selectedTab: MainTab = .ports
 }
 
 // MARK: - Content View
@@ -19,9 +26,14 @@ struct ContentView: View {
     /// auto-consumes errorMessage after 4s (the dropdown banner fades); the
     /// alert outlives that because it owns this copy, not the shared string.
     @State private var alertErrorMessage: String?
-    @State private var selectedMainTab: MainTab = .ports
+    @ObservedObject var navigation = MainWindowNavigation()
     @State private var selectedCronjob: CronjobEntry?
     @State private var inspectorTab: InspectorTab = .overview
+
+    private var selectedMainTab: MainTab {
+        get { navigation.selectedTab }
+        nonmutating set { navigation.selectedTab = newValue }
+    }
 
     private var paletteActions: [CommandItem] {
         [
@@ -54,6 +66,13 @@ struct ContentView: View {
                 action: { selectedMainTab = .ports }
             ),
             CommandItem(
+                icon: "shield.lefthalf.filled",
+                title: "Go to Security",
+                subtitle: "Review threat findings",
+                tint: Theme.Status.error,
+                action: { selectedMainTab = .security }
+            ),
+            CommandItem(
                 icon: "waveform.path.ecg",
                 title: "Open Metrics Tab",
                 subtitle: "Show live CPU / memory for the selected port",
@@ -82,138 +101,38 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Top toolbar with filter pills
-            MainWindowToolbar(
-                searchText: $viewModel.searchText,
-                viewModel: viewModel,
-                onRefresh: {
-                    if selectedMainTab == .schedules {
-                        viewModel.refreshCronjobs()
-                    } else {
-                        viewModel.refreshPorts()
+        DesignWorkspace(
+            viewModel: viewModel, selectedTab: $navigation.selectedTab,
+            onKill: { port in
+                if appSettings.confirmBeforeKill { portToKill = port; showConfirmation = true }
+                else { viewModel.killPort(port) }
+            },
+            onPauseResume: { port in
+                if port.isStopped { viewModel.resumeProcess(port) } else { viewModel.pauseProcess(port) }
+            },
+            onCommands: { palette.toggle() },
+            inspector: {
+                VStack(spacing: 0) {
+                    InspectorTabBar(selection: $inspectorTab)
+                    switch inspectorTab {
+                    case .overview: ConfigurationPanel(port: viewModel.selectedPort, viewModel: viewModel)
+                    case .metrics: InspectorMetricsPane(port: viewModel.selectedPort, metrics: metrics, viewModel: viewModel)
+                    case .logs: LogsPanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
+                    case .timeline: TimelinePanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
                     }
-                },
-                onSettings: {
-                    if let delegate = NSApp.delegate as? AppDelegate {
-                        delegate.openSettingsWindow()
-                    }
-                },
-                isLoading: selectedMainTab == .schedules ? viewModel.isLoadingCronjobs : viewModel.isLoading,
-                portCount: viewModel.portCount,
-                totalCount: viewModel.totalCount,
-                selectedMainTab: $selectedMainTab
-            )
-
-            // Live traffic strip + protocol donut — ports tab only. Donut is
-            // a live filter: tap a slice to restrict, tap again to clear.
-            if selectedMainTab == .ports {
-                HStack(spacing: 10) {
-                    MainTrafficStrip(viewModel: viewModel, metrics: metrics)
-                        .layoutPriority(1)
-                    ProtocolDonut(
-                        tcp: viewModel.ports.filter { $0.protocolName.lowercased() == "tcp" }.count,
-                        udp: viewModel.ports.filter { $0.protocolName.lowercased() == "udp" }.count,
-                        unix: viewModel.ports.filter { $0.isUnixSocket }.count,
-                        onSelectTCP: {
-                            viewModel.selectedProtocol = (viewModel.selectedProtocol == .tcp) ? .all : .tcp
-                        },
-                        onSelectUDP: {
-                            viewModel.selectedProtocol = (viewModel.selectedProtocol == .udp) ? .all : .udp
-                        },
-                        onSelectUnix: {
-                            viewModel.selectedProtocol = (viewModel.selectedProtocol == .unix) ? .all : .unix
-                        },
-                        selectedProtocol: {
-                            switch viewModel.selectedProtocol {
-                            case .tcp:  return "tcp"
-                            case .udp:  return "udp"
-                            case .unix: return "unix"
-                            case .all:  return nil
-                            }
-                        }()
-                    )
-                    .padding(.trailing, 14).padding(.vertical, 10)
                 }
-                .background(Theme.Surface.groupedFill)
-            }
-
-            Divider()
-
-            // Main content: sidebar + split list/inspector.
-            HStack(spacing: 0) {
-                LiquidSidebar(viewModel: viewModel, selectedMainTab: $selectedMainTab)
-
+            },
+            schedules: {
                 HSplitView {
-                    // Left pane: port list or cronjob list
-                    if selectedMainTab == .schedules {
-                        CronjobListPanel(
-                            viewModel: viewModel,
-                            selectedCronjob: $selectedCronjob
-                        )
-                        .frame(minWidth: 280, maxWidth: 440)
-                    } else {
-                        PortListPanel(
-                            viewModel: viewModel,
-                            selectedPort: $viewModel.selectedPort,
-                            onKill: { port in
-                                if appSettings.confirmBeforeKill {
-                                    portToKill = port
-                                    showConfirmation = true
-                                } else {
-                                    viewModel.killPort(port)
-                                }
-                            },
-                            // Pause/resume is reversible — no confirmation gate.
-                            onPauseResume: { port in
-                                if port.isStopped {
-                                    viewModel.resumeProcess(port)
-                                } else {
-                                    viewModel.pauseProcess(port)
-                                }
-                            },
-                            onAdd: {},
-                            metrics: metrics
-                        )
-                        .frame(minWidth: 320, idealWidth: 420, maxWidth: 520)
-                    }
-
-                    // Right pane: inspector with tabs (Overview | Metrics | Logs)
+                    CronjobListPanel(viewModel: viewModel, selectedCronjob: $selectedCronjob).frame(minWidth: 280, maxWidth: 440)
                     VStack(spacing: 0) {
-                        if selectedMainTab == .schedules {
-                            CronjobConfigurationPanel(cronjob: selectedCronjob, viewModel: viewModel)
-                            Divider()
-                            CronjobLogsPanel(viewModel: viewModel)
-                        } else {
-                            InspectorTabBar(selection: $inspectorTab)
-                            switch inspectorTab {
-                            case .overview:
-                                ConfigurationPanel(
-                                    port: viewModel.selectedPort,
-                                    viewModel: viewModel
-                                )
-                            case .metrics:
-                                InspectorMetricsPane(
-                                    port: viewModel.selectedPort,
-                                    metrics: metrics,
-                                    viewModel: viewModel
-                                )
-                            case .logs:
-                                LogsPanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
-                            case .timeline:
-                                TimelinePanel(viewModel: viewModel, selectedPort: viewModel.selectedPort)
-                            }
-                        }
-                    }
-                    .frame(minWidth: 360, idealWidth: 480)
+                        CronjobConfigurationPanel(cronjob: selectedCronjob, viewModel: viewModel)
+                        Divider()
+                        CronjobLogsPanel(viewModel: viewModel)
+                    }.frame(minWidth: 350)
                 }
             }
-
-            // Footer: live status bar — ports tab only.
-            if selectedMainTab == .ports {
-                MainStatusBar(viewModel: viewModel)
-            }
-        }
+        )
         .onAppear { metrics.start(viewModel: viewModel) }
         .onDisappear { metrics.stop() }
         // Command palette overlay — ⌘K toggles.

@@ -427,9 +427,9 @@ struct ConfigurationPanel: View {
                     // Active proxy info
                     HStack(spacing: Theme.Spacing.sm) {
                         Circle()
-                            .fill(Theme.Status.success)
+                            .fill(proxy.isActive ? Theme.Status.success : .secondary)
                             .frame(width: Theme.Size.statusDotLarge, height: Theme.Size.statusDotLarge)
-                        Text("Proxying :\(String(proxy.listenPort)) \u{2192} \(proxy.targetHost):\(String(proxy.targetPort))")
+                        Text("\(proxy.isActive ? "Proxying" : "Starting") :\(String(proxy.listenPort)) \u{2192} \(proxy.targetHost):\(String(proxy.targetPort))")
                             .font(appSettings.appMonoFont(size: 11))
                             .foregroundColor(.primary)
                         Spacer()
@@ -588,6 +588,8 @@ struct ProxyCreateForm: View {
     @State private var targetPort: String = ""
     @State private var listenPort: String = ""
     @State private var proxyDirection: ProxyDirection = .fromPort
+    @State private var allowLAN = false
+    @State private var allowedCIDRs = ""
 
     enum ProxyDirection: String, CaseIterable {
         case fromPort = "Forward FROM this port"
@@ -626,6 +628,27 @@ struct ProxyCreateForm: View {
                 }
             }
 
+            Toggle("Allow selected network clients", isOn: $allowLAN)
+                .font(appSettings.appFont(size: 11, weight: .medium))
+
+            if allowLAN {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    Text("Allowed client CIDRs")
+                        .font(appSettings.appFont(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    TextField("e.g. 192.168.1.42/32", text: $allowedCIDRs)
+                        .textFieldStyle(.roundedBorder)
+                        .font(appSettings.appMonoFont(size: 11))
+                    Text("Source-IP filter only, not login or encryption. Use narrow client CIDRs, never /0; keep the target's auth/TLS enabled. Listens across interfaces, not just your LAN. Replaces local-only access; include 127.0.0.1/32 if needed.")
+                        .font(appSettings.appFont(size: 10))
+                        .foregroundColor(Theme.Severity.warning)
+                }
+            } else {
+                Text("Local-only by default — other devices can't connect.")
+                    .font(appSettings.appFont(size: 9))
+                    .foregroundColor(.secondary)
+            }
+
             Button(action: startProxy) {
                 HStack(spacing: Theme.Spacing.xs) {
                     Image(systemName: "arrow.left.arrow.right.circle.fill")
@@ -651,20 +674,35 @@ struct ProxyCreateForm: View {
     }
 
     private var isValid: Bool {
+        guard (try? accessPolicy.validate()) != nil else { return false }
         if proxyDirection == .fromPort {
-            return Int(targetPort) != nil && !targetHost.isEmpty
+            return validPort(targetPort) && !targetHost.isEmpty
         } else {
-            return Int(listenPort) != nil && !targetHost.isEmpty
+            return validPort(listenPort) && !targetHost.isEmpty
         }
+    }
+
+    private var accessPolicy: ProxyAccessPolicy {
+        guard allowLAN else { return .loopback }
+        let values = allowedCIDRs
+            .components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return .allowedCIDRs(values)
+    }
+
+    private func validPort(_ value: String) -> Bool {
+        guard let port = Int(value) else { return false }
+        return (1...65_535).contains(port)
     }
 
     private func startProxy() {
         if proxyDirection == .fromPort {
             guard let tPort = Int(targetPort) else { return }
-            viewModel.startProxy(listenPort: sourcePort, targetHost: targetHost, targetPort: tPort)
+            viewModel.startProxy(listenPort: sourcePort, targetHost: targetHost, targetPort: tPort, accessPolicy: accessPolicy)
         } else {
             guard let lPort = Int(listenPort) else { return }
-            viewModel.startProxy(listenPort: lPort, targetHost: targetHost, targetPort: sourcePort)
+            viewModel.startProxy(listenPort: lPort, targetHost: targetHost, targetPort: sourcePort, accessPolicy: accessPolicy)
         }
     }
 }

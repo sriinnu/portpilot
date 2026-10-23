@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>PortPilot — seven interface directions</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="menubar.css">
+  <link rel="stylesheet" href="new-directions.css">
+  <link rel="stylesheet" href="orbit.css">
+  <script src="menubar.js" defer></script>
+  <script src="new-directions.js" defer></script>
+  <script src="orbit.js" defer></script>
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <header class="study-bar">
+    <a class="study-brand" href="index.html"><span class="study-mark">P/</span> PortPilot <span class="study-label">INTERFACE STUDIES / 01—07</span></a>
+    <nav class="direction-tabs" aria-label="Design direction">
+      <button data-direction="instrument">01 <strong>Instrument</strong></button>
+      <button data-direction="relay">02 <strong>Relay</strong></button>
+      <button data-direction="fieldwork">03 <strong>Fieldwork</strong></button>
+      <button data-direction="focus">04 <strong>Focus</strong></button>
+      <button data-direction="shell">05 <strong>Shell</strong></button>
+      <button data-direction="play">06 <strong>Play</strong></button>
+      <button data-direction="orbit">07 <strong>Orbit</strong></button>
+    </nav>
+    <button class="compare-button" data-action="compare">Compare all ↗</button>
+  </header>
+  <div class="surface-bar"><div class="surface-toggle" role="group" aria-label="App surface"><button data-surface="window">Full workspace</button><button data-surface="menubar">Menu-bar app</button></div><span>A complete direction covers both surfaces.</span></div>
+  <main id="stage" aria-label="Interactive app concept"></main>
+  <footer class="study-footer" id="study-footer"></footer>
+  <div class="toast" role="status" aria-live="polite" id="toast"></div>
+  <dialog id="modal"><div id="modal-content"></div></dialog>
+</body>
+</html>

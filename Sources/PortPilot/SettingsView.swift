@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 enum SettingsPane: String, CaseIterable, Identifiable {
     case general = "General"
@@ -9,6 +10,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case reserved = "Reserved"
     case guardPorts = "Guard"
     case programs = "Programs"
+    case security = "Security FAQ"
     case about = "About"
 
     var id: String { rawValue }
@@ -29,6 +31,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             return "shield.fill"
         case .programs:
             return "app.fill"
+        case .security:
+            return "shield.lefthalf.filled"
         case .about:
             return "info.circle"
         }
@@ -72,6 +76,8 @@ struct SettingsView: View {
             GuardedPortsSettingsView()
         case .programs:
             CustomProgramsSettingsView()
+        case .security:
+            SecurityFAQView()
         case .about:
             AboutSettingsView()
         }
@@ -81,7 +87,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Branding header
             HStack(spacing: 8) {
-                Image(systemName: "globe")
+                PortPilotPlug().stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(Theme.Liquid.headerIcon)
                     .frame(width: 28, height: 28)
@@ -112,7 +118,7 @@ struct SettingsView: View {
 
             // Version footer
             HStack(spacing: 4) {
-                Text("PortPilot")
+                Text("P/ PortPilot")
                     .font(.system(size: 10, weight: .medium))
                 Text("by Sriinnu")
                     .font(.system(size: 10))
@@ -249,43 +255,51 @@ struct AppearanceSettingsView: View {
         ScrollView {
             VStack(spacing: 14) {
                 // Appearance mode
-                LiquidCard(title: "Appearance", icon: "circle.lefthalf.filled", footer: "Choose between Light, Dark, or follow the System appearance.") {
+                LiquidCard(title: "Appearance", icon: "circle.lefthalf.filled", footer: appSettings.visualTheme.isDarkNative ? "This interface uses dark appearance. Your preference is retained for other interfaces." : "Choose between Light, Dark, or follow the System appearance.") {
                     HStack(spacing: 16) {
-                        AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .system, label: "System")
+                        AppearancePreviewCard(isDark: false, isActive: !appSettings.visualTheme.isDarkNative && appSettings.appearanceMode == .system, label: "System")
                             .onTapGesture { appSettings.appearanceMode = .system }
                             .accessibilityAddTraits(.isButton)
                             .accessibilityLabel("Appearance: follow system")
-                        AppearancePreviewCard(isDark: false, isActive: appSettings.appearanceMode == .light, label: "Light")
+                        AppearancePreviewCard(isDark: false, isActive: !appSettings.visualTheme.isDarkNative && appSettings.appearanceMode == .light, label: "Light")
                             .onTapGesture { appSettings.appearanceMode = .light }
                             .accessibilityAddTraits(.isButton)
                             .accessibilityLabel("Appearance: light")
-                        AppearancePreviewCard(isDark: true, isActive: appSettings.appearanceMode == .dark, label: "Dark")
+                        AppearancePreviewCard(isDark: true, isActive: appSettings.visualTheme.isDarkNative || appSettings.appearanceMode == .dark, label: "Dark")
                             .onTapGesture { appSettings.appearanceMode = .dark }
                             .accessibilityAddTraits(.isButton)
                             .accessibilityLabel("Appearance: dark")
                     }
+                    .disabled(appSettings.visualTheme.isDarkNative)
                 }
 
-                // Color Theme
-                LiquidCard(title: "Color Theme", icon: "paintpalette", footer: "Each theme comes with a recommended font pairing.") {
+                // Skins — one tap applies the whole skin: palette, fonts,
+                // geometry. Fonts stay individually overridable below; the
+                // theme never fights a manual font choice made AFTER it.
+                LiquidCard(title: "Interface", icon: "paintpalette", footer: "Seven complete directions for the workspace and menu bar. Relay, Shell, and Orbit use dark appearance.") {
                     // Adaptive grid — the theme count isn't fixed anymore
                     // (the old prefix(3)/suffix(3) rows only knew how to
                     // show exactly six).
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 10)], spacing: 10) {
                         ForEach(VisualTheme.allCases) { theme in
-                            ThemePreviewCard(theme: theme, isActive: appSettings.visualTheme == theme)
-                                .onTapGesture { appSettings.visualTheme = theme }
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityLabel("Theme \(theme.rawValue)")
+                            Button {
+                                appSettings.visualTheme = theme
+                                applyRecommendedFonts()
+                            } label: {
+                                ThemePreviewCard(theme: theme, isActive: appSettings.visualTheme == theme)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Interface \(theme.rawValue)")
+                            .accessibilityValue(appSettings.visualTheme == theme ? "Selected" : "")
                         }
                     }
 
-                    if appSettings.visualTheme.isDarkNative && appSettings.appearanceMode == .light {
+                    if appSettings.visualTheme.isDarkNative {
                         HStack(spacing: 6) {
                             Image(systemName: "moon.stars")
                                 .font(.system(size: 11))
                                 .foregroundColor(Theme.Status.warning)
-                            Text("\(appSettings.visualTheme.rawValue) shows its character in Dark appearance.")
+                            Text("\(appSettings.visualTheme.rawValue) uses its own Dark appearance.")
                                 .font(.system(size: 11))
                                 .foregroundColor(.secondary)
                         }
@@ -297,7 +311,7 @@ struct AppearanceSettingsView: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "textformat")
-                                Text("Apply \(appSettings.visualTheme.rawValue) fonts")
+                                Text("Re-apply \(appSettings.visualTheme.rawValue) fonts")
                                     .font(.system(size: 11))
                             }
                         }
@@ -459,7 +473,7 @@ struct ThemePreviewCard: View {
                 )
 
             VStack(spacing: 2) {
-                Text(theme.rawValue)
+                Text("\(theme.number) / \(theme.rawValue)")
                     .font(.system(size: 11, weight: isActive ? .semibold : .regular))
                     .foregroundColor(isActive ? .primary : .secondary)
                 Text(theme.subtitle)
@@ -490,7 +504,7 @@ struct IconPackPreviewCard: View {
                 .frame(width: 132, height: 76)
                 .overlay(
                     HStack(spacing: 12) {
-                        Image(systemName: symbol("network.badge.shield.half.filled", "network"))
+                        PortPilotPlug().stroke(lineWidth: 1.5).frame(width: 19, height: 19)
                         Image(systemName: symbol("cylinder.fill", "cylinder"))
                         Image(systemName: symbol("shippingbox.fill", "shippingbox"))
                     }
@@ -599,8 +613,24 @@ struct MenuBarSettingsView: View {
                     Toggle("Show menu bar icon", isOn: $appSettings.showMenuBarIcon).font(.system(size: 13))
                     Toggle("Show dock icon", isOn: $appSettings.showDockIcon).font(.system(size: 13))
 
-                    if appSettings.showMenuBarIcon {
-                        Toggle("Launch at login", isOn: $appSettings.launchAtLogin).font(.system(size: 13))
+                    Toggle("Launch at login", isOn: $appSettings.launchAtLogin)
+                        .font(.system(size: 13))
+                        .disabled(appSettings.loginItemChangeInProgress)
+                    if appSettings.loginItemChangeInProgress {
+                        Text("Updating macOS Login Items…")
+                            .font(.system(size: 11)).foregroundColor(.secondary)
+                    } else {
+                        Text(appSettings.loginItemStatus.detail)
+                            .font(.system(size: 11))
+                            .foregroundColor(appSettings.loginItemStatus == .requiresApproval ? Theme.Status.warning : .secondary)
+                    }
+                    if appSettings.loginItemStatus == .requiresApproval {
+                        Button("Open Login Items Settings") { SMAppService.openSystemSettingsLoginItems() }
+                            .buttonStyle(.link)
+                    }
+                    if let error = appSettings.loginItemError {
+                        Text("Couldn't change launch at login: \(error)")
+                            .font(.system(size: 11)).foregroundColor(Theme.Status.error)
                     }
 
                     if !appSettings.showDockIcon && !appSettings.showMenuBarIcon {
@@ -750,7 +780,7 @@ struct ReservedPortsSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                LiquidCard(title: "Reserved Ports", icon: "lock.shield", footer: "Reserved ports are protected from accidental kills. Add ports that should stay protected.") {
+                LiquidCard(title: "Reserved Ports", icon: "lock.shield", footer: "Reserved ports show warnings; they do not prevent Kill or Freeze. Check the process before acting.") {
                     HStack {
                         TextField("Port number", text: $newReservedPort)
                             .textFieldStyle(.roundedBorder)
@@ -1165,7 +1195,7 @@ struct AboutSettingsView: View {
             Spacer()
 
             // App icon
-            Image(systemName: "globe")
+            PortPilotPlug().stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
                 .font(.system(size: 56, weight: .light))
                 .foregroundStyle(
                     LinearGradient(

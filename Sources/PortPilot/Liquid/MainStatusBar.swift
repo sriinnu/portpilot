@@ -2,31 +2,18 @@ import SwiftUI
 
 // MARK: - Main Status Bar
 
-/// Footer strip along the bottom of the main window — a quiet signal of
-/// health at a glance ("All systems nominal" / "Elevated activity" / etc.).
-///
-/// Everything I render here is derived state: health tint, last-refresh
-/// clock, port counts, and the live-sample dot. That keeps the bar honest —
-/// it can never lie about what the view model is seeing.
+/// Footer strip distinguishes monitor freshness from finding severity.
 struct MainStatusBar: View {
     /// View model whose alert state, refresh time, and counts I render.
     @ObservedObject var viewModel: PortViewModel
     @ObservedObject private var appSettings = AppSettings.shared
 
     private var healthTint: Color {
-        switch viewModel.alertState {
-        case .normal: return Theme.Status.connected
-        case .warning: return Theme.Status.warning
-        case .critical: return Theme.Action.kill
-        }
+        viewModel.threatMonitor.chromePresentation.chromeColor
     }
 
     private var healthLabel: String {
-        switch viewModel.alertState {
-        case .normal: return "All systems nominal"
-        case .warning: return "Elevated activity"
-        case .critical: return "Critical connections"
-        }
+        viewModel.threatMonitor.chromePresentation.headline
     }
 
     private var lastRefreshText: String {
@@ -49,7 +36,7 @@ struct MainStatusBar: View {
                 Image(systemName: "clock")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
-                Text("Last refresh")
+                Text("Port refresh")
                     .font(appSettings.appFont(size: 10))
                     .foregroundColor(.secondary)
                 Text(lastRefreshText)
@@ -65,12 +52,12 @@ struct MainStatusBar: View {
                     .foregroundColor(.primary.opacity(0.85))
             }
             Spacer()
+            PortPilotFooterLinks()
             HStack(spacing: 4) {
                 Circle()
-                    .fill(Theme.Status.connected)
+                    .fill(healthTint)
                     .frame(width: 5, height: 5)
-                    .shadow(color: Theme.Status.connected.opacity(0.55), radius: 2)
-                Text("Live \u{2022} 2s sample")
+                Text(viewModel.threatMonitor.chromePresentation.cadenceLabel)
                     .font(appSettings.appFont(size: 10, weight: .medium))
                     .foregroundColor(.secondary.opacity(0.85))
             }
@@ -93,4 +80,34 @@ struct MainStatusBar: View {
         f.dateFormat = "HH:mm:ss"
         return f
     }()
+}
+
+extension ThreatMonitorStore {
+    var chromePresentation: MonitoringPresentation {
+        MonitoringPresentation(
+            status: ThreatMonitoringStatus(
+                isMonitoring: isMonitoring,
+                hasAssessment: assessment != nil,
+                consecutiveFailures: consecutiveFailures
+            ),
+            highestSeverity: assessment?.highestSeverity,
+            pollInterval: pollInterval
+        )
+    }
+}
+
+extension MonitoringPresentation {
+    var chromeColor: Color {
+        switch status {
+        case .paused, .pending: return .secondary
+        case .degraded: return Theme.Status.warning
+        case .current:
+            switch highestSeverity {
+            case .critical: return Theme.Action.kill
+            case .warning: return Theme.Status.warning
+            case .info: return .secondary
+            case nil: return Theme.Status.connected
+            }
+        }
+    }
 }

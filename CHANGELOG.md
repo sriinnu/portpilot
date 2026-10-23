@@ -4,6 +4,62 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+## [3.5.7] - 2026-10-23
+
+- Add Support heart and sriinnu GitHub links to the menu-bar and main-window footers.
+- Prepare the cumulative security, seven-interface, process-control and bounded packet-summary changes for signed release.
+
+
+## [3.5.6] - 2026-10-23
+
+- Show the selected process, protocol and endpoint directly on Pause/Resume and Stop buttons, with its PID below and complete target details in tooltips.
+- Keep the confirmation bound to the selected process snapshot; refresh pause state only for the same observed process incarnation.
+- Prepare local test build 3.05.0006.
+
+
+## [3.5.5] - 2026-10-23
+
+- Add direct process Pause/Resume and confirmed Stop controls to the menu-bar popup and selected listener workspace.
+- Anchor the popup to the menu-bar icon with an integrated pointer.
+- Add opt-in, bounded macOS packet-summary inspection with cancellation, permission reporting, and no payload display or capture-file storage.
+- Prepare local test build 3.05.0005.
+
+
+## [3.5.4] - 2026-10-23
+
+- Match native typography to the design studies: Georgia Fieldwork headings, SF Mono code and terminal directions, and system sans body text.
+- Correct the P/ wordmark and improve readability of workspace and menu-bar metadata.
+- Prepare the typography local test build as `3.05.0004`.
+
+## [3.5.3] - 2026-10-23
+
+- Replace retired palettes with seven native workspace and menu-bar directions: Instrument, Relay, Fieldwork, Focus, Shell, Play, and Orbit.
+- Adopt the P/ wordmark and plug mark across the app, menu bar, CLI/TUI headers, and README.
+- Prepare the seven-interface local test build as `3.05.0003`.
+
+## [3.5.2] - 2026-10-23
+
+- Prepare the reviewed security and monitoring UI changes for local installed testing as `3.05.0002`.
+
+## [3.5.1] - 2026-10-22
+
+### Security
+- Harden process-incarnation binding, Guard cancellation/baselines, cron transactions and alert-list persistence; add source-backed security guidance and an in-app FAQ.
+- Require signed release artifacts, commits and annotated tags; replace automatic release/publish/install paths with fail-closed local verification. Display test builds as `3.05.0001`.
+- See `docs/SECURITY_REVIEW_2026-10-22.md` for findings, safe regression paths and remaining limits.
+
+## [3.5.0] - 2026-10-02
+
+### Added
+- **Threat engine v1** — behavioral bot/attack detection over established connections: blocklisted contact (critical), high connection count (warning, legacy >50 preserved), remote fan-out / scan shape (warning), new-remote burst / beaconing shape (warning), first-seen dialer (info). Learning baseline seeds silently on first snapshot; details in `docs/THREAT_ENGINE.md`.
+- **Background auto-alert** — `ThreatMonitorStore` polls every 15s, pages once per novel signal (15-min cooldown, coalesced summary notification), and writes every finding to the activity log. Critical findings turn the menubar red.
+- **Security Center** — sidebar Security tab: status header with last-check proof, severity filter chips, finding cards with Kill / Freeze (SIGSTOP) / Copy remote / Block host actions, detection tuning steppers, and persisted history (`~/.portpilot/threat-history.json`).
+- **CLI**: `portpilot connections --threats [--json]`, `portpilot connections --watch <seconds>` (headless auto-alert, baseline seeds on tick one), `portpilot blocklist list|add|remove`.
+- **TUI**: `!` toggles threats-only in the Connections tab (composes with `/` search).
+- **Sentinel theme** — SOC watch-floor aesthetic, phosphor-on-slate, dark-native. Severity colors (`Theme.Severity`) are fixed semantic tokens so urgency survives every theme.
+- **Skins, not swatches** — culled Papercraft, Nord, Retro, Terminal, Synthwave (five same-silhouette recolors). Selecting a skin now applies its full skin at once: palette + fonts (auto, missing families skipped) + geometry; Noir takes the tight square-corner geometry. Skin contract: `docs/THEMES.md`.
+- **Folio skin** — first complete skin under the contract: editorial print voice (Georgia UI + SF Mono, both macOS-shipped), ink blacks, print-paper light mode, night-desk dark mode, one oxblood-red accent. Tapping it re-voices the whole app.
+
 ## [3.4.0] - 2026-09-13
 
 ### Added

@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var autoRefreshTimer: Timer?
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private let mainNavigation = MainWindowNavigation()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Enforce single instance
@@ -50,8 +51,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Listen for requests
         NotificationCenter.default.addObserver(
-            self, selector: #selector(handleOpenMainWindow),
+            self, selector: #selector(handleOpenMainWindow(_:)),
             name: .openMainWindow, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleOpenSecurityCenter),
+            name: .openSecurityCenter, object: nil
         )
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleMenuBarVisibility(_:)),
@@ -67,23 +72,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Main Window
 
-    @objc private func handleOpenMainWindow() {
-        openMainWindow()
+    @objc private func handleOpenMainWindow(_ notification: Notification) {
+        openMainWindow(destination: notification.object as? MainTab)
     }
 
-    func openMainWindow() {
-        if let window = mainWindow, window.isVisible {
+    @objc private func handleOpenSecurityCenter() {
+        openMainWindow(destination: .security)
+    }
+
+    func openMainWindow(destination: MainTab? = nil) {
+        if let destination { mainNavigation.selectedTab = destination }
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = mainWindow {
+            window.deminiaturize(nil)
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
             return
         }
 
-        let contentView = ContentView()
+        let contentView = ContentView(navigation: mainNavigation)
             .environmentObject(sharedViewModel)
-            .frame(minWidth: 800, minHeight: 500)
+            .frame(minWidth: 900, minHeight: 650)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 950, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -167,7 +179,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let session = PacketCaptureModel.activeSession else { return .terminateNow }
+        session.cancel()
+        Task {
+            let finished = await Task.detached { session.waitUntilFinished(timeout: 4) }.value
+            if !finished {
+                let alert = NSAlert()
+                alert.messageText = "Packet capture is still stopping"
+                alert.informativeText = "PortPilot stayed open because capture cleanup has not finished. Try quitting again shortly."
+                alert.runModal()
+            }
+            sender.reply(toApplicationShouldTerminate: finished)
+        }
+        return .terminateLater
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        AppSettings.shared.refreshLaunchAtLoginStatus()
     }
 }
