@@ -1304,7 +1304,7 @@ public final class PortManager {
         let outputTruncated: Bool
     }
 
-    /// Core runner. Drains stdout concurrently — a child writing more than the
+    /// Core runner. Drains stdout while waiting — a child writing more than the
     /// pipe capacity would otherwise block on write and never exit — enforces
     /// `timeout` for real (TERM first, KILL after a 2 s grace), and reports the
     /// exit status so callers can stop parsing error text as data.
@@ -1324,22 +1324,41 @@ public final class PortManager {
         process.standardOutput = pipe
         process.standardError = pipe
 
-        let drainLock = NSLock()
         var collected = BoundedOutputBuffer(limit: maxOutputBytes)
-        let drained = DispatchSemaphore(value: 0)
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                drained.signal()
-            } else {
-                drainLock.lock()
-                collected.append(chunk)
-                drainLock.unlock()
+        let descriptor = pipe.fileHandleForReading.fileDescriptor
+        let descriptorFlags = fcntl(descriptor, F_GETFL)
+        guard descriptorFlags >= 0, fcntl(descriptor, F_SETFL, descriptorFlags | O_NONBLOCK) == 0 else {
+            try? pipe.fileHandleForReading.close()
+            try? pipe.fileHandleForWriting.close()
+            return CommandOutput(output: "", exitStatus: nil, timedOut: false, outputTruncated: true)
+        }
+        var reachedEOF = false
+        var readFailed = false
+        var bytes = [UInt8](repeating: 0, count: 16_384)
+        func drainAvailableOutput() {
+            guard !reachedEOF, !readFailed else { return }
+            // Limit each pump so a continuously noisy child cannot prevent the
+            // caller from checking its deadline or cancellation escalation.
+            for _ in 0..<64 {
+                let count = bytes.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
+                if count > 0 { collected.append(Data(bytes.prefix(count))) }
+                else if count == 0 { reachedEOF = true; return }
+                else if errno == EINTR { continue }
+                else if errno == EAGAIN || errno == EWOULDBLOCK { return }
+                else { readFailed = true; return }
             }
         }
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
+        func waitForExit(_ duration: TimeInterval) -> Bool {
+            let deadline = ProcessInfo.processInfo.systemUptime + max(0, duration)
+            repeat {
+                drainAvailableOutput()
+                let remaining = max(0, deadline - ProcessInfo.processInfo.systemUptime)
+                if exited.wait(timeout: .now() + min(0.01, remaining)) == .success { return true }
+            } while ProcessInfo.processInfo.systemUptime < deadline
+            return false
+        }
 
         do {
             try process.run()
@@ -1347,7 +1366,6 @@ public final class PortManager {
             // Launch failure (missing binary, exec format error): return, never
             // touch termination APIs on an unlaunched Process.
             process.terminationHandler = nil
-            pipe.fileHandleForReading.readabilityHandler = nil
             try? pipe.fileHandleForWriting.close()
             try? pipe.fileHandleForReading.close()
             return CommandOutput(output: "", exitStatus: nil, timedOut: false, outputTruncated: false)
@@ -1360,7 +1378,7 @@ public final class PortManager {
         let launchedIncarnation = processIncarnationToken(pid: launchedPID)
 
         var timedOut = false
-        if exited.wait(timeout: .now() + timeout) == .timedOut {
+        if !waitForExit(timeout) {
             timedOut = true
             if ProcessEscalationPolicy.permits(
                 expectedToken: launchedIncarnation,
@@ -1368,28 +1386,30 @@ public final class PortManager {
             ) {
                 kill(process.processIdentifier, SIGTERM)
             }
-            if exited.wait(timeout: .now() + 2) == .timedOut {
+            if !waitForExit(2) {
                 if ProcessEscalationPolicy.permits(
                     expectedToken: launchedIncarnation,
                     currentToken: processIncarnationToken(pid: launchedPID)
                 ) {
                     kill(process.processIdentifier, SIGKILL)
                 }
-                _ = exited.wait(timeout: .now() + 2)
+                _ = waitForExit(2)
             }
             // A grandchild holding the pipe open can delay EOF past the kill;
             // take what we have rather than block forever.
         }
-        let drainComplete = drained.wait(timeout: .now() + 1) == .success
+        let drainDeadline = ProcessInfo.processInfo.systemUptime + 1
+        repeat {
+            drainAvailableOutput()
+            if reachedEOF || readFailed { break }
+            Thread.sleep(forTimeInterval: 0.005)
+        } while ProcessInfo.processInfo.systemUptime < drainDeadline
         // A successful direct child can leave a descendant holding stdout.
         // Retained bytes are only a partial observation until EOF is confirmed.
-        pipe.fileHandleForReading.readabilityHandler = nil
         try? pipe.fileHandleForReading.close()
 
-        drainLock.lock()
         let output = String(data: collected.data, encoding: .utf8) ?? ""
-        let outputTruncated = collected.wasTruncated || !drainComplete
-        drainLock.unlock()
+        let outputTruncated = collected.wasTruncated || !reachedEOF || readFailed
 
         let status: Int32? = timedOut ? nil : process.terminationStatus
         return CommandOutput(

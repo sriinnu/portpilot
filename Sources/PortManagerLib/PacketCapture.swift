@@ -110,12 +110,40 @@ public final class PacketCaptureSession: @unchecked Sendable {
         let pipe = Pipe()
         child.standardOutput = pipe; child.standardError = pipe
         child.standardInput = FileHandle.nullDevice
-        let drained = DispatchSemaphore(value: 0)
         let exited = DispatchSemaphore(value: 0)
-        pipe.fileHandleForReading.readabilityHandler = { [self] handle in
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; drained.signal() }
-            else { lock.lock(); buffer.append(data); lock.unlock() }
+        let readFD = pipe.fileHandleForReading.fileDescriptor
+        let flags = fcntl(readFD, F_GETFL)
+        guard flags >= 0, fcntl(readFD, F_SETFL, flags | O_NONBLOCK) >= 0 else {
+            try? pipe.fileHandleForReading.close()
+            try? pipe.fileHandleForWriting.close()
+            return PacketCaptureResult(packets: [], message: "Could not prepare the packet capture output pipe.",
+                                       failed: true, truncated: false)
+        }
+        var reachedEOF = false
+        var readFailed = false
+        var readBuffer = [UInt8](repeating: 0, count: 8192)
+        // FileHandle's EOF readability callback is not delivered consistently
+        // for short-lived children on Linux. Confirm EOF from read() itself.
+        // Bound each batch so a noisy child cannot prevent deadline checks.
+        func drainAvailable() {
+            guard !reachedEOF else { return }
+            for _ in 0..<32 {
+                let count = read(readFD, &readBuffer, readBuffer.count)
+                if count > 0 {
+                    lock.lock(); buffer.append(Data(readBuffer.prefix(count))); lock.unlock()
+                } else if count == 0 {
+                    reachedEOF = true
+                    return
+                } else if errno == EINTR {
+                    continue
+                } else if errno == EAGAIN || errno == EWOULDBLOCK {
+                    return
+                } else {
+                    readFailed = true
+                    reachedEOF = true
+                    return
+                }
+            }
         }
         childFinished.enter()
         lock.lock(); cleanupConfirmed = false; runningChild = child; lock.unlock()
@@ -134,7 +162,6 @@ public final class PacketCaptureSession: @unchecked Sendable {
             child.terminationHandler = nil
             lock.lock(); cleanupConfirmed = true; runningChild = nil; lock.unlock()
             childFinished.leave()
-            pipe.fileHandleForReading.readabilityHandler = nil
             try? pipe.fileHandleForReading.close()
             try? pipe.fileHandleForWriting.close()
             return PacketCaptureResult(packets: [], message: "Could not start the system packet capture tool.",
@@ -147,6 +174,7 @@ public final class PacketCaptureSession: @unchecked Sendable {
         var stoppedByLimit = false
         var settled = false
         while !settled {
+            drainAvailable()
             settled = exited.wait(timeout: .now() + 0.05) == .success
             if settled { break }
             if isCancelled || ProcessInfo.processInfo.systemUptime >= deadline {
@@ -164,19 +192,23 @@ public final class PacketCaptureSession: @unchecked Sendable {
                 break
             }
         }
-        let drainComplete = drained.wait(timeout: .now() + 1) == .success
-        pipe.fileHandleForReading.readabilityHandler = nil
+        let drainDeadline = ProcessInfo.processInfo.systemUptime + 1
+        repeat {
+            drainAvailable()
+            if reachedEOF { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        } while ProcessInfo.processInfo.systemUptime < drainDeadline
         try? pipe.fileHandleForReading.close()
         lock.lock()
         cleanupConfirmed = cleanupConfirmed || settled
         let text = String(decoding: buffer.data, as: UTF8.self)
-        let truncated = buffer.wasTruncated || !drainComplete
+        let truncated = buffer.wasTruncated || !reachedEOF || readFailed
         lock.unlock()
         let packets = Array(text.split(separator: "\n").compactMap { PacketSummary.parse(String($0)) }.prefix(request.packetLimit))
         let denied = text.localizedCaseInsensitiveContains("permission denied")
             || text.localizedCaseInsensitiveContains("operation not permitted")
             || text.localizedCaseInsensitiveContains("you don't have permission")
-        let failed = !settled || (!stoppedByLimit && child.terminationStatus != 0) || denied
+        let failed = !settled || readFailed || (!stoppedByLimit && child.terminationStatus != 0) || denied
         let message: String
         if !settled { message = "Capture cleanup could not be confirmed. Review the system capture tool before starting another capture." }
         else if denied { message = "Capture unavailable: this user cannot access the interface's capture device. PortPilot does not elevate privileges." }

@@ -576,7 +576,12 @@ extension PortManager {
         #elseif os(Linux)
         // /proc/<pid>/stat field 22 is start time in clock ticks since boot.
         // Split after the final ')' because the command field may contain spaces.
-        guard let stat = try? String(contentsOfFile: "/proc/\(pid)/stat", encoding: .utf8),
+        // procfs reports a zero file size. Read to EOF rather than depending on
+        // a Foundation whole-file loader's size-based optimization.
+        guard let handle = FileHandle(forReadingAtPath: "/proc/\(pid)/stat") else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.readToEnd(),
+              let stat = String(data: data, encoding: .utf8),
               let commandEnd = stat.lastIndex(of: ")") else { return nil }
         let tail = stat[stat.index(after: commandEnd)...]
             .split(whereSeparator: \.isWhitespace)

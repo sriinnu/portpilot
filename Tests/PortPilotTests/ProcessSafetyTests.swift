@@ -392,4 +392,17 @@ final class ProcessSafetyTests: XCTestCase {
         // still distinguishing that deterministic four-second penalty.
         XCTAssertLessThan(Date().timeIntervalSince(started), 3.0)
     }
+
+    func testDirectExecutableOutputConfirmsEOF() {
+        // Linux corelibs FileHandle callbacks did not reliably deliver an EOF
+        // callback for direct binaries such as printf and ps. A complete read
+        // must succeed without relaxing the inherited-pipe completeness rule.
+        let result = PortManager().runProcess(
+            "/usr/bin/printf", arguments: ["%s", "direct-output"]
+        )
+        XCTAssertEqual(result.output, "direct-output")
+        XCTAssertEqual(result.exitStatus, 0)
+        XCTAssertFalse(result.timedOut)
+        XCTAssertFalse(result.outputTruncated)
+    }
 }

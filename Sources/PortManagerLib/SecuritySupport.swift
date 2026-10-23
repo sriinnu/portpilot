@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// Small security primitives shared by persistence and subprocess code.
 /// Kept internal so callers cannot accidentally treat them as a public API.
@@ -61,11 +66,20 @@ enum SecureFilePermissions {
             try handle.close()
             try enforcePrivateFile(temporary)
 
+            #if canImport(Darwin) || canImport(Glibc)
+            // A sibling POSIX rename atomically creates or replaces the path.
+            // Avoid swift-corelibs-foundation's failing replaceItemAt path on
+            // Linux, while retaining private-before-write permissions.
+            guard rename(temporary.path, url.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            #else
             if FileManager.default.fileExists(atPath: url.path) {
                 _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
             } else {
                 try FileManager.default.moveItem(at: temporary, to: url)
             }
+            #endif
             try enforcePrivateFile(url)
         } catch {
             try? FileManager.default.removeItem(at: temporary)

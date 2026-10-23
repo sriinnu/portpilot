@@ -2,11 +2,13 @@ import XCTest
 @testable import PortManagerLib
 
 final class CommandOutputCompletenessTests: XCTestCase {
-    func testSuccessfulChildWithInheritedPipeCannotReturnCompleteOutput() throws {
+    func testInheritedPipeOutputRequiresConfirmedEOFBeforeParsing() throws {
         let started = Date()
         // Only disposable local processes. The background child retains the
-        // pipe past the runner's one-second drain deadline, then exits itself.
-        // Wait out its lifetime even when an assertion fails.
+        // pipe after the direct child exits, then exits itself. Foundation may
+        // report direct-child termination before EOF (Darwin) or after its
+        // inherited output drains (Linux). Neither timing is an API guarantee.
+        // Wait out the descendant's lifetime even when an assertion fails.
         defer {
             Thread.sleep(forTimeInterval: max(0, 2.2 - Date().timeIntervalSince(started)))
         }
@@ -17,8 +19,14 @@ final class CommandOutputCompletenessTests: XCTestCase {
 
         XCTAssertEqual(result.exitStatus, 0)
         XCTAssertFalse(result.timedOut)
-        XCTAssertEqual(result.output, "early")
-        XCTAssertTrue(result.outputTruncated, "Missing EOF must not authorize parsing partial output as complete")
-        XCTAssertThrowsError(try PortManager.checkedCrontabRead(result))
+        if result.outputTruncated {
+            XCTAssertEqual(result.output, "early")
+            XCTAssertThrowsError(try PortManager.checkedCrontabRead(result),
+                                 "Missing EOF must not authorize parsing partial output as complete")
+        } else {
+            XCTAssertEqual(result.output, "earlylate",
+                           "Complete output must include the descendant's final write")
+            XCTAssertEqual(try PortManager.checkedCrontabRead(result), "earlylate")
+        }
     }
 }
