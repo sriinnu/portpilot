@@ -14,6 +14,7 @@ struct PortDetailScreen: TUIScreen {
     // MARK: - State
 
     private let process: PortProcess
+    private let expectedIdentity: ProcessIdentity?
     private let portManager: PortManager
     private var connections: [PortConnection] = []
     private var errorMessage: String?
@@ -22,6 +23,7 @@ struct PortDetailScreen: TUIScreen {
 
     init(process: PortProcess, portManager: PortManager) {
         self.process = process
+        self.expectedIdentity = ProcessIdentity(process: process)
         self.portManager = portManager
         loadConnections()
     }
@@ -223,23 +225,14 @@ struct PortDetailScreen: TUIScreen {
     // MARK: - Actions
 
     private mutating func killProcess(force: Bool) -> ScreenAction {
-        do {
-            if process.isUnixSocket {
-                // Unix sockets have port=0; kill by PID directly
-                let signal = force ? "KILL" : "TERM"
-                let task = Process()
-                task.executableURL = URL(fileURLWithPath: "/bin/kill")
-                task.arguments = ["-s", signal, "\(process.pid)"]
-                try task.run()
-                task.waitUntilExit()
-            } else {
-                try portManager.killProcessOnPort(process.port, force: force)
-            }
-            return .pop
-        } catch {
-            errorMessage = error.localizedDescription
+        guard let expectedIdentity else {
+            errorMessage = ProcessTerminationOutcome.identityUnavailable.userFacingDescription
             return .continue
         }
+        let result = portManager.terminateProcesses(identities: [expectedIdentity], force: force)
+        if result.isComplete { return .pop }
+        errorMessage = result.outcomes[process.pid]?.userFacingDescription ?? "No termination result"
+        return .continue
     }
 
     // MARK: - Helpers

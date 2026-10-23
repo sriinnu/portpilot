@@ -23,13 +23,13 @@ enum Theme {
     /// I expose the active theme's character as single-expression checks so
     /// tokens (surfaces, radii, strokes) can branch without plumbing
     /// AppSettings through every view.
-    static var isRetro: Bool { AppSettings.shared.visualTheme == .retro }
+    /// A skin is palette + fonts + geometry together — a case here is what
+    /// makes a theme read as a different object rather than a recolor.
 
-    /// Themes with square-corner geometry — Retro's index cards and
-    /// Terminal's CRT both read wrong with soft iOS radii.
+    /// Console directions keep compact, squared geometry.
     static var usesTightGeometry: Bool {
         switch AppSettings.shared.visualTheme {
-        case .retro, .terminal: return true
+        case .relay, .shell: return true
         default: return false
         }
     }
@@ -43,6 +43,8 @@ enum Theme {
             return minimal
         }
     }
+
+    static var paletteAccent: Color { palette.accent.color }
 
     // MARK: - Section Colors (per ConnectionType)
 
@@ -65,6 +67,43 @@ enum Theme {
         static var success: Color { Theme.palette.connected.color }
         static var error: Color { Theme.palette.error.color }
         static var warning: Color { Theme.palette.warning.color }
+    }
+
+    // MARK: - Severity Colors (threat engine)
+    //
+    // FIXED semantic colors — deliberately NOT palette-derived. A critical
+    // finding must read as critical under Papercraft cream and Terminal
+    // phosphor alike; deriving severity from per-theme accents lets a theme
+    // accidentally mute the one signal that must never be muted. Light/dark
+    // pairs are contrast-checked against both system appearances.
+
+    enum Severity {
+        static let critical = Color(light: NSColor(red: 0.80, green: 0.16, blue: 0.16, alpha: 1),
+                                    dark: NSColor(red: 1.00, green: 0.38, blue: 0.38, alpha: 1))
+        static let warning = Color(light: NSColor(red: 0.75, green: 0.45, blue: 0.05, alpha: 1),
+                                   dark: NSColor(red: 1.00, green: 0.70, blue: 0.25, alpha: 1))
+        static let info = Color(light: NSColor(red: 0.15, green: 0.42, blue: 0.80, alpha: 1),
+                                dark: NSColor(red: 0.45, green: 0.68, blue: 1.00, alpha: 1))
+        static let quiet = Color(light: NSColor(red: 0.20, green: 0.62, blue: 0.30, alpha: 1),
+                                 dark: NSColor(red: 0.35, green: 0.80, blue: 0.45, alpha: 1))
+
+        /// Severity icon names — one table so badges, cards, and the menubar
+        /// never drift into three different vocabularies.
+        static func icon(for severity: ThreatSeverity) -> String {
+            switch severity {
+            case .critical: return "shield.fill"
+            case .warning: return "exclamationmark.triangle.fill"
+            case .info: return "info.circle.fill"
+            }
+        }
+
+        static func color(for severity: ThreatSeverity) -> Color {
+            switch severity {
+            case .critical: return critical
+            case .warning: return warning
+            case .info: return info
+            }
+        }
     }
 
     // MARK: - Alert Colors
@@ -92,8 +131,7 @@ enum Theme {
 
     enum Badge {
         static var accentBackground: Color { Theme.palette.accent.color }
-        /// Text on the accent. White by default; Noir dark-mode's near-white
-        /// accent flips this to near-black so chips stay readable.
+        /// Text on the accent uses the paired foreground for readable chips.
         static var accentText: Color { Theme.palette.onAccent?.color ?? .white }
         static var connectedBackground: Color { Theme.palette.connectedBackground.color }
         static var connectedText: Color { Theme.palette.connected.color }
@@ -196,10 +234,10 @@ enum Theme {
             )
         }
 
-        static var controlBackground: Color { themedControl.color }
-        static var windowBackground: Color { themedWindow.color }
-        static var chromeTint: Color { themedChrome.color.opacity(0.95) }
-        static var headerTint: Color { themedHeader.color.opacity(0.92) }
+        static var controlBackground: Color { Theme.palette.surface?.color ?? (themedControl.color) }
+        static var windowBackground: Color { Theme.palette.window?.color ?? (themedWindow.color) }
+        static var chromeTint: Color { Theme.palette.chrome?.color ?? (themedChrome.color.opacity(0.95)) }
+        static var headerTint: Color { Theme.palette.chrome?.color ?? (themedHeader.color.opacity(0.92)) }
         static var hover: Color { Theme.palette.accent.color.opacity(0.08) }
         static var rowHover: Color { themedRowHover.color.opacity(0.92) }
         static var groupedFill: Color { themedGroupedFill.color.opacity(0.94) }
@@ -207,7 +245,7 @@ enum Theme {
         static var selected: Color { Theme.palette.accent.color.opacity(0.18) }
 
         static func panelFill(for appearance: NSAppearance) -> NSColor {
-            themedControl.resolved(for: appearance).withAlphaComponent(isDark(appearance) ? 0.96 : 0.90)
+            (Theme.palette.surface ?? themedControl).resolved(for: appearance)
         }
 
         static func panelBorder(for appearance: NSAppearance) -> NSColor {
@@ -309,7 +347,7 @@ enum Theme {
         static var tunnels: String { Theme.icon("point.3.connected.trianglepath.dotted", "point.3.connected.trianglepath.dotted") }
 
         // Navigation / tabs
-        static var appLogo: String { Theme.icon("network.badge.shield.half.filled", "network") }
+        static var appLogo: String { "powerplug" }
         static var portsTab: String { Theme.icon("network", "network") }
         static var socketsTab: String { Theme.icon("point.3.connected.trianglepath.dotted", "point.3.connected.trianglepath.dotted") }
 

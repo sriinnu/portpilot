@@ -52,27 +52,10 @@ struct LiquidSidebar: View {
     // MARK: Brand
 
     private var brand: some View {
-        HStack(spacing: 8) {
-            Image(systemName: Theme.Icon.appLogo)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(Theme.Liquid.accentPurple)
-                .frame(width: 26, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Theme.Liquid.accentPurpleMuted)
-                )
-            VStack(alignment: .leading, spacing: 1) {
-                Text("PortPilot")
-                    .font(appSettings.appFont(size: 13, weight: .bold))
-                Text("Liquid Deck")
-                    .font(appSettings.appFont(size: 9, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .textCase(.uppercase)
-                    .tracking(0.6)
-            }
-            Spacer()
-        }
-        .padding(.bottom, 2)
+        VStack(alignment: .leading, spacing: 6) {
+            PortPilotIdentity()
+            Text(appSettings.visualTheme.rawValue.uppercased()).font(.system(size: 8, design: .monospaced)).tracking(1.2).foregroundStyle(.secondary)
+        }.padding(.bottom, 4)
     }
 
     // MARK: Main section nav
@@ -86,6 +69,18 @@ struct LiquidSidebar: View {
                 tint: Theme.Liquid.accentPurple,
                 selected: selectedMainTab == .ports,
                 action: { selectedMainTab = .ports }
+            )
+            // Security sits between Ports and Schedules: findings are more
+            // urgent than cron, quieter than the port list. The badge shows
+            // live finding count — severity color comes from the findings
+            // themselves via Theme.Severity, never the nav tint.
+            navItem(
+                label: "Security",
+                icon: "shield.lefthalf.filled",
+                count: viewModel.threatMonitor.findings.count,
+                tint: Theme.Status.error,
+                selected: selectedMainTab == .security,
+                action: { selectedMainTab = .security }
             )
             navItem(
                 label: "Schedules",
@@ -167,10 +162,9 @@ struct LiquidSidebar: View {
     private var footer: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(Theme.Status.connected)
+                .fill(viewModel.threatMonitor.chromePresentation.chromeColor)
                 .frame(width: 6, height: 6)
-                .shadow(color: Theme.Status.connected.opacity(0.5), radius: 2)
-            Text("Monitoring live")
+            Text(viewModel.threatMonitor.chromePresentation.compactLabel)
                 .font(appSettings.appFont(size: 10, weight: .medium))
                 .foregroundColor(.secondary)
         }

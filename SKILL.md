@@ -8,11 +8,14 @@ Build and installation instructions: [README.md](README.md). Source tree and int
 
 | Task | Command |
 |------|---------|
+| Threat check: assess connections for bot-like behavior | `portpilot connections --threats` |
+| Headless auto-alert on a server | `portpilot connections --watch 15` |
+| Flag a host for detection (does not block traffic) | `portpilot blocklist add 203.0.113.9` |
 | Port conflict: find and kill what holds a port | `portpilot kill 3000` |
 | Freeze a process without losing its state/port | `portpilot pause 3000` (resume: `portpilot resume 3000`) |
 | List everything listening (ports + Unix sockets) | `portpilot list` / TUI Sockets tab |
 | Find active tunnels (SSH forwards, kubectl, Cloudflare) | TUI Ports tab (TYPE column); menu bar dropdown List View groups by connection type |
-| Keep a port yours across restarts | macOS app: Settings → Guard → arm the port (see [Port guard](#port-guard)) |
+| Evict later binders from a guarded port | macOS app: Settings → Guard → arm the port (see [Port guard](#port-guard)) |
 | See what bound/released/killed recently | macOS app main window → Timeline inspector tab |
 | Check whether a local daemon is running | TUI Sockets tab (PID + socket path) |
 | Inspect established connections by process | `portpilot connections` |
@@ -76,9 +79,23 @@ portpilot find --start 8000 --end 8999
 portpilot connections               # established connections grouped by process
 portpilot connections --suspect     # only processes with >50 connections
 portpilot connections --blocklist   # only blocklisted remote hosts
+portpilot connections --threats     # threat-engine findings (blocklist, fan-out, bursts)
+portpilot connections --threats --json  # findings as JSON
+portpilot connections --watch 15    # poll every 15s, print only NEW findings
 portpilot connections --kill 12345  # kill by PID
 portpilot connections --json
 ```
+
+```bash
+portpilot blocklist list            # list blocklisted hosts
+portpilot blocklist add 203.0.113.9 # flag IP / domain / .suffix / IPv4 CIDR
+portpilot blocklist remove 203.0.113.9
+```
+
+Threat engine details (rules, thresholds, baseline, anti-spam contract):
+[docs/THREAT_ENGINE.md](docs/THREAT_ENGINE.md). macOS app: sidebar Security
+tab (Kill / Freeze / Copy remote / Flag host, tuning, history, Security FAQ); TUI
+Connections tab: `!` toggles threats-only.
 
 ### Cronjobs
 
@@ -151,6 +168,7 @@ Main window:
 | Action | How |
 |--------|-----|
 | Select port | Click a row in the port list |
+| Review threats | Sidebar Security tab: incident list with Kill / Freeze / Copy remote / Flag host, threshold tuning, persisted history, Security FAQ |
 | Inspect process | Overview panel: process story (uptime, repo/branch, framework, parent, tunnel) followed by the full field grid |
 | Review port history | Timeline inspector tab — bound/released/killed/paused/resumed/guard events, newest first; "This port" filters to the selection |
 | Guard a port | Settings → Guard → Arm. Holders at arm time are grandfathered; later binders are evicted |
@@ -232,7 +250,7 @@ Process execution has a 10-second timeout; shared caches are NSLock-guarded.
 
 ### Port guard
 
-macOS app only (Settings → Guard). A guard on port N means: processes holding N when the guard was armed are allowed to stay (grandfathered), and any process that binds N afterwards is killed within ~2 seconds — SIGTERM first, SIGKILL if it survives. Semantics worth knowing:
+macOS app only (Settings → Guard). A guard on port N means: processes holding N when the guard was armed are allowed to stay (grandfathered), and later binders are candidates for termination — SIGTERM first, SIGKILL if they survive. Checks run roughly every two seconds; termination is best-effort, may take longer, and can be delayed by discovery failures. Semantics worth knowing:
 
 - **Grandfathering is per-pid, snapshot-at-arm** — restarting your own service re-binds the port and gets evicted. Disarm, restart, re-arm.
 - A port-usage snapshot that hasn't landed yet holds fire (nil snapshot = no evictions), so arming on a busy port is safe.
@@ -243,7 +261,7 @@ macOS app only (Settings → Guard). A guard on port N means: processes holding 
 
 ### Blocklist
 
-`~/.portpilot/blocklist.txt`, one entry per line: domain, domain suffix (leading `.` matches subdomains), IP, IPv6 prefix, or CIDR range. Matching connections are flagged by `portpilot connections`, the TUI Connections tab, and the menu bar app. The file is cached for 60 seconds.
+`~/.portpilot/blocklist.txt`, one entry per line: domain (with or without a leading `.`, matching the base name and subdomains), exact IPv4/IPv6 address, or IPv4 CIDR range. IPv6 CIDRs are not supported by this matcher. Matching connections are flagged by `portpilot connections`, the TUI Connections tab, and the menu bar app; no traffic is blocked. The file is cached for 60 seconds. See [mission.md](mission.md) and the app's Settings → Security FAQ for precautions.
 
 ## Requirements
 

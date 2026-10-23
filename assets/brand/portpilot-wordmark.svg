@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="150" viewBox="0 0 600 150" role="img" aria-labelledby="title">
+  <title id="title">P/ PortPilot</title>
+  <rect width="600" height="150" rx="24" fill="#141719"/>
+  <g fill="none" stroke="#e5ae82" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" transform="translate(30 35) scale(3.2)"><path d="M8 3v5m8-5v5M6 8h12v4a6 6 0 0 1-12 0V8Zm6 10v3"/></g>
+  <text x="148" y="100" fill="#e5ae82" font-family="-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif" font-size="72" font-weight="700" letter-spacing="-6">P/</text>
+  <text x="255" y="96" fill="#edf0e9" font-family="-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif" font-size="52" font-weight="600" letter-spacing="-2">PortPilot</text>
+</svg>

@@ -42,18 +42,7 @@ class MenuBarController: NSObject, ObservableObject {
             return
         }
 
-        // SF Symbol — configure BEFORE assigning to button
-        if let icon = NSImage(systemSymbolName: "network.badge.shield.half.filled",
-                              accessibilityDescription: "PortPilot") {
-            let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-            let configured = icon.withSymbolConfiguration(config) ?? icon
-            configured.size = NSSize(width: 18, height: 18)
-            configured.isTemplate = true
-            button.image = configured
-        } else {
-            button.title = "PP"
-        }
-
+        button.image = PortPilotBrand.menuImage()
         button.action = #selector(togglePanel)
         button.target = self
     }
@@ -90,7 +79,7 @@ class MenuBarController: NSObject, ObservableObject {
         guard let button = statusItem?.button else { return }
 
         let panelWidth = Theme.Liquid.panelWidth
-        let panelHeight = Theme.Liquid.panelHeight
+        let panelHeight = Theme.Liquid.panelHeight + MenuBarPanel.arrowHeight
 
         if panel == nil {
             let newPanel = MenuBarPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
@@ -98,6 +87,7 @@ class MenuBarController: NSObject, ObservableObject {
             // timer + monitor + state, not just fade the panel away.
             newPanel.onResignKey = { [weak self] in
                 Task { @MainActor [weak self] in
+                    guard self?.panel?.attachedSheet == nil else { return }
                     self?.dismissPanel()
                 }
             }
@@ -176,7 +166,14 @@ class MenuBarController: NSObject, ObservableObject {
 
     private func dismissPanel() {
         guard isPanelShown else { return }
-        panel?.close()
+        if let panel {
+            PacketCaptureModel.cancelCapture(ownedBy: panel)
+            if let sheet = panel.attachedSheet {
+                panel.endSheet(sheet)
+                sheet.orderOut(nil)
+            }
+            panel.close()
+        }
         panel = nil
         isPanelShown = false
 
@@ -233,16 +230,19 @@ class MenuBarController: NSObject, ObservableObject {
         } else if hasFrozen {
             symbolName = "pause.circle.fill"
         } else {
-            symbolName = "network.badge.shield.half.filled"
+            symbolName = ""
         }
 
-        if let icon = NSImage(systemSymbolName: symbolName, accessibilityDescription: "PortPilot") {
+        if symbolName.isEmpty {
+            button.image = PortPilotBrand.menuImage()
+            button.title = changeCount > 0 ? "\(changeCount)" : ""
+        } else if let icon = NSImage(systemSymbolName: symbolName, accessibilityDescription: "PortPilot") {
             icon.size = NSSize(width: 18, height: 18)
             icon.isTemplate = !colored
             button.image = icon
             button.title = changeCount > 0 ? "\(changeCount)" : ""
         } else {
-            button.title = changeCount > 0 ? "PP · \(changeCount)" : "PP"
+            button.title = changeCount > 0 ? "P/ · \(changeCount)" : "P/"
         }
     }
 
@@ -280,6 +280,7 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     static let copyPortActionIdentifier = "COPY_PORT_ACTION"
     static let dismissActionIdentifier = "DISMISS_ACTION"
     static let viewConnectionsActionIdentifier = "VIEW_CONNECTIONS_ACTION"
+    static let openSecurityActionIdentifier = NotificationReviewDestination.openSecurityAction
     static let killProcessActionIdentifier = "KILL_PROCESS_ACTION"
 
     // Notification category identifiers
@@ -288,6 +289,7 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     static let reservedPortCategoryIdentifier = "RESERVED_PORT"
     static let connectionAlertCategoryIdentifier = "CONNECTION_ALERT"
     static let guardActionCategoryIdentifier = "GUARD_ACTION"
+    static let threatCategoryIdentifier = NotificationReviewDestination.threatCategory
 
     override init() {
         self.portWatcher = PortWatcher(portManager: portManager)
@@ -301,12 +303,6 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
 
     private func registerNotificationCategories() {
         let center = UNUserNotificationCenter.current()
-
-        let killAction = UNNotificationAction(
-            identifier: Self.killActionIdentifier,
-            title: "Kill",
-            options: [.destructive, .authenticationRequired]
-        )
 
         let copyPortAction = UNNotificationAction(
             identifier: Self.copyPortActionIdentifier,
@@ -322,7 +318,7 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
 
         let portOccupiedCategory = UNNotificationCategory(
             identifier: Self.portOccupiedCategoryIdentifier,
-            actions: [killAction, copyPortAction, dismissAction],
+            actions: [copyPortAction, dismissAction],
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
@@ -336,14 +332,14 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
 
         let reservedPortCategory = UNNotificationCategory(
             identifier: Self.reservedPortCategoryIdentifier,
-            actions: [killAction, dismissAction],
+            actions: [copyPortAction, dismissAction],
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
 
         let viewConnectionsAction = UNNotificationAction(
-            identifier: Self.viewConnectionsActionIdentifier,
-            title: "View Connections",
+            identifier: Self.openSecurityActionIdentifier,
+            title: "Open Security Center",
             options: [.foreground]
         )
 
@@ -361,12 +357,20 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
             options: [.customDismissAction]
         )
 
+        let threatCategory = UNNotificationCategory(
+            identifier: Self.threatCategoryIdentifier,
+            actions: [viewConnectionsAction, dismissAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
         center.setNotificationCategories([
             portOccupiedCategory,
             portAvailableCategory,
             reservedPortCategory,
             connectionAlertCategory,
-            guardActionCategory
+            guardActionCategory,
+            threatCategory
         ])
     }
 
@@ -375,11 +379,17 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
         let port = userInfo["port"] as? Int ?? 0
         let identifier = response.actionIdentifier
 
-        switch identifier {
-        case Self.killActionIdentifier:
-            Task {
-                try? portManager.killProcessOnPort(port, force: true)
+        if NotificationReviewDestination.resolve(
+            categoryIdentifier: response.notification.request.content.categoryIdentifier,
+            actionIdentifier: identifier,
+            isDefaultAction: identifier == UNNotificationDefaultActionIdentifier
+        ) == .security {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .openSecurityCenter, object: nil)
             }
+        }
+
+        switch identifier {
         case Self.copyPortActionIdentifier:
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()

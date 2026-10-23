@@ -7,7 +7,11 @@ extension PortManager {
     // MARK: - Get Connections for Port
 
     public func getConnections(for port: Int) throws -> [PortConnection] {
-        let output = try runCommand("/usr/sbin/lsof", arguments: ["-iTCP:\(port)", "-P", "-n"])
+        let output = try runCommand(
+            "/usr/sbin/lsof",
+            arguments: ["-iTCP:\(port)", "-P", "-n"],
+            emptyResultExitStatus: 1
+        )
         var connections: [PortConnection] = []
 
         for line in output.components(separatedBy: "\n").dropFirst() {
@@ -38,12 +42,25 @@ extension PortManager {
 
     /// Get all established network connections across all processes
     public func getAllConnections() throws -> [EstablishedConnection] {
+        let observed = try getAllConnectionsSnapshot()
+        let enriched = enrichConnections(observed)
+        let confirmed = try getAllConnectionsSnapshot()
+        return ProcessObservationBinding.connections(enriched: enriched, confirmed: confirmed)
+    }
+
+    /// One raw connection snapshot. A second snapshot must confirm a row before
+    /// its later PID enrichment becomes authority for Kill or Freeze.
+    private func getAllConnectionsSnapshot() throws -> [EstablishedConnection] {
         let platform = Platform.current
         let output: String
 
         switch platform {
         case .macOS:
-            output = try runCommand("/usr/sbin/lsof", arguments: ["-i", "-P", "-n"])
+            output = try runCommand(
+                "/usr/sbin/lsof",
+                arguments: ["-i", "-P", "-n"],
+                emptyResultExitStatus: 1
+            )
         case .linux, .wsl:
             output = try runCommand("/usr/bin/ss", arguments: ["-tnp"])
         case .windows:
@@ -61,7 +78,7 @@ extension PortManager {
             connections = try parseWindowsAllConnections(output)
         }
 
-        return enrichConnections(connections)
+        return connections
     }
 
     /// Parse macOS lsof -i -P -n output for all connections
@@ -80,7 +97,9 @@ extension PortManager {
             let nameField = parts.count > 8 ? parts[8] : ""
 
             let stateMatch = nameField.range(of: #"\(([^)]+)\)"#, options: .regularExpression)
-            let state = stateMatch.map { String(String(nameField[$0]).dropFirst().dropLast()) } ?? "UNKNOWN"
+            let separateState = parts.count > 9 && parts[9].hasPrefix("(") && parts[9].hasSuffix(")")
+                ? String(parts[9].dropFirst().dropLast()) : nil
+            let state = separateState ?? stateMatch.map { String(String(nameField[$0]).dropFirst().dropLast()) } ?? "UNKNOWN"
             let nameOnly = stateMatch.map { String(nameField[..<$0.lowerBound]) } ?? nameField
 
             if state.lowercased() == "listen" { continue }
@@ -218,9 +237,13 @@ extension PortManager {
 
     /// Enrich connections with blocklist status
     func enrichConnections(_ connections: [EstablishedConnection]) -> [EstablishedConnection] {
+        let identities = processIdentities(pids: connections.map(\.pid))
         return connections.map { conn in
             var enriched = conn
             enriched.isBlocklisted = isBlocklisted(connection: conn)
+            enriched.executablePath = identities[conn.pid]?.executablePath
+            enriched.processStartTime = identities[conn.pid]?.startTime
+            enriched.processIdentityToken = identities[conn.pid]?.incarnationToken
             return enriched
         }
     }
@@ -251,7 +274,8 @@ extension PortManager {
 
         init(_ line: String) {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.pattern = trimmed
+            let withoutMarker = trimmed.hasPrefix(".") ? String(trimmed.dropFirst()) : trimmed
+            self.pattern = withoutMarker.hasSuffix(".") ? String(withoutMarker.dropLast()) : withoutMarker
             self.isCIDR = trimmed.contains("/") && trimmed.rangeOfCharacter(from: .decimalDigits) != nil
         }
 
@@ -272,23 +296,20 @@ extension PortManager {
             }
 
             let cleanHost = hostPart
+            let canonicalPattern = pattern.lowercased()
+            guard !canonicalPattern.isEmpty else { return false }
 
             if isCIDR {
-                return cidrContains(cidr: pattern, ip: cleanHost)
+                return cidrContains(cidr: canonicalPattern, ip: cleanHost)
             }
 
-            if cleanHost == pattern {
+            let lowerHost = cleanHost.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            if lowerHost == canonicalPattern || lowerHost.hasSuffix("." + canonicalPattern) {
                 return true
             }
 
-            let lowerHost = cleanHost.lowercased()
-            let lowerPattern = pattern.lowercased()
-            if lowerHost == lowerPattern || lowerHost.hasSuffix("." + lowerPattern) || lowerHost.hasPrefix(lowerPattern + ":") {
-                return true
-            }
-
-            if let hn = hostname?.lowercased() {
-                if hn == lowerPattern || hn.hasSuffix("." + lowerPattern) {
+            if let hn = hostname?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+                if hn == canonicalPattern || hn.hasSuffix("." + canonicalPattern) {
                     return true
                 }
             }

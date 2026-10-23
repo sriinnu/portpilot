@@ -73,9 +73,13 @@ final class CronjobController: ObservableObject {
 
     /// Trigger a cronjob's command immediately, outside of its schedule.
     func runNow(_ job: CronjobEntry) {
-        let started = CronRunManager.shared.runNow(job: job)
-        if !started {
-            log.add(source: "cron", message: "\(job.command) is already running", level: .info)
+        let runTask = Task.detached(priority: .userInitiated) {
+            CronRunManager.shared.runNow(job: job)
+        }
+        Task {
+            if !(await runTask.value) {
+                log.add(source: "cron", message: "\(job.command) is already running", level: .info)
+            }
         }
     }
 
@@ -88,14 +92,34 @@ final class CronjobController: ObservableObject {
         // Both kill paths walk process trees and TERM-wait — doing either on
         // the main actor hung the UI for up to ~3s per Stop click.
         let stopTask = Task.detached(priority: .userInitiated) {
-            let stoppedTracked = CronRunManager.shared.stop(jobID: jobID)
-            let killedCount = PortManager().stopRunningProcesses(matching: command)
-            return (stoppedTracked, killedCount)
+            var results: [ProcessTerminationResult?] = []
+            var errors: [String] = []
+            do {
+                results.append(try CronRunManager.shared.stop(jobID: jobID))
+            } catch {
+                errors.append("tracked process discovery failed: \(error.localizedDescription)")
+            }
+            do {
+                let stoppedMatching = try PortManager().stopRunningProcessesResult(matching: command)
+                results.append(stoppedMatching)
+            } catch {
+                errors.append("matching process discovery failed: \(error.localizedDescription)")
+            }
+            return CronStopSummary(results: results, errors: errors)
         }
 
         Task {
-            let (stoppedTracked, killedCount) = await stopTask.value
-            if stoppedTracked || killedCount > 0 {
+            let result = await stopTask.value
+            if !result.errors.isEmpty {
+                let message = "Stop status unknown for \(command): \(result.errors.joined(separator: "; "))"
+                onError?(message)
+                log.add(source: "cron", message: message, level: .error)
+            } else if !result.unresolved.isEmpty {
+                let pids = result.unresolved.map(String.init).joined(separator: ", ")
+                let message = "Stop incomplete for \(command); unresolved pids: \(pids)"
+                onError?(message)
+                log.add(source: "cron", message: message, level: .error)
+            } else if result.isComplete {
                 log.add(source: "cron", message: "Stopped \(command)", level: .info)
             } else {
                 log.add(source: "cron", message: "\(command) is not currently running", level: .info)

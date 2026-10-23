@@ -1,387 +1,56 @@
 import SwiftUI
 import AppKit
 
+extension ThemeColorPair {
+    static func hex(_ light: UInt32, _ dark: UInt32? = nil) -> Self {
+        func color(_ hex: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1)
+        }
+        return Self(light: color(light), dark: color(dark ?? light))
+    }
+}
+
 extension ThemePalette {
-    static let classic = ThemePalette(
-        cloudflare: ThemeColorPair(
-            light: NSColor(red: 0.90, green: 0.50, blue: 0.10, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.65, blue: 0.30, alpha: 1)
-        ),
-        kubernetes: ThemeColorPair(
-            light: NSColor(red: 0.15, green: 0.60, blue: 0.65, alpha: 1),
-            dark: NSColor(red: 0.30, green: 0.78, blue: 0.82, alpha: 1)
-        ),
-        local: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.68, blue: 0.30, alpha: 1),
-            dark: NSColor(red: 0.35, green: 0.82, blue: 0.45, alpha: 1)
-        ),
-        database: ThemeColorPair(
-            light: NSColor(red: 0.85, green: 0.45, blue: 0.20, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.60, blue: 0.40, alpha: 1)
-        ),
-        ssh: ThemeColorPair(
-            light: NSColor(red: 0.55, green: 0.30, blue: 0.75, alpha: 1),
-            dark: NSColor(red: 0.72, green: 0.50, blue: 0.90, alpha: 1)
-        ),
-        orbstack: ThemeColorPair(
-            light: NSColor(red: 0.18, green: 0.48, blue: 0.88, alpha: 1),
-            dark: NSColor(red: 0.38, green: 0.66, blue: 1.00, alpha: 1)
-        ),
-        proxy: ThemeColorPair(
-            light: NSColor(red: 0.55, green: 0.30, blue: 0.75, alpha: 1),
-            dark: NSColor(red: 0.72, green: 0.50, blue: 0.90, alpha: 1)
-        ),
-        connected: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.70, blue: 0.30, alpha: 1),
-            dark: NSColor(red: 0.35, green: 0.85, blue: 0.45, alpha: 1)
-        ),
-        connectedBackground: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.70, blue: 0.30, alpha: 0.15),
-            dark: NSColor(red: 0.35, green: 0.85, blue: 0.45, alpha: 0.20)
-        ),
-        error: ThemeColorPair(
-            light: NSColor(red: 0.85, green: 0.20, blue: 0.20, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.40, blue: 0.40, alpha: 1)
-        ),
-        warning: ThemeColorPair(
-            light: NSColor(red: 0.90, green: 0.55, blue: 0.10, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.70, blue: 0.30, alpha: 1)
-        ),
-        accent: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.45, blue: 0.90, alpha: 1),
-            dark: NSColor(red: 0.35, green: 0.55, blue: 1.00, alpha: 1)
-        ),
-        sponsors: ThemeColorPair(
-            light: NSColor(red: 0.85, green: 0.30, blue: 0.55, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.50, blue: 0.70, alpha: 1)
-        ),
-        treeView: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.45, blue: 0.85, alpha: 1),
-            dark: NSColor(red: 0.40, green: 0.65, blue: 1.00, alpha: 1)
-        ),
-        system: ThemeColorPair(
-            light: NSColor(red: 0.50, green: 0.50, blue: 0.55, alpha: 1),
-            dark: NSColor(red: 0.65, green: 0.65, blue: 0.70, alpha: 1)
-        ),
-        userApp: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.45, blue: 0.85, alpha: 1),
-            dark: NSColor(red: 0.40, green: 0.65, blue: 1.00, alpha: 1)
-        ),
-        developerTool: ThemeColorPair(
-            light: NSColor(red: 0.85, green: 0.55, blue: 0.10, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.72, blue: 0.30, alpha: 1)
-        ),
-        other: ThemeColorPair(
-            light: NSColor(red: 0.50, green: 0.50, blue: 0.55, alpha: 0.6),
-            dark: NSColor(red: 0.65, green: 0.65, blue: 0.70, alpha: 0.6)
+    static func direction(_ direction: InterfaceDirection) -> ThemePalette {
+        let accent: ThemeColorPair
+        let window: ThemeColorPair
+        let surface: ThemeColorPair
+        let chrome: ThemeColorPair
+        switch direction {
+        case .instrument:
+            accent = .hex(0x5555C8, 0xA5A4FF); window = .hex(0xF6F7F9, 0x191B22)
+            surface = .hex(0xFFFFFF, 0x22252E); chrome = .hex(0xECEEF2, 0x1D2028)
+        case .relay:
+            accent = .hex(0xD4ED9A); window = .hex(0x151916)
+            surface = .hex(0x1C221C); chrome = .hex(0x20271F)
+        case .fieldwork:
+            accent = .hex(0x446746, 0xB3CF9B); window = .hex(0xF5F1E7, 0x25271F)
+            surface = .hex(0xFFFCF3, 0x2C3026); chrome = .hex(0xEBE7DA, 0x20241D)
+        case .focus:
+            accent = .hex(0x386EC7, 0x9DBEFF); window = .hex(0xF2F6FC, 0x19222F)
+            surface = .hex(0xFFFFFF, 0x222D3D); chrome = .hex(0xE8EFF9, 0x1C2837)
+        case .shell:
+            accent = .hex(0x9AE7C3); window = .hex(0x101719)
+            surface = .hex(0x182426); chrome = .hex(0x1C2528)
+        case .play:
+            accent = .hex(0x4545C7, 0xB5B1FF); window = .hex(0xFAF7EF, 0x252332)
+            surface = .hex(0xFFFDF8, 0x302D40); chrome = .hex(0xF2EFE7, 0x211F2D)
+        case .orbit:
+            accent = .hex(0xE5AE82); window = .hex(0x141719)
+            surface = .hex(0x222828); chrome = .hex(0x191D20)
+        }
+        // Status and action semantics stay recognizable across every direction.
+        return ThemePalette(
+            window: window, surface: surface, chrome: chrome,
+            cloudflare: .hex(0xB6601C, 0xF0B376), kubernetes: .hex(0x386DB2, 0x90BAF2),
+            local: accent, database: .hex(0x8D6631, 0xD8BB85), ssh: .hex(0x7855AD, 0xC1A8EB),
+            orbstack: .hex(0x366CA8, 0x91BDEE), proxy: .hex(0x7855AD, 0xC1A8EB),
+            connected: .hex(0x2E7541, 0x9ECFA8), connectedBackground: .hex(0xE5F2E7, 0x243C2A),
+            error: .hex(0xB72E36, 0xFFA8A5), warning: .hex(0x8C600D, 0xF3C77F), accent: accent,
+            onAccent: direction.isDarkNative ? .hex(0x17231B) : .hex(0xFFFFFF, 0x1B2030),
+            sponsors: .hex(0x9B4E71, 0xE9AFC8), treeView: accent,
+            system: .hex(0x646873, 0xB0B4BD), userApp: accent,
+            developerTool: .hex(0x8A6230, 0xD9B889), other: .hex(0x646873, 0xB0B4BD)
         )
-    )
-
-    static let graphite = ThemePalette(
-        cloudflare: ThemeColorPair(
-            light: NSColor(red: 0.48, green: 0.54, blue: 0.68, alpha: 1),
-            dark: NSColor(red: 0.64, green: 0.71, blue: 0.86, alpha: 1)
-        ),
-        kubernetes: ThemeColorPair(
-            light: NSColor(red: 0.18, green: 0.58, blue: 0.62, alpha: 1),
-            dark: NSColor(red: 0.34, green: 0.76, blue: 0.80, alpha: 1)
-        ),
-        local: ThemeColorPair(
-            light: NSColor(red: 0.24, green: 0.64, blue: 0.48, alpha: 1),
-            dark: NSColor(red: 0.42, green: 0.80, blue: 0.62, alpha: 1)
-        ),
-        database: ThemeColorPair(
-            light: NSColor(red: 0.66, green: 0.43, blue: 0.26, alpha: 1),
-            dark: NSColor(red: 0.84, green: 0.60, blue: 0.40, alpha: 1)
-        ),
-        ssh: ThemeColorPair(
-            light: NSColor(red: 0.36, green: 0.42, blue: 0.70, alpha: 1),
-            dark: NSColor(red: 0.54, green: 0.60, blue: 0.88, alpha: 1)
-        ),
-        orbstack: ThemeColorPair(
-            light: NSColor(red: 0.24, green: 0.52, blue: 0.78, alpha: 1),
-            dark: NSColor(red: 0.40, green: 0.68, blue: 0.94, alpha: 1)
-        ),
-        proxy: ThemeColorPair(
-            light: NSColor(red: 0.36, green: 0.42, blue: 0.70, alpha: 1),
-            dark: NSColor(red: 0.54, green: 0.60, blue: 0.88, alpha: 1)
-        ),
-        connected: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.68, blue: 0.50, alpha: 1),
-            dark: NSColor(red: 0.38, green: 0.84, blue: 0.64, alpha: 1)
-        ),
-        connectedBackground: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.68, blue: 0.50, alpha: 0.14),
-            dark: NSColor(red: 0.38, green: 0.84, blue: 0.64, alpha: 0.20)
-        ),
-        error: ThemeColorPair(
-            light: NSColor(red: 0.76, green: 0.28, blue: 0.30, alpha: 1),
-            dark: NSColor(red: 0.92, green: 0.42, blue: 0.46, alpha: 1)
-        ),
-        warning: ThemeColorPair(
-            light: NSColor(red: 0.80, green: 0.58, blue: 0.20, alpha: 1),
-            dark: NSColor(red: 0.96, green: 0.74, blue: 0.34, alpha: 1)
-        ),
-        accent: ThemeColorPair(
-            light: NSColor(red: 0.26, green: 0.45, blue: 0.72, alpha: 1),
-            dark: NSColor(red: 0.44, green: 0.63, blue: 0.92, alpha: 1)
-        ),
-        sponsors: ThemeColorPair(
-            light: NSColor(red: 0.74, green: 0.32, blue: 0.54, alpha: 1),
-            dark: NSColor(red: 0.90, green: 0.48, blue: 0.68, alpha: 1)
-        ),
-        treeView: ThemeColorPair(
-            light: NSColor(red: 0.22, green: 0.52, blue: 0.74, alpha: 1),
-            dark: NSColor(red: 0.40, green: 0.72, blue: 0.94, alpha: 1)
-        ),
-        system: ThemeColorPair(
-            light: NSColor(red: 0.45, green: 0.48, blue: 0.56, alpha: 1),
-            dark: NSColor(red: 0.60, green: 0.64, blue: 0.72, alpha: 1)
-        ),
-        userApp: ThemeColorPair(
-            light: NSColor(red: 0.26, green: 0.45, blue: 0.72, alpha: 1),
-            dark: NSColor(red: 0.44, green: 0.63, blue: 0.92, alpha: 1)
-        ),
-        developerTool: ThemeColorPair(
-            light: NSColor(red: 0.80, green: 0.58, blue: 0.20, alpha: 1),
-            dark: NSColor(red: 0.96, green: 0.74, blue: 0.34, alpha: 1)
-        ),
-        other: ThemeColorPair(
-            light: NSColor(red: 0.45, green: 0.48, blue: 0.56, alpha: 0.65),
-            dark: NSColor(red: 0.60, green: 0.64, blue: 0.72, alpha: 0.65)
-        )
-    )
-
-    static let sunset = ThemePalette(
-        cloudflare: ThemeColorPair(
-            light: NSColor(red: 0.92, green: 0.48, blue: 0.26, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.64, blue: 0.40, alpha: 1)
-        ),
-        kubernetes: ThemeColorPair(
-            light: NSColor(red: 0.18, green: 0.62, blue: 0.66, alpha: 1),
-            dark: NSColor(red: 0.34, green: 0.80, blue: 0.84, alpha: 1)
-        ),
-        local: ThemeColorPair(
-            light: NSColor(red: 0.92, green: 0.56, blue: 0.24, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.72, blue: 0.40, alpha: 1)
-        ),
-        database: ThemeColorPair(
-            light: NSColor(red: 0.80, green: 0.38, blue: 0.24, alpha: 1),
-            dark: NSColor(red: 0.96, green: 0.54, blue: 0.38, alpha: 1)
-        ),
-        ssh: ThemeColorPair(
-            light: NSColor(red: 0.62, green: 0.34, blue: 0.66, alpha: 1),
-            dark: NSColor(red: 0.78, green: 0.52, blue: 0.84, alpha: 1)
-        ),
-        orbstack: ThemeColorPair(
-            light: NSColor(red: 0.30, green: 0.52, blue: 0.92, alpha: 1),
-            dark: NSColor(red: 0.48, green: 0.68, blue: 1.00, alpha: 1)
-        ),
-        proxy: ThemeColorPair(
-            light: NSColor(red: 0.62, green: 0.34, blue: 0.66, alpha: 1),
-            dark: NSColor(red: 0.78, green: 0.52, blue: 0.84, alpha: 1)
-        ),
-        connected: ThemeColorPair(
-            light: NSColor(red: 0.24, green: 0.72, blue: 0.50, alpha: 1),
-            dark: NSColor(red: 0.40, green: 0.88, blue: 0.64, alpha: 1)
-        ),
-        connectedBackground: ThemeColorPair(
-            light: NSColor(red: 0.24, green: 0.72, blue: 0.50, alpha: 0.15),
-            dark: NSColor(red: 0.40, green: 0.88, blue: 0.64, alpha: 0.22)
-        ),
-        error: ThemeColorPair(
-            light: NSColor(red: 0.82, green: 0.24, blue: 0.28, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.42, blue: 0.46, alpha: 1)
-        ),
-        warning: ThemeColorPair(
-            light: NSColor(red: 0.96, green: 0.62, blue: 0.18, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.78, blue: 0.34, alpha: 1)
-        ),
-        accent: ThemeColorPair(
-            light: NSColor(red: 0.86, green: 0.40, blue: 0.30, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.56, blue: 0.42, alpha: 1)
-        ),
-        sponsors: ThemeColorPair(
-            light: NSColor(red: 0.88, green: 0.34, blue: 0.56, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.50, blue: 0.70, alpha: 1)
-        ),
-        treeView: ThemeColorPair(
-            light: NSColor(red: 0.26, green: 0.54, blue: 0.88, alpha: 1),
-            dark: NSColor(red: 0.44, green: 0.70, blue: 1.00, alpha: 1)
-        ),
-        system: ThemeColorPair(
-            light: NSColor(red: 0.50, green: 0.48, blue: 0.54, alpha: 1),
-            dark: NSColor(red: 0.66, green: 0.64, blue: 0.72, alpha: 1)
-        ),
-        userApp: ThemeColorPair(
-            light: NSColor(red: 0.86, green: 0.40, blue: 0.30, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.56, blue: 0.42, alpha: 1)
-        ),
-        developerTool: ThemeColorPair(
-            light: NSColor(red: 0.96, green: 0.62, blue: 0.18, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.78, blue: 0.34, alpha: 1)
-        ),
-        other: ThemeColorPair(
-            light: NSColor(red: 0.50, green: 0.48, blue: 0.54, alpha: 0.65),
-            dark: NSColor(red: 0.66, green: 0.64, blue: 0.72, alpha: 0.65)
-        )
-    )
-
-    // MARK: - Oceanic — deep blues and teals, calming and focused
-    static let oceanic = ThemePalette(
-        cloudflare: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.55, blue: 0.72, alpha: 1),
-            dark: NSColor(red: 0.35, green: 0.70, blue: 0.88, alpha: 1)
-        ),
-        kubernetes: ThemeColorPair(
-            light: NSColor(red: 0.10, green: 0.58, blue: 0.60, alpha: 1),
-            dark: NSColor(red: 0.22, green: 0.76, blue: 0.78, alpha: 1)
-        ),
-        local: ThemeColorPair(
-            light: NSColor(red: 0.12, green: 0.62, blue: 0.52, alpha: 1),
-            dark: NSColor(red: 0.28, green: 0.80, blue: 0.68, alpha: 1)
-        ),
-        database: ThemeColorPair(
-            light: NSColor(red: 0.18, green: 0.44, blue: 0.68, alpha: 1),
-            dark: NSColor(red: 0.34, green: 0.60, blue: 0.86, alpha: 1)
-        ),
-        ssh: ThemeColorPair(
-            light: NSColor(red: 0.36, green: 0.32, blue: 0.68, alpha: 1),
-            dark: NSColor(red: 0.52, green: 0.48, blue: 0.86, alpha: 1)
-        ),
-        orbstack: ThemeColorPair(
-            light: NSColor(red: 0.14, green: 0.50, blue: 0.82, alpha: 1),
-            dark: NSColor(red: 0.30, green: 0.66, blue: 0.98, alpha: 1)
-        ),
-        proxy: ThemeColorPair(
-            light: NSColor(red: 0.36, green: 0.32, blue: 0.68, alpha: 1),
-            dark: NSColor(red: 0.52, green: 0.48, blue: 0.86, alpha: 1)
-        ),
-        connected: ThemeColorPair(
-            light: NSColor(red: 0.10, green: 0.64, blue: 0.56, alpha: 1),
-            dark: NSColor(red: 0.26, green: 0.82, blue: 0.72, alpha: 1)
-        ),
-        connectedBackground: ThemeColorPair(
-            light: NSColor(red: 0.10, green: 0.64, blue: 0.56, alpha: 0.14),
-            dark: NSColor(red: 0.26, green: 0.82, blue: 0.72, alpha: 0.20)
-        ),
-        error: ThemeColorPair(
-            light: NSColor(red: 0.78, green: 0.26, blue: 0.32, alpha: 1),
-            dark: NSColor(red: 0.94, green: 0.44, blue: 0.48, alpha: 1)
-        ),
-        warning: ThemeColorPair(
-            light: NSColor(red: 0.82, green: 0.62, blue: 0.18, alpha: 1),
-            dark: NSColor(red: 0.98, green: 0.78, blue: 0.34, alpha: 1)
-        ),
-        accent: ThemeColorPair(
-            light: NSColor(red: 0.12, green: 0.46, blue: 0.72, alpha: 1),
-            dark: NSColor(red: 0.28, green: 0.62, blue: 0.90, alpha: 1)
-        ),
-        sponsors: ThemeColorPair(
-            light: NSColor(red: 0.68, green: 0.30, blue: 0.58, alpha: 1),
-            dark: NSColor(red: 0.86, green: 0.48, blue: 0.74, alpha: 1)
-        ),
-        treeView: ThemeColorPair(
-            light: NSColor(red: 0.12, green: 0.50, blue: 0.76, alpha: 1),
-            dark: NSColor(red: 0.30, green: 0.68, blue: 0.94, alpha: 1)
-        ),
-        system: ThemeColorPair(
-            light: NSColor(red: 0.38, green: 0.46, blue: 0.56, alpha: 1),
-            dark: NSColor(red: 0.54, green: 0.62, blue: 0.72, alpha: 1)
-        ),
-        userApp: ThemeColorPair(
-            light: NSColor(red: 0.12, green: 0.46, blue: 0.72, alpha: 1),
-            dark: NSColor(red: 0.28, green: 0.62, blue: 0.90, alpha: 1)
-        ),
-        developerTool: ThemeColorPair(
-            light: NSColor(red: 0.10, green: 0.58, blue: 0.60, alpha: 1),
-            dark: NSColor(red: 0.26, green: 0.76, blue: 0.78, alpha: 1)
-        ),
-        other: ThemeColorPair(
-            light: NSColor(red: 0.38, green: 0.46, blue: 0.56, alpha: 0.60),
-            dark: NSColor(red: 0.54, green: 0.62, blue: 0.72, alpha: 0.60)
-        )
-    )
-
-    // MARK: - Noir — high-contrast monochrome with sharp accents
-    static let noir = ThemePalette(
-        cloudflare: ThemeColorPair(
-            light: NSColor(red: 0.40, green: 0.40, blue: 0.40, alpha: 1),
-            dark: NSColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1)
-        ),
-        kubernetes: ThemeColorPair(
-            light: NSColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1),
-            dark: NSColor(red: 0.72, green: 0.72, blue: 0.72, alpha: 1)
-        ),
-        local: ThemeColorPair(
-            light: NSColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1),
-            dark: NSColor(red: 0.90, green: 0.90, blue: 0.90, alpha: 1)
-        ),
-        database: ThemeColorPair(
-            light: NSColor(red: 0.30, green: 0.30, blue: 0.30, alpha: 1),
-            dark: NSColor(red: 0.78, green: 0.78, blue: 0.78, alpha: 1)
-        ),
-        ssh: ThemeColorPair(
-            light: NSColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1),
-            dark: NSColor(red: 0.75, green: 0.75, blue: 0.75, alpha: 1)
-        ),
-        orbstack: ThemeColorPair(
-            light: NSColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1),
-            dark: NSColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1)
-        ),
-        proxy: ThemeColorPair(
-            light: NSColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1),
-            dark: NSColor(red: 0.75, green: 0.75, blue: 0.75, alpha: 1)
-        ),
-        connected: ThemeColorPair(
-            light: NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1),
-            dark: NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
-        ),
-        connectedBackground: ThemeColorPair(
-            light: NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 0.10),
-            dark: NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 0.12)
-        ),
-        error: ThemeColorPair(
-            light: NSColor(red: 0.80, green: 0.15, blue: 0.15, alpha: 1),
-            dark: NSColor(red: 1.00, green: 0.35, blue: 0.35, alpha: 1)
-        ),
-        warning: ThemeColorPair(
-            light: NSColor(red: 0.70, green: 0.55, blue: 0.10, alpha: 1),
-            dark: NSColor(red: 0.95, green: 0.80, blue: 0.25, alpha: 1)
-        ),
-        accent: ThemeColorPair(
-            light: NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1),
-            dark: NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
-        ),
-        // Dark-mode accent is near-white — white chip/badge text on top of it
-        // was invisible. Text on Noir's accent flips to near-black in dark.
-        onAccent: ThemeColorPair(
-            light: NSColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 1),
-            dark: NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1)
-        ),
-        sponsors: ThemeColorPair(
-            light: NSColor(red: 0.50, green: 0.50, blue: 0.50, alpha: 1),
-            dark: NSColor(red: 0.80, green: 0.80, blue: 0.80, alpha: 1)
-        ),
-        treeView: ThemeColorPair(
-            light: NSColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1),
-            dark: NSColor(red: 0.90, green: 0.90, blue: 0.90, alpha: 1)
-        ),
-        system: ThemeColorPair(
-            light: NSColor(red: 0.50, green: 0.50, blue: 0.50, alpha: 1),
-            dark: NSColor(red: 0.60, green: 0.60, blue: 0.60, alpha: 1)
-        ),
-        userApp: ThemeColorPair(
-            light: NSColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1),
-            dark: NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
-        ),
-        developerTool: ThemeColorPair(
-            light: NSColor(red: 0.25, green: 0.25, blue: 0.25, alpha: 1),
-            dark: NSColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1)
-        ),
-        other: ThemeColorPair(
-            light: NSColor(red: 0.50, green: 0.50, blue: 0.50, alpha: 0.50),
-            dark: NSColor(red: 0.60, green: 0.60, blue: 0.60, alpha: 0.50)
-        )
-    )
+    }
 }

@@ -1,6 +1,8 @@
 import Foundation
 import ArgumentParser
+#if canImport(PortManagerLib)
 import PortManagerLib
+#endif
 
 // MARK: - Command Types (defined first for subcommands reference)
 
@@ -123,9 +125,9 @@ extension PortKiller {
 
             do {
                 try portManager.killProcessOnPort(portNumber, force: force, timeout: TimeInterval(timeout) / 1000.0)
-                print("✅ Process on port \(portNumber) has been terminated.")
+                print("✅ Observed process(es) on port \(portNumber) are no longer running.")
             } catch PortManagerError.partialKill(let survivors) {
-                print("⚠️  Port \(portNumber): pid(s) \(survivors.map(String.init).joined(separator: ", ")) survived SIGKILL.")
+                print("⚠️  Port \(portNumber): stop could not be confirmed for pid(s) \(survivors.map(String.init).joined(separator: ", ")).")
                 throw ExitCode(1)
             }
         }
@@ -264,14 +266,16 @@ extension PortKiller {
                 return
             }
 
-            // Kill exactly the PIDs listed above — re-resolving by port range
-            // or pattern could sweep in processes that started after the
-            // listing was printed. --force means SIGKILL now, no TERM wait.
-            let survivors = portManager.killProcess(pids: processes.map(\.pid), force: force)
-            if survivors.isEmpty {
-                print("✅ All matching processes have been terminated.")
+            let identities = processes.compactMap { ProcessIdentity(process: $0) }
+            guard identities.count == processes.count else {
+                print("⚠️ Cannot verify every observed process identity; nothing was signaled. Refresh and retry.")
+                throw ExitCode(1)
+            }
+            let result = portManager.terminateProcesses(identities: identities, force: force)
+            if result.isComplete {
+                print("✅ No matching observed processes remain.")
             } else {
-                print("⚠️  \(survivors.count) process(es) survived SIGKILL: \(survivors.map(String.init).joined(separator: ", "))")
+                print("⚠️ Stop incomplete for PID(s): \(result.unresolved.map(String.init).joined(separator: ", "))")
                 throw ExitCode(1)
             }
         }
@@ -580,13 +584,16 @@ extension PortKiller {
                 return
             }
 
-            // PID-direct: kill what was listed, not a fresh name lookup.
-            // --force means SIGKILL now, no TERM wait.
-            let survivors = portManager.killProcess(pids: processes.map(\.pid), force: force)
-            if survivors.isEmpty {
-                print("✅ All \(processes.count) process(es) for program '\(program)' have been terminated.")
+            let identities = processes.compactMap { ProcessIdentity(process: $0) }
+            guard identities.count == processes.count else {
+                print("⚠️ Cannot verify every observed process identity; nothing was signaled. Refresh and retry.")
+                throw ExitCode(1)
+            }
+            let result = portManager.terminateProcesses(identities: identities, force: force)
+            if result.isComplete {
+                print("✅ No observed processes for '\(program)' remain.")
             } else {
-                print("⚠️  \(survivors.count) process(es) survived SIGKILL: \(survivors.map(String.init).joined(separator: ", "))")
+                print("⚠️ Stop incomplete for PID(s): \(result.unresolved.map(String.init).joined(separator: ", "))")
                 throw ExitCode(1)
             }
         }
@@ -811,6 +818,12 @@ extension PortKiller {
         @Flag(name: .long, help: "Show only connections to blocklisted hosts (~/.portpilot/blocklist.txt)")
         var blocklist: Bool = false
 
+        @Flag(name: .long, help: "Run the threat engine over this snapshot and print findings")
+        var threats: Bool = false
+
+        @Option(name: .long, help: "Watch mode: re-assess every N seconds, printing only NEW findings (Ctrl+C to stop)")
+        var watch: Int?
+
         @Option(name: .long, help: "Kill the process with the given PID")
         var kill: Int?
 
@@ -825,7 +838,25 @@ extension PortKiller {
                 return
             }
 
+            // Watch mode is the headless auto-alert: a poll loop with a
+            // quarantined learning baseline and no learning on failed polls.
+            if let interval = watch {
+                guard interval >= 2 else {
+                    print("❌ --watch interval must be >= 2 seconds")
+                    throw ExitCode(1)
+                }
+                try watchLoop(portManager: portManager, interval: interval)
+                return
+            }
+
             let connections = try portManager.getAllConnections()
+
+            // Threat assessment renders from the same engine as the macOS
+            // Security Center — one definition of "suspicious" everywhere.
+            if threats {
+                try outputThreats(connections, portManager: portManager)
+                return
+            }
 
             // Group by PID for display
             var grouped: [Int: [EstablishedConnection]] = [:]
@@ -915,20 +946,96 @@ extension PortKiller {
             }
         }
 
+        /// One-shot threat report over a snapshot. Honors --json: with it,
+        /// prints the findings array as JSON for scripts and agents.
+        private func outputThreats(_ connections: [EstablishedConnection], portManager: PortManager) throws {
+            let assessment = ThreatDetector.assess(
+                connections: connections,
+                isBlocklisted: { portManager.isBlocklisted(connection: $0) }
+            )
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .prettyPrinted
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(assessment.findings)
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print(jsonString)
+                }
+                return
+            }
+            if assessment.isClean {
+                print("✅ No threats detected in \(assessment.totalConnections) connections across \(assessment.processCount) processes.")
+                return
+            }
+            print("\nThreat assessment (\(assessment.totalConnections) connections, \(assessment.processCount) processes):")
+            print(String(repeating: "─", count: 100))
+            for finding in assessment.findings {
+                let badge = finding.severity == .critical ? "🚨" : finding.severity == .warning ? "⚠️" : "ℹ️"
+                print("\(badge) \(finding.processName) (pid \(finding.pid), \(finding.user))")
+                for signal in finding.signals {
+                    print("   [\(signal.type.title)] \(signal.summary) — e.g. \(signal.remoteSample)")
+                }
+            }
+            print(String(repeating: "─", count: 100))
+        }
+
+        /// Headless auto-alert loop: poll, assess against a learning
+        /// baseline, and print only findings whose signal keys are new since
+        /// the previous tick. Ctrl+C stops it (SIGINT kills the sleep).
+        private func watchLoop(portManager: PortManager, interval: Int) throws {
+            var baseline = ThreatBaseline()
+            var seenKeys = Set<String>()
+            var firstTick = true
+            print("👁 Watching connections every \(interval)s — Ctrl+C to stop.")
+            while true {
+                let connections: [EstablishedConnection]
+                do {
+                    connections = try portManager.getAllConnections()
+                } catch {
+                    let when = ISO8601DateFormatter().string(from: Date())
+                    print("⚠️ [\(when)] Connection snapshot failed: \(error.localizedDescription)")
+                    Thread.sleep(forTimeInterval: TimeInterval(interval))
+                    continue
+                }
+                let assessment = ThreatDetector.assess(
+                    connections: connections,
+                    isBlocklisted: { portManager.isBlocklisted(connection: $0) },
+                    baseline: baseline
+                )
+                baseline.advanceSnapshot(connections)
+                if firstTick {
+                    firstTick = false
+                    print("Baseline initialized: \(assessment.processCount) processes, \(assessment.totalConnections) connections; new identities remain quarantined.")
+                }
+                let fresh = assessment.findings.compactMap { finding -> ThreatFinding? in
+                    let novel = finding.signals.filter { !seenKeys.contains($0.dedupKey) }
+                    guard !novel.isEmpty else { return nil }
+                    return ThreatFinding(processName: finding.processName, pid: finding.pid, user: finding.user, signals: novel)
+                }
+                for finding in fresh {
+                    let badge = finding.severity == .critical ? "🚨" : finding.severity == .warning ? "⚠️" : "ℹ️"
+                    let when = ISO8601DateFormatter().string(from: finding.detectedAt)
+                    print("\(badge) [\(when)] \(finding.processName) (pid \(finding.pid))")
+                    for signal in finding.signals {
+                        print("   [\(signal.type.title)] \(signal.summary)")
+                        seenKeys.insert(signal.dedupKey)
+                    }
+                }
+                Thread.sleep(forTimeInterval: TimeInterval(interval))
+            }
+        }
+
         private func killProcess(_ pid: Int) throws {
             guard pid > 1 else {
-                // killProcess refuses to signal pid <= 1 and would report an
-                // empty survivor list — which read as success for a no-op.
                 print("⚠️  Refusing to signal pid \(pid) — pids below 2 can't be killed.")
                 throw ExitCode(1)
             }
             let portManager = PortManager()
-            // TERM→KILL escalation — this used to be an instant force-kill.
-            let survivors = portManager.killProcess(pids: [pid])
-            if survivors.isEmpty {
-                print("✅ Process \(pid) has been terminated.")
+            let result = portManager.terminateProcesses(pids: [pid])
+            if result.isComplete {
+                print("✅ Process \(pid) is no longer running.")
             } else {
-                print("⚠️  Process \(pid) survived SIGKILL.")
+                print("⚠️ Stop could not be confirmed for process \(pid).")
                 throw ExitCode(1)
             }
         }
@@ -940,7 +1047,7 @@ extension PortKiller {
 struct PortKiller: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "A tiny CLI for viewing and clearing ports in use by running processes.",
-        subcommands: [List.self, Kill.self, Pause.self, Resume.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self, Cronjobs.self, Connections.self],
+        subcommands: [List.self, Kill.self, Pause.self, Resume.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self, Cronjobs.self, Connections.self, BlocklistCommand.self],
         defaultSubcommand: List.self
     )
 }

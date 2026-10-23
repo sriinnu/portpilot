@@ -2,6 +2,9 @@ import SwiftUI
 import AppKit
 
 struct ThemePalette {
+    var window: ThemeColorPair? = nil
+    var surface: ThemeColorPair? = nil
+    var chrome: ThemeColorPair? = nil
     let cloudflare: ThemeColorPair
     let kubernetes: ThemeColorPair
     let local: ThemeColorPair

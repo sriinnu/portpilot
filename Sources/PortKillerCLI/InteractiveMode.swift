@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(PortManagerLib)
 import PortManagerLib
+#endif
 #if canImport(Glibc)
 import Glibc
 #elseif canImport(Darwin)
@@ -110,6 +112,7 @@ final class InteractiveMode {
     /// Target captured when the kill prompt opened — a refresh between prompt
     /// and 'y' must not retarget the kill.
     private var pendingKill: PortProcess?
+    private var pendingKillIdentity: ProcessIdentity?
 
     /// Saved tty state, reachable from the signal handler (which can only
     /// touch globals).
@@ -314,6 +317,7 @@ final class InteractiveMode {
     private func promptKillSelected() {
         guard !filteredProcesses.isEmpty, selectedIndex < filteredProcesses.count else { return }
         pendingKill = filteredProcesses[selectedIndex]
+        pendingKillIdentity = ProcessIdentity(process: filteredProcesses[selectedIndex])
     }
 
     private func handleKillConfirmation(_ key: String, startPort: Int?, endPort: Int?) {
@@ -321,25 +325,31 @@ final class InteractiveMode {
 
         switch key {
         case "y", "Y", ANSI.enter, "\n":
+            let expectedIdentity = pendingKillIdentity
             pendingKill = nil
-            // PID-direct with TERM→KILL escalation: re-resolving by port
-            // could hit whatever grabbed it since the last scan.
-            let survivors = portManager.killProcess(pids: [target.pid])
-            if survivors.isEmpty {
-                renderKillConfirmation(process: target)
+            pendingKillIdentity = nil
+            guard let expectedIdentity else {
+                renderError(ProcessTerminationOutcome.identityUnavailable.userFacingDescription)
+                refreshData(startPort: startPort, endPort: endPort)
+                return
+            }
+            let result = portManager.terminateProcesses(identities: [expectedIdentity])
+            if result.isComplete, let outcome = result.outcomes[target.pid] {
+                renderKillConfirmation(process: target, outcome: outcome)
             } else {
-                renderError("pid \(target.pid) survived SIGKILL")
+                renderError(result.outcomes[target.pid]?.userFacingDescription ?? "No termination result")
             }
             refreshData(startPort: startPort, endPort: endPort)
         case "n", "N", ANSI.escape, "q", "Q":
             pendingKill = nil
+            pendingKillIdentity = nil
         default:
             break
         }
     }
 
-    private func renderKillConfirmation(process: PortProcess) {
-        let message = "\(ANSI.green)Killed pid \(process.pid): \(process.command)\(ANSI.clear)"
+    private func renderKillConfirmation(process: PortProcess, outcome: ProcessTerminationOutcome) {
+        let message = "\(ANSI.green)\(outcome.userFacingDescription): pid \(process.pid), \(process.command)\(ANSI.clear)"
         FileHandle.standardOutput.write(Data(message.utf8))
         sleep(1)
     }
@@ -351,7 +361,7 @@ final class InteractiveMode {
     }
 
     private func renderHeader() -> String {
-        let title = " PortPilot - Interactive Port Manager "
+        let title = " P/ PortPilot - Interactive Port Manager "
         let width = getColumnWidth()
 
         return """

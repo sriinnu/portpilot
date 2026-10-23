@@ -19,6 +19,9 @@ public struct PortProcess: Codable, Identifiable, Sendable {
     public var fullCommand: String?
     public var parentPID: Int?
     public var startTime: Date?
+    /// Kernel-backed process-incarnation token (macOS start sec/usec or Linux
+    /// /proc start ticks). Destructive actions require this, not a rounded ps date.
+    public var processIdentityToken: String?
     public var workingDirectory: String?
     public var processPath: String?
     public var socketPath: String?
@@ -43,7 +46,7 @@ public struct PortProcess: Codable, Identifiable, Sendable {
     /// Whether this is a Unix socket process (no network port)
     public var isUnixSocket: Bool { protocolName == "unix" }
 
-    public init(port: Int, protocolName: String, pid: Int, user: String, command: String, fullCommand: String? = nil, parentPID: Int? = nil, startTime: Date? = nil, workingDirectory: String? = nil, processPath: String? = nil, socketPath: String? = nil, cpuUsage: Double? = nil, memoryMB: Double? = nil, framework: String? = nil, gitBranch: String? = nil, gitRepo: String? = nil, isOrphaned: Bool = false, isStopped: Bool = false) {
+    public init(port: Int, protocolName: String, pid: Int, user: String, command: String, fullCommand: String? = nil, parentPID: Int? = nil, startTime: Date? = nil, processIdentityToken: String? = nil, workingDirectory: String? = nil, processPath: String? = nil, socketPath: String? = nil, cpuUsage: Double? = nil, memoryMB: Double? = nil, framework: String? = nil, gitBranch: String? = nil, gitRepo: String? = nil, isOrphaned: Bool = false, isStopped: Bool = false) {
         self.port = port
         self.protocolName = protocolName
         self.pid = pid
@@ -52,6 +55,7 @@ public struct PortProcess: Codable, Identifiable, Sendable {
         self.fullCommand = fullCommand
         self.parentPID = parentPID
         self.startTime = startTime
+        self.processIdentityToken = processIdentityToken
         self.workingDirectory = workingDirectory
         self.processPath = processPath
         self.socketPath = socketPath
@@ -103,10 +107,17 @@ public struct EstablishedConnection: Codable, Identifiable, Sendable {
     public let pid: Int
     public let processName: String
     public let user: String
+    /// Resolved executable identity. Nil when the OS denies inspection; the
+    /// threat baseline then falls back to a PID-scoped identity, never name alone.
+    public var executablePath: String?
+    /// Process start time from the same enrichment snapshot. Destructive
+    /// actions require it so PID reuse fails closed.
+    public var processStartTime: Date?
+    public var processIdentityToken: String?
     /// Whether this connection matches a blocklist entry in ~/.portpilot/blocklist.txt
     public var isBlocklisted: Bool = false
 
-    public init(id: String = "", localAddress: String, remoteAddress: String, remoteHostname: String? = nil, state: String, pid: Int, processName: String, user: String, isBlocklisted: Bool = false) {
+    public init(id: String = "", localAddress: String, remoteAddress: String, remoteHostname: String? = nil, state: String, pid: Int, processName: String, user: String, executablePath: String? = nil, processStartTime: Date? = nil, processIdentityToken: String? = nil, isBlocklisted: Bool = false) {
         if id.isEmpty {
             let uniqueString = "\(pid)-\(remoteAddress)-\(localAddress)-\(state)-\(processName)-\(user)"
             self.id = uniqueString
@@ -120,6 +131,9 @@ public struct EstablishedConnection: Codable, Identifiable, Sendable {
         self.pid = pid
         self.processName = processName
         self.user = user
+        self.executablePath = executablePath
+        self.processStartTime = processStartTime
+        self.processIdentityToken = processIdentityToken
         self.isBlocklisted = isBlocklisted
     }
 }
@@ -160,7 +174,12 @@ public enum PortManagerError: LocalizedError {
     case partialKill([Int])
     case parseFailed(String)
     case invalidPID(Int)
+    case processIdentityUnavailable([Int])
+    case unstableProcessSnapshot(Int)
     case launchFailed(String)
+    case commandTimedOut(String)
+    case commandFailed(String, Int32, String)
+    case commandOutputTruncated(String, Int)
 
     public var errorDescription: String? {
         switch self {
@@ -173,9 +192,21 @@ public enum PortManagerError: LocalizedError {
         case .parseFailed(let reason):
             return "Failed to parse output: \(reason)"
         case .invalidPID(let pid):
-            return "Invalid PID: \(pid). Must be a positive integer."
+            return "Invalid PID: \(pid). Must be greater than 1."
+        case .processIdentityUnavailable(let pids):
+            return "Could not verify the current process identity for pid(s): \(pids.map(String.init).joined(separator: ", "))"
+        case .unstableProcessSnapshot(let port):
+            return "Process holders changed while snapshotting port \(port)"
         case .launchFailed(let path):
             return "Failed to launch \(path)"
+        case .commandTimedOut(let path):
+            return "Command timed out: \(path)"
+        case .commandFailed(let path, let status, let detail):
+            return detail.isEmpty
+                ? "Command failed with status \(status): \(path)"
+                : "Command failed with status \(status): \(path) — \(detail)"
+        case .commandOutputTruncated(let path, let limit):
+            return "Command output exceeded \(limit) bytes and was rejected as incomplete: \(path)"
         }
     }
 }
@@ -295,12 +326,63 @@ public final class PortManager {
         protocolFilter: String? = nil,
         enrich: Bool = true
     ) throws -> [PortProcess] {
+        let observed = try getListeningProcessSnapshot(
+            startPort: startPort,
+            endPort: endPort,
+            protocolFilter: protocolFilter
+        )
+        guard enrich else { return observed }
+
+        let enriched = fetchFullCommands(for: observed)
+        let confirmed = try getListeningProcessSnapshot(
+            startPort: startPort,
+            endPort: endPort,
+            protocolFilter: protocolFilter
+        )
+        return ProcessObservationBinding.listening(enriched: enriched, confirmed: confirmed)
+    }
+
+    /// Capture a complete, internally consistent holder snapshot for Guard's
+    /// initial grandfather baseline. Unlike the display API, this rejects any
+    /// holder churn or missing identity instead of returning a partial view.
+    public func getStableListeningProcessIdentities(port: Int) throws -> [ProcessIdentity] {
+        let observed = try getListeningProcessSnapshot(
+            startPort: port,
+            endPort: port,
+            protocolFilter: nil
+        )
+        let enriched = fetchFullCommands(for: observed)
+        let confirmed = try getListeningProcessSnapshot(
+            startPort: port,
+            endPort: port,
+            protocolFilter: nil
+        )
+        guard let identities = ProcessObservationBinding.stableListeningIdentities(
+            enriched: enriched,
+            confirmed: confirmed
+        ) else {
+            throw PortManagerError.unstableProcessSnapshot(port)
+        }
+        return identities
+    }
+
+    /// One raw socket-owner snapshot. Actionable identities are attached only
+    /// by the public wrapper after a second snapshot confirms the same row.
+    private func getListeningProcessSnapshot(
+        startPort: Int?,
+        endPort: Int?,
+        protocolFilter: String?
+    ) throws -> [PortProcess] {
         let platform = Platform.current
         let output: String
 
         switch platform {
         case .macOS:
-            output = try runCommand("/usr/sbin/lsof", arguments: ["-iTCP", "-iUDP", "-sTCP:LISTEN", "-P", "-n"])
+            output = try runCommand(
+                "/usr/sbin/lsof",
+                arguments: ["-iTCP", "-iUDP", "-sTCP:LISTEN", "-P", "-n"],
+                emptyResultExitStatus: 1
+            )
         case .linux, .wsl:
             // -tulnp: TCP and UDP listeners. ss lives in /usr/bin or /usr/sbin
             // depending on the distro's usr-merge state.
@@ -333,10 +415,7 @@ public final class PortManager {
             filtered = filtered.filter { $0.protocolName.lowercased() == filter.lowercased() }
         }
 
-        let sorted = filtered.sorted { $0.port < $1.port }
-        // Enrichment (2 ps spawns + proc_pidpath + framework/git file probes per
-        // process) is real money — callers that only need pid presence skip it.
-        return enrich ? fetchFullCommands(for: sorted) : sorted
+        return filtered.sorted { $0.port < $1.port }
     }
 
     // MARK: - Platform Parsers
@@ -618,27 +697,21 @@ public final class PortManager {
 
         let cwdByPID = fetchWorkingDirectories(pids: pids)
         let stats = fetchProcessStats(pids: pids)
-
-        var pidToPath: [Int: String] = [:]
-        let classifier = ProcessClassifier.shared
-        for process in processes {
-            if let path = classifier.getProcessPath(pid: process.pid) {
-                pidToPath[process.pid] = path
-            }
-        }
+        let identities = processIdentities(pids: processes.map(\.pid))
 
         return processes.map { process in
             var updated = process
             if let info = pidToInfo[process.pid] {
                 updated.fullCommand = (info.args?.isEmpty == false) ? info.args : nil
                 updated.parentPID = info.ppid
-                updated.startTime = info.lstart
+                updated.startTime = identities[process.pid]?.startTime ?? info.lstart
             }
+            updated.processIdentityToken = identities[process.pid]?.incarnationToken
             updated.workingDirectory = cwdByPID[process.pid]
             updated.cpuUsage = stats.cpu[process.pid]
             updated.memoryMB = stats.memMB[process.pid]
             updated.isStopped = stats.stopped[process.pid] ?? false
-            updated.processPath = pidToPath[process.pid]
+            updated.processPath = identities[process.pid]?.executablePath
             updated.framework = detectFramework(for: updated.workingDirectory, processPath: updated.processPath)
             let gitInfo = detectGitInfo(for: updated.workingDirectory)
             updated.gitBranch = gitInfo.branch
@@ -695,13 +768,9 @@ public final class PortManager {
 
         let stats = fetchProcessStats(pids: pids)
 
-        let classifier = ProcessClassifier.shared
-        var pidToPath: [Int: String] = [:]
+        let identities = processIdentities(pids: processes.map(\.pid))
         var pidToCwd: [Int: String] = [:]
         for process in processes {
-            if let path = classifier.getProcessPath(pid: process.pid) {
-                pidToPath[process.pid] = path
-            }
             if let cwd = try? FileManager.default.destinationOfSymbolicLink(atPath: "/proc/\(process.pid)/cwd") {
                 pidToCwd[process.pid] = cwd
             }
@@ -713,7 +782,9 @@ public final class PortManager {
             updated.cpuUsage = stats.cpu[process.pid]
             updated.memoryMB = stats.memMB[process.pid]
             updated.isStopped = stats.stopped[process.pid] ?? false
-            updated.processPath = pidToPath[process.pid]
+            updated.startTime = identities[process.pid]?.startTime
+            updated.processIdentityToken = identities[process.pid]?.incarnationToken
+            updated.processPath = identities[process.pid]?.executablePath
             updated.workingDirectory = pidToCwd[process.pid]
             updated.framework = detectFramework(for: updated.workingDirectory, processPath: updated.processPath)
             let gitInfo = detectGitInfo(for: updated.workingDirectory)
@@ -754,54 +825,31 @@ public final class PortManager {
 
     // MARK: - Kill Process
 
-    /// Sends TERM (or KILL when `force`), waits up to `timeout` seconds for the
-    /// pids to exit, escalates stragglers to KILL. Returns pids still alive.
+    /// Compatibility wrapper around the typed termination API. Returns every
+    /// pid whose stop could not be confirmed, including permission, identity,
+    /// probe, and invalid-pid failures. New callers should use
+    /// `terminateProcesses` and inspect its per-pid outcomes.
     @discardableResult
     public func killProcess(pids: [Int], force: Bool = false, timeout: TimeInterval = 5) -> [Int] {
-        let valid = pids.filter { $0 > 1 }  // pid 1 = launchd/init; never signal it
-        guard !valid.isEmpty else { return [] }
-
-        func signalPID(_ pid: Int, _ sig: Int32) { kill(pid_t(pid), sig) }
-        func isAlive(_ pid: Int) -> Bool { kill(pid_t(pid), 0) == 0 }
-
-        let signal: Int32 = force ? SIGKILL : SIGTERM
-        for pid in valid {
-            signalPID(pid, signal)
-        }
-
-        guard !force else {
-            usleep(150_000)
-            return valid.filter(isAlive)
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        var remaining = valid
-        while Date() < deadline {
-            usleep(100_000)
-            remaining = remaining.filter(isAlive)
-            if remaining.isEmpty { break }
-        }
-
-        for pid in remaining {
-            signalPID(pid, SIGKILL)
-        }
-        if !remaining.isEmpty {
-            usleep(150_000)
-            return remaining.filter(isAlive)
-        }
-        return []
+        terminateProcesses(pids: pids, force: force, timeout: timeout).unresolved
     }
 
     /// Kills every process listening on `port` (SO_REUSEPORT means there can be
     /// more than one), escalating TERM → KILL within `timeout` seconds.
     public func killProcessOnPort(_ port: Int, force: Bool = false, timeout: TimeInterval = 5) throws {
-        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: false)
+        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: true)
         guard !processes.isEmpty else {
             throw PortManagerError.noProcessFound(port)
         }
-        let survivors = killProcess(pids: processes.map(\.pid), force: force, timeout: timeout)
-        if !survivors.isEmpty {
-            throw PortManagerError.partialKill(survivors)
+        let identities = processes.compactMap(ProcessIdentity.init(process:))
+        guard identities.count == processes.count else {
+            throw PortManagerError.processIdentityUnavailable(
+                processes.filter { ProcessIdentity(process: $0) == nil }.map(\.pid)
+            )
+        }
+        let result = terminateProcesses(identities: identities, force: force, timeout: timeout)
+        if !result.isComplete {
+            throw PortManagerError.partialKill(result.unresolved)
         }
     }
 
@@ -812,14 +860,22 @@ public final class PortManager {
     /// pids that were actually signaled.
     @discardableResult
     public func pauseProcess(pids: [Int]) -> [Int] {
-        signalProcesses(pids, SIGSTOP)
+        let identities = processIdentities(pids: pids)
+        return pids.filter { pid in
+            guard let identity = identities[pid] else { return false }
+            return sendControlSignal(.pause, to: identity).wasDelivered
+        }
     }
 
     /// Unfreezes SIGSTOPped processes with SIGCONT — state is intact, the
     /// listener picks up exactly where it froze.
     @discardableResult
     public func resumeProcess(pids: [Int]) -> [Int] {
-        signalProcesses(pids, SIGCONT)
+        let identities = processIdentities(pids: pids)
+        return pids.filter { pid in
+            guard let identity = identities[pid] else { return false }
+            return sendControlSignal(.resume, to: identity).wasDelivered
+        }
     }
 
     /// Pauses every process listening on `port` (SO_REUSEPORT allows more
@@ -827,32 +883,37 @@ public final class PortManager {
     /// finding it.
     @discardableResult
     public func pauseProcessOnPort(_ port: Int) throws -> [Int] {
-        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: false)
+        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: true)
         guard !processes.isEmpty else {
             throw PortManagerError.noProcessFound(port)
         }
-        return pauseProcess(pids: processes.map(\.pid))
+        let identities = processes.compactMap(ProcessIdentity.init(process:))
+        guard identities.count == processes.count else {
+            throw PortManagerError.processIdentityUnavailable(
+                processes.filter { ProcessIdentity(process: $0) == nil }.map(\.pid)
+            )
+        }
+        return identities.filter { sendControlSignal(.pause, to: $0).wasDelivered }.map(\.pid)
     }
 
     /// Resumes every process listening on `port`.
     @discardableResult
     public func resumeProcessOnPort(_ port: Int) throws -> [Int] {
-        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: false)
+        let processes = try getListeningProcesses(startPort: port, endPort: port, enrich: true)
         guard !processes.isEmpty else {
             throw PortManagerError.noProcessFound(port)
         }
-        return resumeProcess(pids: processes.map(\.pid))
-    }
-
-    /// Deliver `sig` to each pid we're allowed to signal. pid 1 is excluded
-    /// (launchd/init — same guard as killProcess) and pids we don't own come
-    /// back as failures from kill(2), which the filter drops.
-    private func signalProcesses(_ pids: [Int], _ sig: Int32) -> [Int] {
-        pids.filter { $0 > 1 }.filter { kill(pid_t($0), sig) == 0 }
+        let identities = processes.compactMap(ProcessIdentity.init(process:))
+        guard identities.count == processes.count else {
+            throw PortManagerError.processIdentityUnavailable(
+                processes.filter { ProcessIdentity(process: $0) == nil }.map(\.pid)
+            )
+        }
+        return identities.filter { sendControlSignal(.resume, to: $0).wasDelivered }.map(\.pid)
     }
 
     public func killAllProcesses(startPort: Int? = nil, endPort: Int? = nil, force: Bool = false, pattern: String? = nil) throws {
-        var processes = try getListeningProcesses(startPort: startPort, endPort: endPort, enrich: false)
+        var processes = try getListeningProcesses(startPort: startPort, endPort: endPort, enrich: true)
 
         if let pattern = pattern, !pattern.isEmpty {
             let lowercasedPattern = pattern.lowercased()
@@ -862,9 +923,15 @@ public final class PortManager {
 
         // One discovery pass, direct PID kills — not killProcessOnPort per row,
         // which used to re-run the whole lsof+ps pipeline for each process.
-        let survivors = killProcess(pids: processes.map(\.pid), force: force)
-        if !survivors.isEmpty {
-            throw PortManagerError.partialKill(survivors)
+        let identities = processes.compactMap(ProcessIdentity.init(process:))
+        guard identities.count == processes.count else {
+            throw PortManagerError.processIdentityUnavailable(
+                processes.filter { ProcessIdentity(process: $0) == nil }.map(\.pid)
+            )
+        }
+        let result = terminateProcesses(identities: identities, force: force)
+        if !result.isComplete {
+            throw PortManagerError.partialKill(result.unresolved)
         }
     }
 
@@ -967,6 +1034,21 @@ public final class PortManager {
     // MARK: - Get Processes by Name
 
     public func getProcessesByName(names: [String]) -> [PortProcess] {
+        let processes = getProcessesByNameSnapshot(names: names)
+        let identities = processIdentities(pids: processes.map(\.pid))
+        let enriched = processes.map { process in
+            guard let identity = identities[process.pid] else { return process }
+            var enriched = process
+            enriched.startTime = identity.startTime
+            enriched.processIdentityToken = identity.incarnationToken
+            enriched.processPath = identity.executablePath
+            return enriched
+        }
+        let confirmed = getProcessesByNameSnapshot(names: names)
+        return ProcessObservationBinding.namedProcesses(enriched: enriched, confirmed: confirmed)
+    }
+
+    private func getProcessesByNameSnapshot(names: [String]) -> [PortProcess] {
         let platform = Platform.current
 
         switch platform {
@@ -1146,14 +1228,21 @@ public final class PortManager {
 
     public func killAllProcesses(named names: [String], force: Bool = false) throws {
         let processes = getProcessesByName(names: names)
-        for process in processes {
-            let signal = force ? "KILL" : "TERM"
-            _ = try runCommand("/bin/kill", arguments: ["-s", signal, "\(process.pid)"])
+        guard !processes.isEmpty else { return }
+        let identities = processes.compactMap(ProcessIdentity.init(process:))
+        guard identities.count == processes.count else {
+            throw PortManagerError.processIdentityUnavailable(
+                processes.filter { ProcessIdentity(process: $0) == nil }.map(\.pid)
+            )
+        }
+        let result = terminateProcesses(identities: identities, force: force)
+        if !result.isComplete {
+            throw PortManagerError.partialKill(result.unresolved)
         }
     }
 
     public func killProcessByPID(_ pid: Int, force: Bool = false, timeout: TimeInterval = 5) throws {
-        guard pid > 0 else {
+        guard pid > 1 else {
             throw PortManagerError.invalidPID(pid)
         }
         let survivors = killProcess(pids: [pid], force: force, timeout: timeout)
@@ -1212,6 +1301,7 @@ public final class PortManager {
         /// nil when the process was killed by the timeout or failed to launch.
         let exitStatus: Int32?
         let timedOut: Bool
+        let outputTruncated: Bool
     }
 
     /// Core runner. Drains stdout concurrently — a child writing more than the
@@ -1219,7 +1309,8 @@ public final class PortManager {
     /// `timeout` for real (TERM first, KILL after a 2 s grace), and reports the
     /// exit status so callers can stop parsing error text as data.
     func runProcess(_ path: String, arguments: [String], timeout: TimeInterval = 10,
-                    environment extraEnv: [String: String]? = nil) -> CommandOutput {
+                    environment extraEnv: [String: String]? = nil,
+                    maxOutputBytes: Int = 1_048_576) -> CommandOutput {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
@@ -1233,16 +1324,8 @@ public final class PortManager {
         process.standardOutput = pipe
         process.standardError = pipe
 
-        do {
-            try process.run()
-        } catch {
-            // Launch failure (missing binary, exec format error): return, never
-            // touch termination APIs on an unlaunched Process.
-            return CommandOutput(output: "", exitStatus: nil, timedOut: false)
-        }
-
         let drainLock = NSLock()
-        var collected = Data()
+        var collected = BoundedOutputBuffer(limit: maxOutputBytes)
         let drained = DispatchSemaphore(value: 0)
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
@@ -1255,38 +1338,100 @@ public final class PortManager {
                 drainLock.unlock()
             }
         }
-
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
+
+        do {
+            try process.run()
+        } catch {
+            // Launch failure (missing binary, exec format error): return, never
+            // touch termination APIs on an unlaunched Process.
+            process.terminationHandler = nil
+            pipe.fileHandleForReading.readabilityHandler = nil
+            try? pipe.fileHandleForWriting.close()
+            try? pipe.fileHandleForReading.close()
+            return CommandOutput(output: "", exitStatus: nil, timedOut: false, outputTruncated: false)
+        }
+        // Process owns duplicated stdout/stderr descriptors after spawn. Keep
+        // no parent writer open, otherwise EOF never reaches the reader on
+        // Linux and every fast command pays the full drain timeout.
+        try? pipe.fileHandleForWriting.close()
+        let launchedPID = Int(process.processIdentifier)
+        let launchedIncarnation = processIncarnationToken(pid: launchedPID)
 
         var timedOut = false
         if exited.wait(timeout: .now() + timeout) == .timedOut {
             timedOut = true
-            process.terminate()
+            if ProcessEscalationPolicy.permits(
+                expectedToken: launchedIncarnation,
+                currentToken: processIncarnationToken(pid: launchedPID)
+            ) {
+                kill(process.processIdentifier, SIGTERM)
+            }
             if exited.wait(timeout: .now() + 2) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
+                if ProcessEscalationPolicy.permits(
+                    expectedToken: launchedIncarnation,
+                    currentToken: processIncarnationToken(pid: launchedPID)
+                ) {
+                    kill(process.processIdentifier, SIGKILL)
+                }
                 _ = exited.wait(timeout: .now() + 2)
             }
             // A grandchild holding the pipe open can delay EOF past the kill;
             // take what we have rather than block forever.
         }
-        _ = drained.wait(timeout: .now() + 1)
+        let drainComplete = drained.wait(timeout: .now() + 1) == .success
+        // A successful direct child can leave a descendant holding stdout.
+        // Retained bytes are only a partial observation until EOF is confirmed.
+        pipe.fileHandleForReading.readabilityHandler = nil
+        try? pipe.fileHandleForReading.close()
 
         drainLock.lock()
-        let output = String(data: collected, encoding: .utf8) ?? ""
+        let output = String(data: collected.data, encoding: .utf8) ?? ""
+        let outputTruncated = collected.wasTruncated || !drainComplete
         drainLock.unlock()
 
         let status: Int32? = timedOut ? nil : process.terminationStatus
-        return CommandOutput(output: output, exitStatus: status, timedOut: timedOut)
+        return CommandOutput(
+            output: output,
+            exitStatus: status,
+            timedOut: timedOut,
+            outputTruncated: outputTruncated
+        )
     }
 
     func runCommand(_ path: String, arguments: [String], timeout: TimeInterval = 10,
-                    environment: [String: String]? = nil) throws -> String {
-        let result = runProcess(path, arguments: arguments, timeout: timeout, environment: environment)
-        if result.exitStatus == nil && !result.timedOut {
+                    environment: [String: String]? = nil,
+                    acceptedExitStatuses: Set<Int32> = [0],
+                    emptyResultExitStatus: Int32? = nil,
+                    maxOutputBytes: Int = 1_048_576) throws -> String {
+        let result = runProcess(
+            path,
+            arguments: arguments,
+            timeout: timeout,
+            environment: environment,
+            maxOutputBytes: maxOutputBytes
+        )
+        if result.timedOut {
+            throw PortManagerError.commandTimedOut(path)
+        }
+        if result.outputTruncated {
+            throw PortManagerError.commandOutputTruncated(path, maxOutputBytes)
+        }
+        guard let status = result.exitStatus else {
             throw PortManagerError.launchFailed(path)
         }
-        return result.output
+        if acceptedExitStatuses.contains(status) {
+            return result.output
+        }
+        if status == emptyResultExitStatus,
+           result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return ""
+        }
+        let detail = result.output
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(200)
+        throw PortManagerError.commandFailed(path, status, String(detail))
     }
 
     func runCommandQuiet(_ path: String, arguments: [String], timeout: TimeInterval = 10) -> String {

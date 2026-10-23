@@ -4,6 +4,18 @@ import XCTest
 /// BlocklistEntry: CIDR math (the /33 shift trap, octet bounds) and host
 /// matching, exercised through the public-ish `matches` path.
 final class BlocklistTests: XCTestCase {
+    func testMacOSConnectionStateSeparateAndAttachedTokens() {
+        let snapshot = """
+        COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+        fixture 123 tester 4u IPv4 0x1 0t0 TCP 127.0.0.1:5000->127.0.0.1:6000 (ESTABLISHED)
+        fixture 124 tester 4u IPv4 0x1 0t0 TCP 127.0.0.1:5001->127.0.0.1:6001 (SYN_SENT)
+        fixture 125 tester 4u IPv4 0x1 0t0 TCP 127.0.0.1:5002->127.0.0.1:6002(CLOSE_WAIT)
+        """
+        let connections = PortManager().parseMacOSAllConnections(snapshot)
+        XCTAssertEqual(connections.map(\.state), ["ESTABLISHED", "SYN_SENT", "CLOSE_WAIT"])
+        XCTAssertEqual(connections.last?.remoteAddress, "127.0.0.1:6002")
+    }
+
     private func entry(_ line: String) -> PortManager.BlocklistEntry {
         PortManager.BlocklistEntry(line)
     }
@@ -51,6 +63,46 @@ final class BlocklistTests: XCTestCase {
         XCTAssertTrue(entry("evil.com").matches("1.2.3.4:80", hostname: "cdn.evil.com"))
         XCTAssertTrue(entry("evil.com").matches("evil.com:443", hostname: nil))
     }
+
+    func testLeadingDotDomainSuffixMatchesDocumentedForm() {
+        XCTAssertTrue(entry(".evil.com").matches("evil.com:443", hostname: nil))
+        XCTAssertTrue(entry(".evil.com").matches("1.2.3.4:80", hostname: "cdn.evil.com"))
+        XCTAssertFalse(entry(".evil.com").matches("1.2.3.4:80", hostname: "notevil.com"))
+    }
+
+    func testDomainCanonicalizationHandlesCaseAndTerminalDot() {
+        XCTAssertTrue(entry(".Evil.COM.").matches("evil.com.:443", hostname: nil))
+        XCTAssertTrue(entry(".Evil.COM.").matches("1.2.3.4:80", hostname: "CDN.EVIL.COM."))
+        XCTAssertFalse(entry(".").matches("anything.example:443", hostname: "anything.example"))
+    }
+
+    #if canImport(Network)
+    func testProxyAccessPolicyDefaultsToLoopbackOnly() throws {
+        let policy = ProxyAccessPolicy.loopback
+        try policy.validate()
+        XCTAssertTrue(policy.permits(address: "127.0.0.1"))
+        XCTAssertTrue(policy.permits(address: "::1"))
+        XCTAssertFalse(policy.permits(address: "192.168.1.20"))
+    }
+
+    func testProxyAccessPolicyScopesLANByCIDR() throws {
+        let policy = ProxyAccessPolicy.allowedCIDRs(["192.168.1.0/24", "fd00::/8"])
+        try policy.validate()
+        XCTAssertTrue(policy.permits(address: "192.168.1.20"))
+        XCTAssertTrue(policy.permits(address: "fd00::42"))
+        XCTAssertFalse(policy.permits(address: "192.168.2.20"))
+        XCTAssertThrowsError(try ProxyAccessPolicy.allowedCIDRs([]).validate())
+        XCTAssertThrowsError(try ProxyAccessPolicy.allowedCIDRs(["not-a-network"]).validate())
+    }
+
+    func testProxyRejectsInvalidPortsBeforeListening() {
+        let manager = TCPProxyManager()
+        for port in [-1, 0, 65_536] {
+            XCTAssertThrowsError(try manager.startProxy(listenPort: port, targetHost: "127.0.0.1", targetPort: 80))
+            XCTAssertThrowsError(try manager.startProxy(listenPort: 8_080, targetHost: "127.0.0.1", targetPort: port))
+        }
+    }
+    #endif
 
     func testDomainSuffixIsNotSubstring() {
         // "notevil.com" must not match pattern "evil.com".

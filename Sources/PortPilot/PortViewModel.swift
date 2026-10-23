@@ -142,6 +142,11 @@ class PortViewModel: ObservableObject {
     let portGuard: PortGuardStore
     func isGuarded(_ port: Int) -> Bool { portGuard.isGuarded(port) }
 
+    // Threat monitor — background auto-alert over established connections.
+    // Owned here (not the App) so every surface observes one object and the
+    // monitor shares the activity log with kills, guard, and cron.
+    let threatMonitor: ThreatMonitorStore
+
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     /// The one auto-dismiss timer for errorMessage. The model owns error
@@ -226,6 +231,7 @@ class PortViewModel: ObservableObject {
         // capture self — assign before anything else uses self.
         cron = CronjobController(log: activityLog)
         portGuard = PortGuardStore(log: activityLog)
+        threatMonitor = ThreatMonitorStore(log: activityLog)
         cron.onError = { [weak self] message in self?.raiseError(message) }
         portGuard.onError = { [weak self] message in self?.raiseError(message) }
 
@@ -238,6 +244,9 @@ class PortViewModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         portGuard.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        threatMonitor.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
@@ -412,9 +421,14 @@ class PortViewModel: ObservableObject {
                     emitTimelineEvents(previous: previousPorts, current: allPortsCache)
                 }
                 applyFilters()
-                // Clear stale selection if the selected port no longer exists
-                if let sel = selectedPort, !filteredPorts.contains(where: { $0.id == sel.id }) {
-                    selectedPort = nil
+                // Refresh pause/resume labels from the same process incarnation.
+                // A reused PID must clear selection rather than silently retarget controls.
+                if let sel = selectedPort {
+                    selectedPort = filteredPorts.first {
+                        $0.id == sel.id
+                            && $0.processIdentityToken == sel.processIdentityToken
+                            && $0.startTime == sel.startTime
+                    }
                 }
                 isLoading = false
                 addLog(
@@ -611,19 +625,40 @@ class PortViewModel: ObservableObject {
     func pauseCronjob(_ job: CronjobEntry) { cron.pause(job) }
     func resumeCronjob(_ job: CronjobEntry) { cron.resume(job) }
 
-    /// Kill a process by PID (used from Connections tab).
-    func killProcess(pid: Int) {
+    /// Kill the exact process incarnation captured by Security Center.
+    func killProcess(identity: ProcessIdentity) {
+        let pid = identity.pid
         let killTask = Task.detached(priority: .userInitiated) {
-            try PortManager().killProcessByPID(pid)
+            PortManager().terminateProcesses(identities: [identity])
         }
 
         Task {
-            do {
-                try await killTask.value
-                addLog(source: "system", message: "Killed process \(pid)", level: .info)
+            let result = await killTask.value
+            if result.isComplete {
+                let verb = result.terminated.contains(pid) ? "Killed" : "Process already exited:"
+                addLog(source: "system", message: "\(verb) process \(pid)", level: .info)
                 refreshAllConnections()
-            } catch {
-                addLog(source: "system", message: "Failed to kill process \(pid): \(error.localizedDescription)", level: .error)
+            } else {
+                let outcome = result.outcomes[pid].map(Self.processActionFailure) ?? "unknown result"
+                addLog(source: "system", message: "Failed to kill process \(pid): \(outcome)", level: .error)
+            }
+        }
+    }
+
+    /// Freeze the exact process incarnation captured by Security Center.
+    func pauseProcess(identity: ProcessIdentity) {
+        let pid = identity.pid
+        let signalTask = Task.detached(priority: .userInitiated) {
+            PortManager().sendControlSignal(.pause, to: identity)
+        }
+
+        Task {
+            let outcome = await signalTask.value
+            if outcome.wasDelivered {
+                addLog(source: "system", message: "Paused process \(pid)", level: .info)
+                refreshAllConnections()
+            } else {
+                addLog(source: "system", message: "Failed to pause process \(pid): \(Self.processSignalFailure(outcome))", level: .error)
             }
         }
     }
@@ -684,20 +719,29 @@ class PortViewModel: ObservableObject {
         successMessage = nil
         let force = forceKill
         let pid = port.pid
+        guard let identity = ProcessIdentity(process: port) else {
+            isLoading = false
+            raiseError("Refusing to kill \(port.command): its current process identity is unavailable. Refresh and try again.")
+            return
+        }
 
-        let killTask = Task.detached(priority: .userInitiated) { () -> Bool in
-            PortManager().killProcess(pids: [pid], force: force).isEmpty
+        let killTask = Task.detached(priority: .userInitiated) {
+            PortManager().terminateProcesses(identities: [identity], force: force)
         }
 
         Task {
-            let killed = await killTask.value
-            if killed {
+            let result = await killTask.value
+            if result.terminated.contains(pid) {
                 successMessage = "Killed \(port.command) on port \(port.port)"
                 addLog(source: "kill", message: "Killed pid \(pid) (\(port.command)) on port \(port.port)", level: .success, port: port.port, event: .killed)
+            } else if result.alreadyExited.contains(pid) {
+                successMessage = "\(port.command) already exited"
+                addLog(source: "kill", message: "Pid \(pid) had already exited before the kill action", level: .info, port: port.port)
             } else {
-                raiseError("Failed to kill \(port.command) (pid \(pid))")
+                let reason = result.outcomes[pid].map(Self.processActionFailure) ?? "unknown result"
+                raiseError("Refused or failed to kill \(port.command) (pid \(pid)): \(reason)")
                 isLoading = false
-                addLog(source: "kill", message: "Failed to kill pid \(pid) on port \(port.port)", level: .error, port: port.port)
+                addLog(source: "kill", message: "Failed to kill pid \(pid) on port \(port.port): \(reason)", level: .error, port: port.port)
             }
             refreshPorts()
         }
@@ -708,36 +752,39 @@ class PortViewModel: ObservableObject {
     /// SIGSTOP the row's exact pid. Reversible — no confirmation needed.
     /// The socket stays bound; the process freezes with full state.
     func pauseProcess(_ process: PortProcess) {
-        signalProcess(process, signal: "pause") {
-            !PortManager().pauseProcess(pids: [$0]).isEmpty
-        }
+        signalProcess(process, signal: .pause)
     }
 
     /// SIGCONT a frozen process — it resumes where it stopped.
     func resumeProcess(_ process: PortProcess) {
-        signalProcess(process, signal: "resume") {
-            !PortManager().resumeProcess(pids: [$0]).isEmpty
-        }
+        signalProcess(process, signal: .resume)
     }
 
-    private func signalProcess(_ process: PortProcess, signal: String, deliver: @escaping (Int) -> Bool) {
+    private func signalProcess(_ process: PortProcess, signal: ProcessControlSignal) {
         dismissError()
         successMessage = nil
         let pid = process.pid
+        guard let identity = ProcessIdentity(process: process) else {
+            let verb = signal == .pause ? "pause" : "resume"
+            raiseError("Refusing to \(verb) \(process.command): its current process identity is unavailable. Refresh and try again.")
+            return
+        }
 
-        let signalTask = Task.detached(priority: .userInitiated) { () -> Bool in
-            deliver(pid)
+        let signalTask = Task.detached(priority: .userInitiated) {
+            PortManager().sendControlSignal(signal, to: identity)
         }
 
         Task {
-            let delivered = await signalTask.value
-            if delivered {
-                let verb = signal == "pause" ? "Paused" : "Resumed"
+            let outcome = await signalTask.value
+            if outcome.wasDelivered {
+                let verb = signal == .pause ? "Paused" : "Resumed"
                 successMessage = "\(verb) \(process.command) on port \(process.port)"
-                addLog(source: signal, message: "\(verb) pid \(pid) (\(process.command)) on port \(process.port)", level: .success, port: process.port, event: signal == "pause" ? .paused : .resumed)
+                addLog(source: signal == .pause ? "pause" : "resume", message: "\(verb) pid \(pid) (\(process.command)) on port \(process.port)", level: .success, port: process.port, event: signal == .pause ? .paused : .resumed)
             } else {
-                raiseError("Failed to \(signal) \(process.command) (pid \(pid))")
-                addLog(source: signal, message: "Failed to \(signal) pid \(pid) on port \(process.port)", level: .error, port: process.port)
+                let verb = signal == .pause ? "pause" : "resume"
+                let reason = Self.processSignalFailure(outcome)
+                raiseError("Refused or failed to \(verb) \(process.command) (pid \(pid)): \(reason)")
+                addLog(source: verb, message: "Failed to \(verb) pid \(pid) on port \(process.port): \(reason)", level: .error, port: process.port)
             }
             refreshPorts()
         }
@@ -749,39 +796,79 @@ class PortViewModel: ObservableObject {
         let force = forceKill
         // PID-direct: kill exactly what was selected. Re-resolving by port
         // mid-loop could sweep in processes that started after the selection.
-        let targets = selectedPorts.map { (port: $0.port, pid: $0.pid) }
+        let targets = selectedPorts.map { process in
+            (port: process.port, pid: process.pid, identity: ProcessIdentity(process: process))
+        }
 
-        let killTask = Task.detached(priority: .userInitiated) { () -> [(port: Int, pid: Int)] in
+        let killTask = Task.detached(priority: .userInitiated) { () -> [(port: Int, pid: Int, outcome: ProcessTerminationOutcome)] in
             let manager = PortManager()
-            var failed: [(port: Int, pid: Int)] = []
+            var results: [(port: Int, pid: Int, outcome: ProcessTerminationOutcome)] = []
             for target in targets {
-                let survivors = manager.killProcess(pids: [target.pid], force: force)
-                if !survivors.isEmpty {
-                    failed.append(target)
+                guard let identity = target.identity else {
+                    results.append((target.port, target.pid, .identityUnavailable))
+                    continue
                 }
+                let result = manager.terminateProcesses(identities: [identity], force: force)
+                let outcome = result.outcomes[target.pid] ?? .identityUnavailable
+                results.append((target.port, target.pid, outcome))
             }
-            return failed
+            return results
         }
 
         Task {
-            let failures = await killTask.value
+            let results = await killTask.value
+            let killed = results.filter { $0.outcome == .terminated }
+            let departed = results.filter { $0.outcome == .alreadyExited }
+            let failures = results.filter {
+                $0.outcome != .terminated && $0.outcome != .alreadyExited
+            }
             // One aggregated message — the loop used to overwrite the error
             // each turn, so only the last failure ever reached the user.
             if !failures.isEmpty {
                 let detail = failures
-                    .map { ":\($0.port) (pid \($0.pid))" }
+                    .map { ":\($0.port) (pid \($0.pid): \(Self.processActionFailure($0.outcome)))" }
                     .joined(separator: ", ")
                 raiseError("Failed to kill \(failures.count) of \(targets.count): \(detail)")
             }
             for failure in failures {
-                addLog(source: "kill", message: "Failed to kill port \(failure.port): pid \(failure.pid) survived", level: .error, port: failure.port)
+                let reason = Self.processActionFailure(failure.outcome)
+                addLog(source: "kill", message: "Failed to kill port \(failure.port): pid \(failure.pid) \(reason)", level: .error, port: failure.port)
             }
-            let killedCount = targets.count - failures.count
-            if killedCount > 0 {
-                successMessage = "Killed \(killedCount) port(s)"
-                addLog(source: "kill", message: "Killed \(killedCount) process(es)", level: .success, event: .killed)
+            if !departed.isEmpty {
+                addLog(source: "kill", message: "\(departed.count) selected process(es) had already exited", level: .info)
+            }
+            if !killed.isEmpty {
+                successMessage = "Killed \(killed.count) process(es)"
+                addLog(source: "kill", message: "Killed \(killed.count) process(es)", level: .success, event: .killed)
             }
             refreshPorts()
+        }
+    }
+
+    private static func processActionFailure(_ outcome: ProcessTerminationOutcome) -> String {
+        switch outcome {
+        case .terminated: return "terminated"
+        case .alreadyExited: return "already exited"
+        case .invalidPID: return "protected or invalid PID"
+        case .permissionDenied: return "permission denied"
+        case .identityUnavailable: return "current process identity unavailable"
+        case .identityMismatch: return "PID now belongs to a different process"
+        case .signalFailed(let code): return "signal failed (errno \(code))"
+        case .probeFailed(let code): return "status check failed (errno \(code))"
+        case .survived: return "process survived TERM and KILL"
+        case .cancelled: return "termination cancelled"
+        }
+    }
+
+    private static func processSignalFailure(_ outcome: ProcessSignalOutcome) -> String {
+        switch outcome {
+        case .delivered: return "signal delivered"
+        case .invalidPID: return "protected or invalid PID"
+        case .notFound: return "process already exited"
+        case .permissionDenied: return "permission denied"
+        case .identityUnavailable: return "current process identity unavailable"
+        case .identityMismatch: return "PID now belongs to a different process"
+        case .failed(let code): return "signal failed (errno \(code))"
         }
     }
 
@@ -1046,15 +1133,21 @@ class PortViewModel: ObservableObject {
 
     // MARK: - Proxy Management
 
-    func startProxy(listenPort: Int, targetHost: String, targetPort: Int) {
+    func startProxy(
+        listenPort: Int,
+        targetHost: String,
+        targetPort: Int,
+        accessPolicy: ProxyAccessPolicy = .loopback
+    ) {
         do {
             let session = try TCPProxyManager.shared.startProxy(
                 listenPort: listenPort,
                 targetHost: targetHost,
-                targetPort: targetPort
+                targetPort: targetPort,
+                accessPolicy: accessPolicy
             )
             proxySessions.append(session)
-            addLog(source: "proxy", message: "Started proxy :\(listenPort) \u{2192} \(targetHost):\(targetPort)", level: .success, port: listenPort)
+            addLog(source: "proxy", message: "Starting proxy :\(listenPort) → \(targetHost):\(targetPort) [\(accessPolicy.displayName)]", level: .info, port: listenPort)
         } catch {
             raiseError(error.localizedDescription)
             addLog(source: "proxy", message: "Failed to start proxy: \(error.localizedDescription)", level: .error)
@@ -1076,6 +1169,10 @@ class PortViewModel: ObservableObject {
     func setupProxyCallbacks() {
         TCPProxyManager.shared.onSessionUpdated = { [weak self] session in
             DispatchQueue.main.async {
+                guard TCPProxyManager.shared.getSession(id: session.id) != nil else {
+                    self?.proxySessions.removeAll { $0.id == session.id }
+                    return
+                }
                 if let index = self?.proxySessions.firstIndex(where: { $0.id == session.id }) {
                     self?.proxySessions[index] = session
                 }
@@ -1150,10 +1247,15 @@ extension PortViewModel {
             .map { (processName: $0.processName, connectionCount: $0.totalCount) }
     }
 
-    /// Alert state for UI display
+    /// Alert state for UI display. Threat-monitor findings join the legacy
+    /// connection signals here so the menubar, status bar, and dropdown all
+    /// page from one source of truth. Info-only findings stay out of the
+    /// menubar — they merit a look, not an interruption.
     var alertState: AlertState {
         if blocklistedCount > 0 { return .critical }
+        if threatMonitor.findings.contains(where: { $0.severity == .critical }) { return .critical }
         if suspiciousConnectionCount > 0 { return .warning }
+        if threatMonitor.findings.contains(where: { $0.severity == .warning }) { return .warning }
         return .normal
     }
 }

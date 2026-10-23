@@ -1,15 +1,75 @@
-# PortPilot
+<p align="left"><img src="assets/brand/portpilot-wordmark.svg" width="480" alt="P/ PortPilot"></p>
 
-PortPilot inspects what is running on the machine: listening TCP/UDP ports, Unix-socket daemons, established connections, and cronjobs. It ships as a macOS menu bar app (`PortPilot.app`), a cross-platform CLI (`portpilot`), and a terminal UI (`portpilot-tui`). It classifies processes by executable path, kills or pauses processes by port, guards ports against squatters, tracks port lifecycle events on a timeline, and runs a local TCP proxy.
+# P/ PortPilot
+
+PortPilot inspects what is running on the machine: listening TCP/UDP ports, Unix-socket daemons, established connections, and cronjobs. It ships as a macOS menu bar app (`PortPilot.app`), a CLI (`portpilot`), and a terminal UI (`portpilot-tui`), with selected Linux/WSL paths and planned/partial native Windows support. It classifies processes by executable path, kills or pauses processes by port, guards ports against squatters, tracks port lifecycle events on a timeline, and runs a local TCP proxy.
 
 Related docs: [ARCHITECTURE.md](ARCHITECTURE.md) (source tree, tech stack), [CHANGELOG.md](CHANGELOG.md) (release history).
+
+## Seven interfaces. One local utility.
+
+Choose an interface in **Settings → Appearance → Interface**, or from the
+workspace/menu-bar interface picker. It changes the native layout, palette,
+typography, and matching popover. The old palette choices have been retired;
+saved selections migrate without resetting other preferences.
+
+| Direction | Workspace |
+| --- | --- |
+| 01 Instrument | Quiet sidebar, listener rows, and process inspector |
+| 02 Relay | Dense console, horizontal navigation, selected-process tray |
+| 03 Fieldwork | Services grouped by observed repository or working directory |
+| 04 Focus | Narrow navigation rail, master list, full process inspector |
+| 05 Shell | Monospaced workspace, manual-page header, navigation prompt |
+| 06 Play | Rounded service tiles and an inspector |
+| 07 Orbit | Spatial listener selection map with an equivalent list view |
+
+Relay, Shell, and Orbit use dark appearance. The other directions follow the
+appearance preference. Fonts can be customized after choosing a direction.
+Orbit shows up to nine nodes; List shows every matching listener and is also
+used when the map has insufficient space. Small workspaces open the inspector
+from the selected-process tray. Project groups reflect observed metadata, not
+an inferred trust relationship. Bind scope is not invented when unavailable.
+
+Shell accepts `help`, `ports` / `ls`, `find <text>`, `inspect <port>`, `refresh`,
+`observations`, `schedules`, and `clear`. It is a navigation prompt, not a system
+shell. Process signals, proxies, and cron execution stay in their existing
+deliberate controls. An ambiguous port requires selecting the exact process.
+
+**P/** is the wordmark; the plug is the app and menu-bar mark. Vector sources
+live in [assets/brand](assets/brand), with a reproducible local icon generator:
+`swift scripts/generate_brand.swift`. The
+[interactive design studies](docs/design/2026-10-ui-directions/index.html)
+remain synthetic references; they do not monitor or control the OS.
+
+## Direct controls and packet summaries
+
+Select a listener in the menu-bar popup or main window for **Pause/Resume** and
+**Stop…**. These act on the owning process, including its other ports.
+Pause keeps sockets occupied. Stop requires an inline confirmation and the
+existing fresh process-identity checks. The app refuses its own process and
+missing identities in these quick controls.
+
+The waveform button opens **Packet inspection** for a TCP/UDP port. Choose an
+interface and explicitly start a capture: at most 10 seconds / 200 packets,
+with a 128 KiB text buffer. Stop, closing the panel, and application shutdown
+request capture cancellation; results distinguish failures and partial output.
+Only one capture runs at a time.
+
+This uses macOS's system tcpdump with numeric names, non-promiscuous mode,
+96-byte snapshots, and quiet summary output. It displays endpoints and protocol
+summaries, not payloads, decrypted HTTPS, a complete byte counter, or PID
+attribution. Raw snapshots may include initial payload bytes inside tcpdump;
+they are not sent to the app as raw data or saved. Endpoint metadata remains
+private session memory. No automatic start, privileged helper, or elevated
+runtime is provided. If the current user cannot access capture devices, the
+feature reports that limitation. This capability is macOS-app-only.
 
 ## Requirements
 
 | Component | Requires |
 |-----------|----------|
 | macOS app | macOS 13.0+, Xcode 15+, Swift 5.9+, [xcodegen](https://github.com/yonaskolb/XcodeGen) |
-| CLI / TUI | Swift 5.9+ (macOS, Linux, WSL, Windows) |
+| CLI / TUI | Swift 5.9+ (macOS; selected Linux/WSL paths; native Windows planned/partial) |
 | npm scripts | Node.js 18+ (optional wrappers around the build commands) |
 
 ## Installation
@@ -69,9 +129,9 @@ swift build -c release --product portpilot-tui
 sudo cp .build/release/portpilot .build/release/portpilot-tui /usr/local/bin/
 ```
 
-### Build from source (Windows: CLI)
+### Experimental source path (Windows: CLI, not validated)
 
-Requires [Swift for Windows](https://www.swift.org/install/windows/):
+Native Windows support has not been validated; do not assume macOS security parity. The experimental path requires [Swift for Windows](https://www.swift.org/install/windows/):
 
 ```powershell
 swift build -c release --product portpilot
@@ -150,8 +210,14 @@ portpilot kill-all                         # kill every listed process
 portpilot connections                      # established connections, grouped by process
 portpilot connections --suspect            # only processes with >50 connections
 portpilot connections --blocklist          # only blocklisted remote hosts
+portpilot connections --threats            # threat-engine assessment (same as Security Center)
+portpilot connections --threats --json     # findings as JSON for scripts/agents
+portpilot connections --watch 15           # headless auto-alert every 15s (Ctrl+C to stop)
 portpilot connections --kill 12345         # kill by PID
 portpilot connections --json
+portpilot blocklist list                   # list blocklisted hosts
+portpilot blocklist add 203.0.113.9        # flag an IP, domain, .suffix, or IPv4 CIDR
+portpilot blocklist remove 203.0.113.9     # un-blocklist
 portpilot cronjobs                         # user + system crontab entries
 portpilot cronjobs --user-only             # personal crontab only
 portpilot cronjobs --system-only           # /etc/crontab and /etc/cron.d only
@@ -172,13 +238,14 @@ portpilot interactive                      # basic interactive kill mode
 portpilot-tui        # or: portpilot tui
 ```
 
-Tabs: Ports, Sockets, Schedules, Connections. Blocklisted connections are marked in the Connections tab.
+Tabs: Ports, Sockets, Schedules, Connections. Blocklisted connections are marked in the Connections tab; press `!` there for a threats-only view (same engine as `connections --threats`).
 
 | Key | Action |
 |-----|--------|
 | `↑↓` / `j` `k` | Navigate |
 | `Enter` | Kill process (confirmation prompt) |
 | `/` | Search / clear filter |
+| `!` | Threats-only filter (Connections tab) |
 | `Tab` | Switch tab |
 | `i` | Process detail view (info + connections) |
 | `r` | Refresh |
@@ -186,13 +253,13 @@ Tabs: Ports, Sockets, Schedules, Connections. Blocklisted connections are marked
 
 ## Configuration
 
-`~/.portpilot/blocklist.txt` — one entry per line: domain, domain suffix (leading `.` matches subdomains), IP, IPv6 prefix, or CIDR range.
+`~/.portpilot/blocklist.txt` — one entry per line: domain (with or without a leading `.`, matching the base name and subdomains), exact IPv4/IPv6 address, or IPv4 CIDR range. IPv6 CIDRs are not supported by this matcher. This list flags connections for detection; it does not block traffic. See the app's **Settings → Security FAQ** or [mission.md](mission.md) for precautions.
 
 ```
 upload.dev
 52.45.119.88
 192.168.1.0/24
-2a06:98c1:310b
+2001:db8::1
 .evil.com
 ```
 
@@ -204,7 +271,7 @@ Matching connections are flagged in `portpilot connections`, the TUI, and the me
 |----------|-----|----------------|-------------|
 | macOS 13+ | Menu bar + window | `lsof` + `proc_pidpath` | `lsof` |
 | Linux / WSL | - | `ss -tulnp` | `ss` |
-| Windows | - | `netstat -ano` + `tasklist /FO CSV` | `netstat` |
+| Windows (planned/partial, unvalidated) | - | `netstat -ano` + `tasklist /FO CSV` source path | `netstat` source path |
 
 ## Using TerminalTUI as a library
 

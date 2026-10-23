@@ -54,6 +54,7 @@ struct PortListScreen: TUIScreen {
     // at whatever slid under the cursor.
     private var confirmingKill: Bool = false
     private var pendingKill: PortProcess?
+    private var pendingKillIdentity: ProcessIdentity?
 
     // Status message (expires a few seconds after the action)
     private var statusMessage: String?
@@ -62,6 +63,12 @@ struct PortListScreen: TUIScreen {
 
     // Alert rollup, cached at load time
     private var alertSummary = AlertSummary()
+
+    /// Threats-only filter for the Connections tab (`!` toggles). PIDs in
+    /// this set tripped a detector rule on the latest snapshot; the filter
+    /// reads the set instead of re-running detection per keystroke.
+    private var threatPids: Set<Int> = []
+    private var threatsOnly = false
 
     // Tab state
     private var activeTab: Tab = .ports
@@ -188,6 +195,15 @@ struct PortListScreen: TUIScreen {
         } else {
             alertState = .normal
         }
+
+        // Threat-engine pass (rules 1–3; unseeded baseline skips the
+        // behavioral rules, matching `connections --threats` cold start).
+        // One assessment per snapshot — never per frame or keystroke.
+        let assessment = ThreatDetector.assess(
+            connections: connections,
+            isBlocklisted: { [portManager] in portManager.isBlocklisted(connection: $0) }
+        )
+        threatPids = Set(assessment.findings.map { $0.pid })
     }
 
     /// Apply the current search filter
@@ -205,11 +221,14 @@ struct PortListScreen: TUIScreen {
                 }
             }
         } else if activeTab == .connections {
+            // Threats-only (`!`) composes with search: narrow to flagged
+            // PIDs first, then apply the text query on top.
+            let base = threatsOnly ? connections.filter { threatPids.contains($0.pid) } : connections
             if searchQuery.isEmpty {
-                filteredConnections = connections
+                filteredConnections = base
             } else {
                 let query = searchQuery.lowercased()
-                filteredConnections = connections.filter { conn in
+                filteredConnections = base.filter { conn in
                     conn.remoteAddress.lowercased().contains(query)
                         || conn.processName.lowercased().contains(query)
                         || conn.user.lowercased().contains(query)
@@ -280,7 +299,7 @@ struct PortListScreen: TUIScreen {
 
     /// Render the app header with title and tabs
     private func renderHeader(into screen: inout Screen, width: Int) {
-        let title = " PortPilot TUI "
+        let title = " P/ PortPilot TUI "
         let platform = platformLabel()
 
         // Use red background for critical alert, orange for warning, blue for normal
@@ -463,6 +482,7 @@ struct PortListScreen: TUIScreen {
                 StatusBar.Item(key: "↑↓/jk", label: "Navigate"),
                 StatusBar.Item(key: "Enter", label: "Detail"),
                 StatusBar.Item(key: "/", label: "Search"),
+                StatusBar.Item(key: "!", label: threatsOnly ? "All" : "Threats"),
                 StatusBar.Item(key: "Tab", label: "Switch Tab"),
                 StatusBar.Item(key: "r", label: "Refresh"),
                 StatusBar.Item(key: "q", label: "Quit"),
@@ -622,12 +642,28 @@ struct PortListScreen: TUIScreen {
                 // can't retarget the kill.
                 if !filtered.isEmpty, selectedIndex < filtered.count {
                     pendingKill = filtered[selectedIndex]
+                    pendingKillIdentity = ProcessIdentity(process: filtered[selectedIndex])
                     confirmingKill = true
                 }
             }
 
         case .char("/"):
             startSearch()
+
+        case .char("!"):
+            // Threats-only filter — Connections tab only. Anywhere else it
+            // explains itself instead of silently doing nothing.
+            guard activeTab == .connections else {
+                showStatus("! filters threats in the Connections tab", style: ANSI.fg(.yellow))
+                break
+            }
+            threatsOnly.toggle()
+            applyFilter()
+            clampSelection()
+            showStatus(
+                threatsOnly ? "Showing threats only (\(threatPids.count) flagged)" : "Showing all connections",
+                style: ANSI.fg(.green)
+            )
 
         case .char("i"), .char("I"):
             if activeTab == .schedules {
@@ -754,6 +790,7 @@ struct PortListScreen: TUIScreen {
         case .char("n"), .char("N"), .escape:
             confirmingKill = false
             pendingKill = nil
+            pendingKillIdentity = nil
             showStatus("Kill cancelled", style: ANSI.dim)
         default:
             break  // Ignore other keys during confirmation
@@ -763,17 +800,20 @@ struct PortListScreen: TUIScreen {
 
     private mutating func killSelected() {
         guard let target = pendingKill else { return }
+        let expectedIdentity = pendingKillIdentity
         pendingKill = nil
+        pendingKillIdentity = nil
 
-        // PID-direct with TERM→KILL escalation. Re-resolving by port could
-        // hit whatever grabbed the port after the scan; the PID the user
-        // pointed at is the thing they meant to kill.
-        let survivors = portManager.killProcess(pids: [target.pid])
-
-        if survivors.isEmpty {
-            showStatus("Killed \(target.command) (pid \(target.pid))", style: ANSI.fg(.green))
+        guard let expectedIdentity else {
+            showStatus(ProcessTerminationOutcome.identityUnavailable.userFacingDescription, style: ANSI.fg(.red))
+            return
+        }
+        let result = portManager.terminateProcesses(identities: [expectedIdentity])
+        if result.isComplete {
+            let outcome = result.outcomes[target.pid]?.userFacingDescription ?? "Process absent"
+            showStatus("\(outcome): \(target.command) (pid \(target.pid))", style: ANSI.fg(.green))
         } else {
-            showStatus("pid \(target.pid) survived SIGKILL — not your process?", style: ANSI.fg(.red))
+            showStatus(result.outcomes[target.pid]?.userFacingDescription ?? "No termination result", style: ANSI.fg(.red))
         }
         refresh()
     }
