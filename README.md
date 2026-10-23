@@ -84,12 +84,18 @@ Installs `PortPilot.app` to `/Applications`. Cask source: [sriinnu/homebrew-tap]
 
 ### GitHub Releases
 
-Download from the [releases page](https://github.com/sriinnu/portpilot/releases). Tag builds attach:
+Download from the [releases page](https://github.com/sriinnu/portpilot/releases).
+Public releases use a verified signed main commit and signed annotated version
+tag. The local signed handoff contains:
 
-- `PortPilot-macOS-app-unsigned.zip` — ad-hoc signed, not notarized. On first launch, right-click the app and choose Open. A signed and notarized `PortPilot-macOS-app.zip` is attached when published from the maintainer's local release flow.
-- `portpilot-macos-cli`, `portpilot-macos-tui` — universal binaries (arm64 + x86_64)
-- `portpilot-linux-cli`, `portpilot-linux-tui`
-- `SHA256SUMS.txt`
+- PortPilot-macOS-app.zip — Developer ID signed app; check the release notes for notarization status.
+- portpilot-macos-cli.zip and portpilot-macos-tui.zip — Developer ID signed universal macOS binaries.
+- SHA256SUMS.txt and RELEASE.txt — archive checksums and the audited tag/commit.
+
+GitHub Actions artifacts are internal validation builds and are not public
+release assets. Linux CLI/TUI are tested in CI and can be built from source;
+this signed macOS handoff does not publish Linux binaries. Notarization and npm
+publishing require separate authorization.
 
 ### Build from source (macOS: app + CLI + TUI)
 
