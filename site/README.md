@@ -51,6 +51,10 @@ Pages can build from this repository with root directory `site`, command
 `node build.mjs`, output directory `dist`, and the origin environment variable
 set to `https://portpilot.srinivas.dev`.
 
+OpenAI Sites publication uses the repository-root `.openai/hosting.json` and
+its `site/dist` static directory so the hosting source preserves the signed
+PortPilot Git history.
+
 `PORTPILOT_SOURCE_COMMIT` is optional in the canonical Git checkout. Hosting
 packagers must pass the exact signed canonical commit because their temporary
 source repository may not have a commit yet; the builder accepts only a full
