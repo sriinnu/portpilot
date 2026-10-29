@@ -52,8 +52,10 @@ Pages can build from this repository with root directory `site`, command
 set to `https://portpilot.srinivas.dev`.
 
 OpenAI Sites publication uses the repository-root `.openai/hosting.json` and
-its `site/dist` static directory so the hosting source preserves the signed
-PortPilot Git history.
+its top-level `dist` static directory so the hosting source preserves the
+signed PortPilot Git history. The hosting build and validator set
+`PORTPILOT_SITE_OUTPUT=../dist`; local builds omit it and continue to use
+`site/dist`. Only those two output locations are accepted.
 
 `PORTPILOT_SOURCE_COMMIT` is optional in the canonical Git checkout. Hosting
 packagers must pass the exact signed canonical commit because their temporary

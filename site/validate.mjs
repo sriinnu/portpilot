@@ -1,9 +1,11 @@
 import {readFile,readdir} from 'node:fs/promises';
-import {dirname,join,relative,sep} from 'node:path';
+import {dirname,join,relative,resolve,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
-const out=join(root,'dist');
+const outputPath=process.env.PORTPILOT_SITE_OUTPUT||'dist';
+if(!['dist','../dist'].includes(outputPath))throw new Error('PORTPILOT_SITE_OUTPUT must be dist or ../dist');
+const out=resolve(root,outputPath);
 const publicMode=process.argv.includes('--public');
 const origin='https://portpilot.srinivas.dev';
 

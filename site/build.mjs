@@ -1,12 +1,14 @@
 import {readFile,writeFile,mkdir,copyFile,readdir,rm} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
-import {dirname,join} from 'node:path';
+import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {guides,code} from './content.mjs';
 import {buildV2} from './v2.mjs';
 
 const root=dirname(fileURLToPath(import.meta.url));
-const out=join(root,'dist');
+const outputPath=process.env.PORTPILOT_SITE_OUTPUT||'dist';
+if(!['dist','../dist'].includes(outputPath))throw new Error('PORTPILOT_SITE_OUTPUT must be dist or ../dist');
+const out=resolve(root,outputPath);
 await rm(out,{recursive:true,force:true});
 await mkdir(out,{recursive:true});
 const pkg=JSON.parse(await readFile(join(root,'../package.json'),'utf8'));
