@@ -3,7 +3,8 @@
 Prepared and updated 2026-10-29. V2 is reconciled with the current PortPilot
 security source and prepared for `portpilot.srinivas.dev`. Keep the current
 design and interactions. Publication is authorized for this subdomain; the
-hosting provider and DNS record still need to be selected and verified.
+OpenAI Sites deployment succeeded, and only the custom-domain DNS/TLS gate is
+still pending.
 
 ## Exact location
 
@@ -19,6 +20,10 @@ hosting provider and DNS record still need to be selected and verified.
 | Sites manifest | repository-root `.openai/hosting.json` (`dist`) |
 | Generated Sites origin | https://portpilot.humbleboot1.chatgpt.site |
 | Intended custom hostname | https://portpilot.srinivas.dev |
+| Deployed source | `46be5dfcbfeade6dd979c4c26436fe8aa39e420f` |
+| Saved version | `appgprj_6ae332df6edc81919bbd6324f8cc90e0~appgver_6fb2d9f000d8819182ebf995566c5647` |
+| Deployment | `appgdep_6ae333e760688191a57fe3d237089222` (succeeded, public) |
+| Custom-domain status | pending DNS validation and TLS; CNAME target `custom-domains.chatgpt.site.` |
 | Canonical app repository with newer security work | `/Users/srinivaspendela/Sriinnu/Personal/ports` |
 | This handover | `site/HANDOVER.md` in the website worktree |
 
