@@ -38,7 +38,7 @@ public enum ThreatDetector {
     ///     `isBlocklisted` is NOT required — the detector re-checks via the
     ///     injected closure so callers can pass raw snapshots).
     ///   - isBlocklisted: Blocklist matcher (normally
-    ///     `portManager.isBlocklisted(connection:)`).
+    ///     the checked `EstablishedConnection.isBlocklisted` snapshot field).
     ///   - configuration: Thresholds and per-rule kill switches.
     ///   - baseline: What "normal" looks like. Unseeded baselines skip
     ///     baseline-relative rules (4–5); absolute rules still run.

@@ -54,12 +54,15 @@ final class LiveMetricsHistory: ObservableObject {
         guard let vm = viewModel else { return }
         let activePorts = vm.ports.filter { !$0.isUnixSocket }
         let socketCount = vm.ports.filter { $0.isUnixSocket }.count
-        let connCount = vm.allConnections.count
         let totalCPU = activePorts.reduce(0.0) { $0 + ($1.cpuUsage ?? 0) }
 
         push(&active, Double(activePorts.count))
         push(&sockets, Double(socketCount))
-        push(&connections, Double(connCount))
+        // Never turn cached or never-successful connection data into a fresh
+        // history sample. A flat stale line would look like current telemetry.
+        if vm.allConnectionsError == nil, vm.lastSuccessfulAllConnectionsRefresh != nil {
+            push(&connections, Double(vm.allConnections.count))
+        }
         push(&cpu, totalCPU)
 
         var updated = perPortCPU

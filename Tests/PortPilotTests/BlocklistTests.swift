@@ -95,6 +95,15 @@ final class BlocklistTests: XCTestCase {
         XCTAssertThrowsError(try ProxyAccessPolicy.allowedCIDRs(["not-a-network"]).validate())
     }
 
+    func testProxyAccessPolicyRejectsAllAddressCIDRs() {
+        XCTAssertThrowsError(try ProxyAccessPolicy.allowedCIDRs(["0.0.0.0/0"]).validate())
+        XCTAssertThrowsError(try ProxyAccessPolicy.allowedCIDRs(["::/0"]).validate())
+    }
+
+    func testProxyAccessPolicyAcceptsSingleClientCIDRs() throws {
+        try ProxyAccessPolicy.allowedCIDRs(["192.0.2.10/32", "2001:db8::10/128"]).validate()
+    }
+
     func testProxyRejectsInvalidPortsBeforeListening() {
         let manager = TCPProxyManager()
         for port in [-1, 0, 65_536] {

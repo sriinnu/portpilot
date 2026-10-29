@@ -1,5 +1,20 @@
 # PortPilot security assessment
 
+> **Current audit addendum (2026-10-29):** A refreshed end-to-end source review
+> confirmed four risks that post-date the original remediation narrative:
+> forbidden proxy `/0` policies, false-clean cron discovery, fail-open
+> alert-list reads, and release artifacts without required hardened runtime.
+> The operator approved all four and they now have source-level remediations
+> and regression coverage in this working tree. A subsequent two-agent review
+> also closed three integration/policy gaps: stale connection UI state,
+> contradictory cron filters, and hardened-runtime exception entitlements.
+> Exact paths, prerequisites,
+> attack paths, impacts, regressions, and remediations are recorded in
+> [docs/DAYBREAK_SECURITY_AUDIT_2026-10-29.md](docs/DAYBREAK_SECURITY_AUDIT_2026-10-29.md).
+> The historical sections below preserve the original 2026-10-22 findings and
+> remediation evidence. Source success is not a signed release, installed/live
+> acceptance, Windows parity, or notarization.
+
 ## Executive summary
 
 PortPilot is a user-session utility with unusually powerful local effects: it inventories processes and connections, sends signals, rewrites a user's crontab, controls Docker, launches cron commands, and can expose a raw TCP proxy. The assessment found two highest-priority defects: a documented blocklist form that never matched and a LAN-reachable proxy with no client authorization or resource bounds. It also found first-snapshot/name-only baseline evasion and fail-open discovery behavior. Those findings now have source-level remediations in this worktree, summarized below. No source evidence of embedded production credentials or direct shell injection through ordinary CLI arguments was found.

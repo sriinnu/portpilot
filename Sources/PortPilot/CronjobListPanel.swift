@@ -56,6 +56,33 @@ struct CronjobListPanel: View {
                         .foregroundColor(.secondary)
                 }
                 Spacer()
+            } else if let error = viewModel.cronDiscoveryError {
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Label("Schedule Scan Incomplete", systemImage: "exclamationmark.triangle")
+                            .font(appSettings.appFont(size: 12, weight: .semibold))
+                            .foregroundColor(Theme.Severity.warning)
+                        Text(error)
+                            .font(appSettings.appFont(size: 10))
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                        if !viewModel.cronjobs.isEmpty {
+                            Text("Showing the last successful schedule list.")
+                                .font(appSettings.appFont(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.Severity.warning.opacity(0.08))
+
+                    if viewModel.cronjobs.isEmpty {
+                        Spacer()
+                    } else {
+                        Divider()
+                        cronjobScrollView
+                    }
+                }
             } else if viewModel.cronjobs.isEmpty {
                 Spacer()
                 VStack(spacing: 12) {
@@ -71,36 +98,35 @@ struct CronjobListPanel: View {
                 }
                 Spacer()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(viewModel.cronjobs) { job in
-                            CronjobRowView(
-                                cronjob: job,
-                                isSelected: selectedCronjob?.id == job.id,
-                                isHovered: hoveredCronjobId == job.id,
-                                isRunning: viewModel.runningCronjobIDs.contains(job.id),
-                                onToggleSchedule: {
-                                    job.isPaused ? viewModel.resumeCronjob(job) : viewModel.pauseCronjob(job)
-                                }
-                            )
-                            .onTapGesture {
-                                selectedCronjob = job
-                            }
-                            .onHover { hovering in
-                                hoveredCronjobId = hovering ? job.id : nil
-                            }
-                            // Row selection was pointer-only; give VoiceOver
-                            // the same affordance.
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityLabel("\(job.scheduleHuman ?? job.schedule), \(job.command)\(job.isPaused ? ", paused" : "")")
-                            .accessibilityHint(selectedCronjob?.id == job.id ? "Selected" : "Selects this cronjob")
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
+                cronjobScrollView
             }
         }
         .background(Theme.Surface.chromeTint)
+    }
+
+    private var cronjobScrollView: some View {
+        ScrollView {
+            LazyVStack(spacing: 2) {
+                ForEach(viewModel.cronjobs) { job in
+                    CronjobRowView(
+                        cronjob: job,
+                        isSelected: selectedCronjob?.id == job.id,
+                        isHovered: hoveredCronjobId == job.id,
+                        isRunning: viewModel.runningCronjobIDs.contains(job.id),
+                                allowsEffects: viewModel.cronDiscoveryError == nil,
+                        onToggleSchedule: {
+                            job.isPaused ? viewModel.resumeCronjob(job) : viewModel.pauseCronjob(job)
+                        }
+                    )
+                    .onTapGesture { selectedCronjob = job }
+                    .onHover { hovering in hoveredCronjobId = hovering ? job.id : nil }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("\(job.scheduleHuman ?? job.schedule), \(job.command)\(job.isPaused ? ", paused" : "")")
+                    .accessibilityHint(selectedCronjob?.id == job.id ? "Selected" : "Selects this cronjob")
+                }
+            }
+            .padding(.vertical, 4)
+        }
     }
 }
 
@@ -112,6 +138,7 @@ struct CronjobRowView: View {
     let isSelected: Bool
     let isHovered: Bool
     let isRunning: Bool
+    let allowsEffects: Bool
     let onToggleSchedule: () -> Void
 
     private var sourceColor: Color {
@@ -168,7 +195,7 @@ struct CronjobRowView: View {
                     .cornerRadius(4)
             }
 
-            if cronjob.isEditable {
+            if cronjob.isEditable && allowsEffects {
                 Button(action: onToggleSchedule) {
                     Image(systemName: cronjob.isPaused ? "play.circle" : "pause.circle")
                         .font(appSettings.appFont(size: 13))
@@ -216,6 +243,8 @@ struct CronjobConfigurationPanel: View {
         return viewModel.cronRunHistory[job.id]
     }
 
+    private var allowsEffects: Bool { viewModel.cronDiscoveryError == nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let job = cronjob {
@@ -242,6 +271,7 @@ struct CronjobConfigurationPanel: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .disabled(!allowsEffects)
                     }
 
                     Button(action: { viewModel.runCronjobNow(job) }) {
@@ -250,7 +280,7 @@ struct CronjobConfigurationPanel: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(isRunning)
+                    .disabled(isRunning || !allowsEffects)
 
                     if isRunning {
                         Button(action: { viewModel.stopCronjob(job) }) {
@@ -266,6 +296,14 @@ struct CronjobConfigurationPanel: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+
+                if !allowsEffects {
+                    Label("Schedule controls are disabled until discovery succeeds.", systemImage: "lock.fill")
+                        .font(appSettings.appFont(size: 10))
+                        .foregroundColor(Theme.Severity.warning)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                }
 
                 Divider()
 

@@ -4,7 +4,9 @@
 
 PortPilot inspects what is running on the machine: listening TCP/UDP ports, Unix-socket daemons, established connections, and cronjobs. It ships as a macOS menu bar app (`PortPilot.app`), a CLI (`portpilot`), and a terminal UI (`portpilot-tui`), with selected Linux/WSL paths and planned/partial native Windows support. It classifies processes by executable path, kills or pauses processes by port, guards ports against squatters, tracks port lifecycle events on a timeline, and runs a local TCP proxy.
 
-Related docs: [ARCHITECTURE.md](ARCHITECTURE.md) (source tree, tech stack), [CHANGELOG.md](CHANGELOG.md) (release history).
+Related docs: [ARCHITECTURE.md](ARCHITECTURE.md) (source tree, tech stack),
+[CHANGELOG.md](CHANGELOG.md) (release history), and the wiki-ready
+[Security measures](docs/wiki/Security-Measures.md) page.
 
 ## Seven interfaces. One local utility.
 
@@ -259,7 +261,7 @@ Tabs: Ports, Sockets, Schedules, Connections. Blocklisted connections are marked
 
 ## Configuration
 
-`~/.portpilot/blocklist.txt` — one entry per line: domain (with or without a leading `.`, matching the base name and subdomains), exact IPv4/IPv6 address, or IPv4 CIDR range. IPv6 CIDRs are not supported by this matcher. This list flags connections for detection; it does not block traffic. See the app's **Settings → Security FAQ** or [mission.md](mission.md) for precautions.
+`~/.portpilot/blocklist.txt` — one entry per line: domain (with or without a leading `.`, matching the base name and subdomains), exact IPv4/IPv6 address, or IPv4 CIDR range. IPv6 CIDRs are not supported by this matcher. This list flags connections for detection; it does not block traffic. See the app's **Settings → Security FAQ**, [Security measures](docs/wiki/Security-Measures.md), or [mission.md](mission.md) for precautions.
 
 ```
 upload.dev

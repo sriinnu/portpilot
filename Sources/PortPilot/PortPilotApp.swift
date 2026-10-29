@@ -16,11 +16,16 @@ enum PortPilotLauncher {
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
-    let sharedViewModel = PortViewModel()
+    let sharedViewModel: PortViewModel
     private var autoRefreshTimer: Timer?
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private let mainNavigation = MainWindowNavigation()
+
+    init(viewModel: PortViewModel? = nil) {
+        sharedViewModel = viewModel ?? PortViewModel()
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Enforce single instance
@@ -170,13 +175,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = AppSettings.shared
         guard settings.autoRefresh else { return }
 
-        let interval = TimeInterval(settings.refreshInterval)
-        autoRefreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        let interval = TimeInterval(max(1, settings.refreshInterval))
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.sharedViewModel.refreshPorts()
-                self?.sharedViewModel.refreshAllConnections()
+                self?.sharedViewModel.refreshInBackground(includeConnections: true)
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        autoRefreshTimer = timer
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

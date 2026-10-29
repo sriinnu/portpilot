@@ -33,7 +33,13 @@ extension BlocklistCommand {
         static let configuration = CommandConfiguration(abstract: "List blocklisted hosts")
 
         func run() throws {
-            let entries = BlocklistStore().entries()
+            let entries: [String]
+            do {
+                entries = try BlocklistStore().entries()
+            } catch {
+                print("❌ \(error)")
+                throw ExitCode(1)
+            }
             if entries.isEmpty {
                 print("Blocklist is empty. Add hosts with: portpilot blocklist add <host|IP|CIDR>")
                 return

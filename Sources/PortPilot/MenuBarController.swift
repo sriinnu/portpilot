@@ -19,9 +19,9 @@ class MenuBarController: NSObject, ObservableObject {
     private var glanceResetDate = Date()
 
     nonisolated(unsafe) private var metricsTimer: Timer?
-    /// Refreshes port data while the dropdown is open, honoring the
-    /// "Auto-refresh interval" setting. Previously that setting did nothing.
-    nonisolated(unsafe) private var panelRefreshTimer: Timer?
+    /// Discovery belongs to the status item's lifetime, not the popover's.
+    nonisolated(unsafe) private var portRefreshTimer: Timer?
+    private var cancellables: Set<AnyCancellable> = []
     /// Handles ⌘O / ⌘T while the panel is key — the footer used to display
     /// those glyphs with nothing behind them.
     nonisolated(unsafe) private var panelKeyMonitor: Any?
@@ -32,6 +32,31 @@ class MenuBarController: NSObject, ObservableObject {
         super.init()
         setupMenuBar()
         startMetricsUpdates()
+        AppSettings.shared.$autoRefreshInterval
+            .removeDuplicates()
+            .sink { [weak self] interval in self?.startPortRefreshes(interval: interval) }
+            .store(in: &cancellables)
+        // objectWillChange fires before mutation. Deliver on the next run-loop
+        // turn so the capsule reads the completed snapshot and timeline diff.
+        portViewModel.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshCapsuleMetrics() }
+            .store(in: &cancellables)
+    }
+
+    private func startPortRefreshes(interval: Int) {
+        portRefreshTimer?.invalidate()
+        let timer = Timer(timeInterval: TimeInterval(max(1, interval)), repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // The app-wide auto-refresh timer already scans when enabled.
+                // Never supersede an in-flight port snapshot with another poll.
+                guard !AppSettings.shared.autoRefresh else { return }
+                self.portViewModel.refreshInBackground(includeConnections: self.isPanelShown)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        portRefreshTimer = timer
     }
 
     private func setupMenuBar() {
@@ -84,7 +109,7 @@ class MenuBarController: NSObject, ObservableObject {
         if panel == nil {
             let newPanel = MenuBarPanel(contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
             // Key-steals (Cmd-Tab, our own windows, alerts) must tear down
-            // timer + monitor + state, not just fade the panel away.
+            // panel monitors + state, not just fade the panel away.
             newPanel.onResignKey = { [weak self] in
                 Task { @MainActor [weak self] in
                     guard self?.panel?.attachedSheet == nil else { return }
@@ -122,6 +147,7 @@ class MenuBarController: NSObject, ObservableObject {
         // The glance count clears as the user looks — anything after this
         // accumulates toward the next badge.
         glanceResetDate = Date()
+        refreshCapsuleMetrics()
 
         // Scope event monitor to when panel is open
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -134,14 +160,6 @@ class MenuBarController: NSObject, ObservableObject {
             self?.portViewModel.refreshPorts()
             self?.portViewModel.refreshAllConnections()
             self?.refreshCapsuleMetrics()
-        }
-
-        panelRefreshTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(AppSettings.shared.autoRefreshInterval), repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.isPanelShown else { return }
-                self.portViewModel.refreshPorts()
-                self.portViewModel.refreshAllConnections()
-            }
         }
 
         // The panel is an NSPanel, not an NSMenu — no free key equivalents.
@@ -176,9 +194,6 @@ class MenuBarController: NSObject, ObservableObject {
         }
         panel = nil
         isPanelShown = false
-
-        panelRefreshTimer?.invalidate()
-        panelRefreshTimer = nil
 
         // Remove event monitor when panel closes
         if let monitor = eventMonitor {
@@ -221,12 +236,31 @@ class MenuBarController: NSObject, ObservableObject {
     /// to the icon until the next glance clears it.
     func updateMenuBarIcon(alertState: AlertState = .normal, hasFrozen: Bool = false, changeCount: Int = 0) {
         guard let button = statusItem?.button else { return }
+        let snapshotSummary: String
+        if let lastRefresh = portViewModel.lastRefresh {
+            snapshotSummary = "\(portViewModel.totalCount) tracked entries in the latest successful snapshot (\(lastRefresh.formatted(date: .omitted, time: .standard)))"
+        } else {
+            snapshotSummary = "no successful port scan yet"
+        }
+        let connectionSummary: String
+        if portViewModel.allConnectionsError != nil {
+            connectionSummary = portViewModel.lastSuccessfulAllConnectionsRefresh.map {
+                "connection scan incomplete; last success \($0.formatted(date: .omitted, time: .standard))"
+            } ?? "connection scan incomplete; no successful snapshot"
+        } else {
+            connectionSummary = portViewModel.lastSuccessfulAllConnectionsRefresh.map {
+                "latest successful connection scan \($0.formatted(date: .omitted, time: .standard))"
+            } ?? "connection snapshot pending"
+        }
+        button.toolTip = "PortPilot — \(changeCount) port changes since last glance; \(snapshotSummary); \(connectionSummary)"
 
         let symbolName: String
         var colored = false
         if alertState == .critical {
             symbolName = "exclamationmark.triangle.fill"
             colored = true
+        } else if alertState == .degraded {
+            symbolName = "exclamationmark.triangle"
         } else if hasFrozen {
             symbolName = "pause.circle.fill"
         } else {
@@ -255,7 +289,7 @@ class MenuBarController: NSObject, ObservableObject {
             NSEvent.removeMonitor(monitor)
         }
         metricsTimer?.invalidate()
-        panelRefreshTimer?.invalidate()
+        portRefreshTimer?.invalidate()
     }
 }
 
@@ -291,14 +325,23 @@ class NotificationManager: NSObject, ObservableObject, PortWatcherDelegate, UNUs
     static let guardActionCategoryIdentifier = "GUARD_ACTION"
     static let threatCategoryIdentifier = NotificationReviewDestination.threatCategory
 
-    override init() {
+    override convenience init() {
+        self.init(registerWithSystem: true)
+    }
+
+    /// Isolated native tests can omit notification registration and prompts.
+    init(registerWithSystem: Bool) {
         self.portWatcher = PortWatcher(portManager: portManager)
         super.init()
         self.portWatcher.delegate = self
-        UNUserNotificationCenter.current().delegate = self
         loadWatchedPorts()
-        registerNotificationCategories()
-        requestNotificationPermissions()
+        // UserNotifications raises an Objective-C exception for an unbundled
+        // executable (including the native regression runner).
+        if registerWithSystem && Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().delegate = self
+            registerNotificationCategories()
+            requestNotificationPermissions()
+        }
     }
 
     private func registerNotificationCategories() {

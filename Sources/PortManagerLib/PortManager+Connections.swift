@@ -43,7 +43,7 @@ extension PortManager {
     /// Get all established network connections across all processes
     public func getAllConnections() throws -> [EstablishedConnection] {
         let observed = try getAllConnectionsSnapshot()
-        let enriched = enrichConnections(observed)
+        let enriched = try enrichConnections(observed)
         let confirmed = try getAllConnectionsSnapshot()
         return ProcessObservationBinding.connections(enriched: enriched, confirmed: confirmed)
     }
@@ -236,11 +236,12 @@ extension PortManager {
     }
 
     /// Enrich connections with blocklist status
-    func enrichConnections(_ connections: [EstablishedConnection]) -> [EstablishedConnection] {
+    func enrichConnections(_ connections: [EstablishedConnection]) throws -> [EstablishedConnection] {
+        let blocklist = try loadBlocklist()
         let identities = processIdentities(pids: connections.map(\.pid))
         return connections.map { conn in
             var enriched = conn
-            enriched.isBlocklisted = isBlocklisted(connection: conn)
+            enriched.isBlocklisted = matchesBlocklist(connection: conn, entries: blocklist)
             enriched.executablePath = identities[conn.pid]?.executablePath
             enriched.processStartTime = identities[conn.pid]?.startTime
             enriched.processIdentityToken = identities[conn.pid]?.incarnationToken
@@ -345,7 +346,7 @@ extension PortManager {
     }
 
     /// Load blocklist from ~/.portpilot/blocklist.txt
-    func loadBlocklist() -> [BlocklistEntry] {
+    func loadBlocklist() throws -> [BlocklistEntry] {
         blocklistLock.lock()
         defer { blocklistLock.unlock() }
 
@@ -354,36 +355,28 @@ extension PortManager {
             return cached
         }
 
-        let entries = loadBlocklistFromDisk()
+        let entries = try loadBlocklistFromDisk()
         cachedBlocklist = entries
         blocklistCacheTime = Date()
         return entries
     }
 
-    func loadBlocklistFromDisk() -> [BlocklistEntry] {
-        let path = blocklistPath
-        guard let content = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return []
-        }
-        return content
-            .components(separatedBy: .newlines)
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-            .map { BlocklistEntry($0) }
+    func loadBlocklistFromDisk(path: String? = nil) throws -> [BlocklistEntry] {
+        try BlocklistStore(path: path ?? blocklistPath).entries().map(BlocklistEntry.init)
     }
 
     /// Check if a connection matches the blocklist
-    public func isBlocklisted(connection: EstablishedConnection) -> Bool {
-        let entries = loadBlocklist()
-        for entry in entries {
-            if entry.matches(connection.remoteAddress, hostname: connection.remoteHostname) {
-                return true
-            }
-        }
-        return false
+    public func isBlocklisted(connection: EstablishedConnection) throws -> Bool {
+        matchesBlocklist(connection: connection, entries: try loadBlocklist())
+    }
+
+    private func matchesBlocklist(connection: EstablishedConnection, entries: [BlocklistEntry]) -> Bool {
+        entries.contains { $0.matches(connection.remoteAddress, hostname: connection.remoteHostname) }
     }
 
     /// Return all connections that match the blocklist
-    public func blocklistedConnections(from all: [EstablishedConnection]) -> [EstablishedConnection] {
-        return all.filter { isBlocklisted(connection: $0) }
+    public func blocklistedConnections(from all: [EstablishedConnection]) throws -> [EstablishedConnection] {
+        let entries = try loadBlocklist()
+        return all.filter { matchesBlocklist(connection: $0, entries: entries) }
     }
 }

@@ -125,7 +125,7 @@ struct PortListScreen: TUIScreen {
                 connections = []
                 filteredConnections = []
             case .schedules:
-                cronjobs = portManager.getCronjobs()
+                cronjobs = try portManager.getCronjobSnapshot().requireComplete()
                 filteredCronjobs = cronjobs
                 processes = []
                 filtered = []
@@ -201,7 +201,7 @@ struct PortListScreen: TUIScreen {
         // One assessment per snapshot — never per frame or keystroke.
         let assessment = ThreatDetector.assess(
             connections: connections,
-            isBlocklisted: { [portManager] in portManager.isBlocklisted(connection: $0) }
+            isBlocklisted: { $0.isBlocklisted }
         )
         threatPids = Set(assessment.findings.map { $0.pid })
     }
@@ -1257,7 +1257,7 @@ private final class ListRefresher: @unchecked Sendable {
             case .sockets:
                 result.processes = manager.getUnixSocketProcesses()
             case .schedules:
-                result.cronjobs = manager.getCronjobs()
+                result.cronjobs = try manager.getCronjobSnapshot().requireComplete()
             case .connections:
                 result.connections = try manager.getAllConnections()
             }

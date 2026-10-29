@@ -188,6 +188,15 @@ struct MenuBarDropdownView: View {
         VStack(alignment: .leading, spacing: 15) {
             Text("Schedules").font(interfaceFont(size: 23))
             if viewModel.isLoadingCronjobs { ProgressView("Reading schedules…") }
+            else if let error = viewModel.cronDiscoveryError {
+                Label("Schedule scan incomplete", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(Theme.Severity.warning)
+                Text(error).foregroundStyle(.secondary).lineLimit(3)
+                if !viewModel.cronjobs.isEmpty {
+                    Text("Showing \(viewModel.cronjobs.count) entries from the last successful read.")
+                        .foregroundStyle(.secondary)
+                }
+            }
             else {
                 Text("\(viewModel.cronjobs.count) entries in the latest user crontab read.")
                 Text("Review commands, run history, and output in the workspace. Run Now executes code with your user authority.").foregroundStyle(.secondary)

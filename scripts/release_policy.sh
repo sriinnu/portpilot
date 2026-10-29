@@ -32,14 +32,40 @@ verify_release_source() {
 }
 
 verify_release_artifact() {
-  local artifact="$1" requirement
+  local artifact="$1" requirement code_path executable_name architectures arch signature_metadata entitlements compact_entitlements exception
   [[ -e "$artifact" ]] || release_fail "artifact not found: $artifact"
   RELEASE_TEAM_ID="${PORTPILOT_RELEASE_TEAM_ID:-RSH5FK4MB6}"
   [[ "$RELEASE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || release_fail "PORTPILOT_RELEASE_TEAM_ID must be an explicit ten-character Apple team ID"
   # Apple anchoring + the Developer ID Application leaf extension rejects
   # unsigned, ad-hoc and Apple Development signatures, even from this team.
   requirement="=anchor apple generic and certificate leaf[subject.OU] = \"$RELEASE_TEAM_ID\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
-  codesign --verify --deep --strict --test-requirement "$requirement" "$artifact" || release_fail "artifact requires an intact Developer ID Application signature from team $RELEASE_TEAM_ID: $artifact"
+  codesign --verify --all-architectures --deep --strict --test-requirement "$requirement" "$artifact" || release_fail "artifact requires an intact Developer ID Application signature from team $RELEASE_TEAM_ID: $artifact"
+
+  code_path="$artifact"
+  if [[ -d "$artifact" ]]; then
+    executable_name="$(plutil -extract CFBundleExecutable raw -o - "$artifact/Contents/Info.plist")" || release_fail "app executable name is unavailable: $artifact"
+    code_path="$artifact/Contents/MacOS/$executable_name"
+    [[ -f "$code_path" ]] || release_fail "app executable is missing: $code_path"
+  fi
+  architectures="$(lipo -archs "$code_path")" || release_fail "artifact architectures are unavailable: $code_path"
+  [[ -n "$architectures" ]] || release_fail "artifact has no reported architecture: $code_path"
+  for arch in $architectures; do
+    signature_metadata="$(codesign --display --verbose=4 --arch "$arch" "$code_path" 2>&1)" || release_fail "artifact signature metadata is unavailable for $arch: $code_path"
+    grep -Eq 'flags=0x[[:xdigit:]]*\([^)]*runtime[^)]*\)' <<<"$signature_metadata" || release_fail "artifact must be signed with hardened runtime for $arch: $code_path"
+
+    entitlements="$(codesign --display --entitlements :- --arch "$arch" "$code_path" 2>/dev/null)" || release_fail "artifact entitlements are unavailable for $arch: $code_path"
+    compact_entitlements="$(tr -d '[:space:]' <<<"$entitlements")"
+    for exception in \
+      com.apple.security.get-task-allow \
+      com.apple.security.cs.allow-jit \
+      com.apple.security.cs.allow-unsigned-executable-memory \
+      com.apple.security.cs.disable-executable-page-protection \
+      com.apple.security.cs.disable-library-validation \
+      com.apple.security.cs.debugger \
+      com.apple.security.cs.allow-dyld-environment-variables; do
+      [[ "$compact_entitlements" != *"<key>$exception</key><true/>"* ]] || release_fail "artifact enables forbidden hardened-runtime exception entitlement $exception for $arch: $code_path"
+    done
+  done
 }
 
 release_artifact_paths() {

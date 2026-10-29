@@ -43,6 +43,7 @@ struct LiveTrafficStrip: View {
     private var pulseDotColor: Color {
         switch alertState {
         case .normal: return Theme.Alert.dotActive
+        case .degraded: return Theme.Status.warning
         case .warning: return Theme.Alert.dotWarning
         case .critical: return Theme.Alert.dotCritical
         }

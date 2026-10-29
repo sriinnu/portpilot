@@ -2,101 +2,222 @@ import Foundation
 
 // MARK: - Cronjob Discovery
 
+public struct CronDiscoverySnapshot: Sendable {
+    public let entries: [CronjobEntry]
+    public let errors: [String]
+
+    public init(entries: [CronjobEntry], errors: [String] = []) {
+        self.entries = entries
+        self.errors = errors
+    }
+
+    public var isComplete: Bool { errors.isEmpty }
+    public var errorDescription: String { errors.joined(separator: "; ") }
+
+    public func requireComplete() throws -> [CronjobEntry] {
+        guard isComplete else { throw CronDiscoveryError.incomplete(errors) }
+        return entries
+    }
+}
+
+public enum CronDiscoveryError: LocalizedError, Sendable {
+    case source(String)
+    case incomplete([String])
+
+    public var errorDescription: String? {
+        switch self {
+        case .source(let message):
+            return message
+        case .incomplete(let errors):
+            return "Cronjob discovery is incomplete: \(errors.joined(separator: "; "))"
+        }
+    }
+}
+
+private struct CronSourceDiscovery {
+    var entries: [CronjobEntry] = []
+    var errors: [String] = []
+}
+
 extension PortManager {
 
     /// Prefix PortPilot writes into the user's crontab in place of a real line to pause it,
     /// while keeping the original schedule/command intact so resuming is lossless.
     static let cronPauseMarker = "#PORTPILOT_PAUSED#"
 
-    /// Get all cronjobs for the current user and system cron directories
-    public func getCronjobs(userOnly: Bool = false, systemOnly: Bool = false) -> [CronjobEntry] {
+    /// Checked projection retained for API compatibility. Incomplete reads throw.
+    public func getCronjobs(userOnly: Bool = false, systemOnly: Bool = false) throws -> [CronjobEntry] {
+        try getCronjobSnapshot(userOnly: userOnly, systemOnly: systemOnly).requireComplete()
+    }
+
+    /// Read cron sources without converting failures into a successful empty list.
+    public func getCronjobSnapshot(userOnly: Bool = false, systemOnly: Bool = false) -> CronDiscoverySnapshot {
+        guard !(userOnly && systemOnly) else {
+            return CronDiscoverySnapshot(
+                entries: [],
+                errors: ["Conflicting cron filters: user-only and system-only cannot both be enabled"]
+            )
+        }
+
         var entries: [CronjobEntry] = []
+        var errors: [String] = []
 
         let platform = Platform.current
 
-        guard platform != .windows else { return [] }
+        guard platform != .windows else { return CronDiscoverySnapshot(entries: []) }
 
         if !systemOnly {
-            let userCrons = getUserCronjobs()
-            entries.append(contentsOf: userCrons)
+            let user = discoverUserCronjobs()
+            entries.append(contentsOf: user.entries)
+            errors.append(contentsOf: user.errors)
         }
 
         if !userOnly {
-            let systemCrons = getSystemCronjobs()
-            entries.append(contentsOf: systemCrons)
+            let system = discoverSystemCronjobs()
+            entries.append(contentsOf: system.entries)
+            errors.append(contentsOf: system.errors)
         }
 
-        return entries.sorted { ($0.nextRun ?? .distantFuture) < ($1.nextRun ?? .distantFuture) }
+        entries.sort { ($0.nextRun ?? .distantFuture) < ($1.nextRun ?? .distantFuture) }
+        return CronDiscoverySnapshot(entries: entries, errors: errors)
     }
 
     /// Get cronjobs from the current user's crontab
-    func getUserCronjobs() -> [CronjobEntry] {
-        let output = runCommandQuiet("/usr/bin/crontab", arguments: ["-l"])
+    private func discoverUserCronjobs() -> CronSourceDiscovery {
+        let result = runProcess(
+            "/usr/bin/crontab",
+            arguments: ["-l"],
+            environment: ["LC_ALL": "C"]
+        )
+        let output: String
+        do {
+            output = try Self.checkedCronDiscoveryRead(result)
+        } catch {
+            return CronSourceDiscovery(errors: ["user crontab: \(error.localizedDescription)"])
+        }
         // A personal crontab (crontab -l) never has a user column — only /etc/crontab and
         // /etc/cron.d/* do. Without this, a multi-word command like "/bin/echo hello" gets
         // misparsed as user="/bin/echo" command="hello".
-        return parseCrontab(output: output, source: "user", user: currentUsername(), hasUserColumn: false)
+        return CronSourceDiscovery(entries: parseCrontab(
+            output: output,
+            source: "user",
+            user: currentUsername(),
+            hasUserColumn: false
+        ))
     }
 
-    /// Get cronjobs from system cron directories
-    func getSystemCronjobs() -> [CronjobEntry] {
-        var entries: [CronjobEntry] = []
+    static func checkedCronDiscoveryRead(_ result: CommandOutput) throws -> String {
+        if result.timedOut {
+            throw CronDiscoveryError.source("crontab -l timed out")
+        }
+        if result.outputTruncated {
+            throw CronDiscoveryError.source("crontab -l output was truncated")
+        }
+        guard let status = result.exitStatus else {
+            throw CronDiscoveryError.source("crontab -l could not be launched")
+        }
+        if status == 0 { return result.output }
 
-        if let content = try? String(contentsOfFile: "/etc/crontab", encoding: .utf8) {
-            entries.append(contentsOf: parseCrontab(output: content, source: "/etc/crontab", user: nil))
+        let detail = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if status == 1, detail.lowercased().contains("no crontab for") {
+            return ""
+        }
+        let message = detail.isEmpty
+            ? "crontab -l exited with status \(status)"
+            : String(detail.prefix(200))
+        throw CronDiscoveryError.source(message)
+    }
+
+    /// Get cronjobs from system cron directories while retaining per-source errors.
+    private func discoverSystemCronjobs() -> CronSourceDiscovery {
+        var result = CronSourceDiscovery()
+        let manager = FileManager.default
+
+        if manager.fileExists(atPath: "/etc/crontab") {
+            do {
+                let content = try String(contentsOfFile: "/etc/crontab", encoding: .utf8)
+                result.entries.append(contentsOf: parseCrontab(output: content, source: "/etc/crontab", user: nil))
+            } catch {
+                result.errors.append("/etc/crontab: \(error.localizedDescription)")
+            }
         }
 
-        entries.append(contentsOf: parseCronDirectory("/etc/cron.d/"))
-        entries.append(contentsOf: discoverPeriodicCronScripts(in: "/etc/cron.hourly/", schedule: "0 * * * *"))
-        entries.append(contentsOf: discoverPeriodicCronScripts(in: "/etc/cron.daily/", schedule: "0 0 * * *"))
-        entries.append(contentsOf: discoverPeriodicCronScripts(in: "/etc/cron.weekly/", schedule: "0 0 * * 0"))
-        entries.append(contentsOf: discoverPeriodicCronScripts(in: "/etc/cron.monthly/", schedule: "0 0 1 * *"))
+        let cronDirectory = discoverCronDirectory("/etc/cron.d/")
+        result.entries.append(contentsOf: cronDirectory.entries)
+        result.errors.append(contentsOf: cronDirectory.errors)
 
-        return entries
+        for (path, schedule) in [
+            ("/etc/cron.hourly/", "0 * * * *"),
+            ("/etc/cron.daily/", "0 0 * * *"),
+            ("/etc/cron.weekly/", "0 0 * * 0"),
+            ("/etc/cron.monthly/", "0 0 1 * *"),
+        ] {
+            let periodic = discoverPeriodicCronScripts(in: path, schedule: schedule)
+            result.entries.append(contentsOf: periodic.entries)
+            result.errors.append(contentsOf: periodic.errors)
+        }
+        return result
     }
 
-    private func parseCronDirectory(_ cronPath: String) -> [CronjobEntry] {
-        var entries: [CronjobEntry] = []
+    private func discoverCronDirectory(_ cronPath: String) -> CronSourceDiscovery {
+        var result = CronSourceDiscovery()
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: cronPath) else { return result }
 
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: cronPath) else {
-            return entries
+        let files: [String]
+        do {
+            files = try manager.contentsOfDirectory(atPath: cronPath)
+        } catch {
+            result.errors.append("\(cronPath): \(error.localizedDescription)")
+            return result
         }
 
         for file in files {
-            let fullPath = cronPath + file
+            let fullPath = URL(fileURLWithPath: cronPath, isDirectory: true)
+                .appendingPathComponent(file).path
             var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            guard manager.fileExists(atPath: fullPath, isDirectory: &isDirectory), !isDirectory.boolValue else {
                 continue
             }
 
-            if let content = try? String(contentsOfFile: fullPath, encoding: .utf8) {
-                entries.append(contentsOf: parseCrontab(output: content, source: fullPath, user: nil))
+            do {
+                let content = try String(contentsOfFile: fullPath, encoding: .utf8)
+                result.entries.append(contentsOf: parseCrontab(output: content, source: fullPath, user: nil))
+            } catch {
+                result.errors.append("\(fullPath): \(error.localizedDescription)")
             }
         }
 
-        return entries
+        return result
     }
 
-    private func discoverPeriodicCronScripts(in cronPath: String, schedule: String) -> [CronjobEntry] {
-        var entries: [CronjobEntry] = []
+    private func discoverPeriodicCronScripts(in cronPath: String, schedule: String) -> CronSourceDiscovery {
+        var result = CronSourceDiscovery()
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: cronPath) else { return result }
 
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: cronPath) else {
-            return entries
+        let files: [String]
+        do {
+            files = try manager.contentsOfDirectory(atPath: cronPath)
+        } catch {
+            result.errors.append("\(cronPath): \(error.localizedDescription)")
+            return result
         }
 
         let humanReadable = humanReadableSchedule(schedule)
 
         for file in files {
-            let fullPath = cronPath + file
+            let fullPath = URL(fileURLWithPath: cronPath, isDirectory: true)
+                .appendingPathComponent(file).path
             var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            guard manager.fileExists(atPath: fullPath, isDirectory: &isDirectory), !isDirectory.boolValue else {
                 continue
             }
-            guard FileManager.default.isExecutableFile(atPath: fullPath) else {
+            guard manager.isExecutableFile(atPath: fullPath) else {
                 continue
             }
 
-            entries.append(CronjobEntry(
+            result.entries.append(CronjobEntry(
                 command: fullPath,
                 schedule: schedule,
                 scheduleHuman: humanReadable,
@@ -106,7 +227,7 @@ extension PortManager {
             ))
         }
 
-        return entries
+        return result
     }
     /// `@macro` schedules and their five-field equivalents. `@reboot` has none.
     static let cronMacroSchedules: [String: String] = [

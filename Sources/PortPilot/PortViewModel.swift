@@ -126,6 +126,9 @@ class PortViewModel: ObservableObject {
     // Established connections (for Connections tab)
     @Published var allConnections: [EstablishedConnection] = []
     @Published var isLoadingAllConnections: Bool = false
+    /// A failed refresh never makes cached observations look current or empty.
+    @Published private(set) var allConnectionsError: String?
+    @Published private(set) var lastSuccessfulAllConnectionsRefresh: Date?
     /// Cached grouped connections - updated whenever allConnections changes
     @Published private var connectionsGroupedCache: [(processName: String, connections: [EstablishedConnection], totalCount: Int)] = []
 
@@ -135,6 +138,7 @@ class PortViewModel: ObservableObject {
     let cron: CronjobController
     var cronjobs: [CronjobEntry] { cron.jobs }
     var isLoadingCronjobs: Bool { cron.isLoading }
+    var cronDiscoveryError: String? { cron.discoveryError }
     var cronRunHistory: [String: CronRunRecord] { cron.runHistory }
     var runningCronjobIDs: Set<String> { cron.runningIDs }
 
@@ -208,6 +212,8 @@ class PortViewModel: ObservableObject {
 
     private let portManager = PortManager()
     private var allPortsCache: [PortProcess] = []
+    /// Range-limited views must never become the baseline for global badges.
+    private var timelinePortsCache: [PortProcess] = []
     private var parentProcessNameCache: [Int: String] = [:]
     /// connectionType(for:) results, keyed by PortProcess.id. Cleared on refresh.
     private var connectionTypeCache: [String: ConnectionType] = [:]
@@ -226,12 +232,12 @@ class PortViewModel: ObservableObject {
 
     private var cancellables: Set<AnyCancellable> = []
 
-    init() {
+    init(startThreatMonitor: Bool = true) {
         // First: cron and portGuard have no defaults, and their error hooks
         // capture self — assign before anything else uses self.
         cron = CronjobController(log: activityLog)
         portGuard = PortGuardStore(log: activityLog)
-        threatMonitor = ThreatMonitorStore(log: activityLog)
+        threatMonitor = ThreatMonitorStore(log: activityLog, startImmediately: startThreatMonitor)
         cron.onError = { [weak self] message in self?.raiseError(message) }
         portGuard.onError = { [weak self] message in self?.raiseError(message) }
 
@@ -362,6 +368,13 @@ class PortViewModel: ObservableObject {
 
     // MARK: - Refresh
 
+    /// Background ticks must not supersede a slow, still-running snapshot.
+    /// Manual refreshes retain their existing latest-request-wins behavior.
+    func refreshInBackground(includeConnections: Bool) {
+        if !isLoading { refreshPorts() }
+        if includeConnections && !isLoadingAllConnections { refreshAllConnections() }
+    }
+
     func refreshPorts() {
         isLoading = true
         dismissError()
@@ -404,7 +417,6 @@ class PortViewModel: ObservableObject {
 
                 dockerInfoCache.removeAll()
                 parentProcessNameCache = snapshot.parentProcessNames
-                let previousPorts = allPortsCache
                 allPortsCache = snapshot.processes.sorted {
                     // I keep network ports ahead of sockets so the main list stays stable.
                     if $0.isUnixSocket != $1.isUnixSocket { return !$0.isUnixSocket }
@@ -418,7 +430,8 @@ class PortViewModel: ObservableObject {
                 // read as mass frees (everything outside the range), then a
                 // storm of binds when the range clears.
                 if startPort == nil && endPort == nil {
-                    emitTimelineEvents(previous: previousPorts, current: allPortsCache)
+                    emitTimelineEvents(previous: timelinePortsCache, current: allPortsCache)
+                    timelinePortsCache = allPortsCache
                 }
                 applyFilters()
                 // Refresh pause/resume labels from the same process incarnation.
@@ -584,6 +597,8 @@ class PortViewModel: ObservableObject {
                 guard latestAllConnectionsRefreshID == refreshID else { return }
                 allConnections = conns
                 updateConnectionsGroupedCache()
+                allConnectionsError = nil
+                lastSuccessfulAllConnectionsRefresh = Date()
                 isLoadingAllConnections = false
                 checkConnectionAlerts()
             } catch {
@@ -591,6 +606,7 @@ class PortViewModel: ObservableObject {
                 // Keep the last good list — a failed lsof pass shouldn't
                 // blank the whole Connections tab.
                 updateConnectionsGroupedCache()
+                allConnectionsError = error.localizedDescription
                 isLoadingAllConnections = false
                 addLog(source: "system", message: "Connection refresh failed: \(error.localizedDescription)", level: .error)
             }
@@ -603,7 +619,7 @@ class PortViewModel: ObservableObject {
 
     /// Check for suspicious connections and send notifications if needed
     private func checkConnectionAlerts() {
-        guard hasAlert else { return }
+        guard AppSettings.shared.showNotifications, hasAlert else { return }
         NotificationManager.shared.sendConnectionAlertNotification(
             blocklistedCount: blocklistedCount,
             suspiciousProcesses: suspiciousProcesses
@@ -1252,10 +1268,40 @@ extension PortViewModel {
     /// page from one source of truth. Info-only findings stay out of the
     /// menubar — they merit a look, not an interruption.
     var alertState: AlertState {
-        if blocklistedCount > 0 { return .critical }
-        if threatMonitor.findings.contains(where: { $0.severity == .critical }) { return .critical }
-        if suspiciousConnectionCount > 0 { return .warning }
-        if threatMonitor.findings.contains(where: { $0.severity == .warning }) { return .warning }
+        let threatStatus = ThreatMonitoringStatus(
+            isMonitoring: threatMonitor.isMonitoring,
+            hasAssessment: threatMonitor.assessment != nil,
+            consecutiveFailures: threatMonitor.consecutiveFailures
+        )
+        return Self.combinedAlertState(
+            connectionCritical: allConnectionsError == nil && blocklistedCount > 0,
+            connectionWarning: allConnectionsError == nil && suspiciousConnectionCount > 0,
+            connectionDegraded: allConnectionsError != nil,
+            threatStatus: threatStatus,
+            threatSeverity: threatMonitor.assessment?.highestSeverity
+        )
+    }
+
+    /// Pure precedence shared by the live model and native regression. Only a
+    /// current threat assessment may page; fresh critical evidence outranks an
+    /// unrelated degraded source, while lesser stale evidence never does.
+    static func combinedAlertState(
+        connectionCritical: Bool,
+        connectionWarning: Bool,
+        connectionDegraded: Bool,
+        threatStatus: ThreatMonitoringStatus,
+        threatSeverity: ThreatSeverity?
+    ) -> AlertState {
+        let threatIsCurrent = threatStatus == .current
+        if connectionCritical || (threatIsCurrent && threatSeverity == .critical) {
+            return .critical
+        }
+        if connectionDegraded || threatStatus == .degraded {
+            return .degraded
+        }
+        if connectionWarning || (threatIsCurrent && threatSeverity == .warning) {
+            return .warning
+        }
         return .normal
     }
 }

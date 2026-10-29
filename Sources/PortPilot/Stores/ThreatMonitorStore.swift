@@ -82,9 +82,9 @@ final class ThreatMonitorStore: ObservableObject {
     /// Queue-confined: skips a tick while the previous lsof still runs.
     private var tickInProgress = false
 
-    init(log: ActivityLogStore) {
+    init(log: ActivityLogStore, startImmediately: Bool = true) {
         self.log = log
-        start()
+        if startImmediately { start() }
     }
 
     deinit {
@@ -163,7 +163,7 @@ final class ThreatMonitorStore: ObservableObject {
 
         let result = ThreatDetector.assess(
             connections: connections,
-            isBlocklisted: { [portManager] in portManager.isBlocklisted(connection: $0) },
+            isBlocklisted: { $0.isBlocklisted },
             configuration: config,
             baseline: baseline
         )

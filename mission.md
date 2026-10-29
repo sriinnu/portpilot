@@ -76,7 +76,7 @@ than these manually requested packet observations.
 Local monitoring does not need an inbound network listener. App Quick Proxy binds
 to IPv4 loopback (`127.0.0.1`) by default. Enable selected-client sharing only when
 needed, using actual client addresses or the narrowest subnet: /32 for one IPv4
-client, /128 for one IPv6 client. Do not choose `0.0.0.0/0` or `::/0`.
+client, /128 for one IPv6 client. PortPilot rejects `0.0.0.0/0` and `::/0`.
 
 LAN mode listens across interfaces and filters the peer's source IP; it is not
 guaranteed “LAN-only”. VPN routes, NAT, DHCP reuse, and other interfaces can change

@@ -63,8 +63,8 @@ public struct BlocklistStore: Sendable {
     }
 
     /// Active entries (comments and blanks excluded), in file order.
-    public func entries() -> [String] {
-        allLines().filter { Self.isEntry($0) }
+    public func entries() throws -> [String] {
+        try allLines().filter { Self.isEntry($0) }
     }
 
     /// Append an entry. Returns false (no write) when already listed.
@@ -117,11 +117,11 @@ public struct BlocklistStore: Sendable {
         return !trimmed.isEmpty && !trimmed.hasPrefix("#")
     }
 
-    private func allLines() -> [String] {
+    private func allLines() throws -> [String] {
         // Atomic replacement guarantees a reader sees either the complete old
         // file or the complete new file, so reads do not need to queue behind
         // a potentially slow writer.
-        (try? allLinesUnlocked()) ?? []
+        try allLinesUnlocked()
     }
 
     private func allLinesUnlocked() throws -> [String] {
