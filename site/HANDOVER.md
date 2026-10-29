@@ -15,6 +15,9 @@ hosting provider and DNS record still need to be selected and verified.
 | Website worktree | `/Users/srinivaspendela/Sriinnu/Personal/websites/.previews/2026-10-22/portpilot` |
 | Editable website source | `/Users/srinivaspendela/Sriinnu/Personal/websites/.previews/2026-10-22/portpilot/site` |
 | Generated V2 entry point | `/Users/srinivaspendela/Sriinnu/Personal/websites/.previews/2026-10-22/portpilot/site/dist/v2/index.html` |
+| Sites project | `appgprj_6ae332df6edc81919bbd6324f8cc90e0` (`portpilot`) |
+| Generated Sites origin | https://portpilot.humbleboot1.chatgpt.site |
+| Intended custom hostname | https://portpilot.srinivas.dev |
 | Canonical app repository with newer security work | `/Users/srinivaspendela/Sriinnu/Personal/ports` |
 | This handover | `site/HANDOVER.md` in the website worktree |
 
