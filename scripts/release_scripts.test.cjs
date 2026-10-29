@@ -86,16 +86,43 @@ git() {
 }
 codesign() {
   printf 'codesign %s\\n' "$*" >> "$MOCK_TRACE"
-  [ "$1" = --verify ] || return 91
-  [[ "$*" == *'--deep --strict --test-requirement'* ]] || return 92
-  [[ "$5" == '=anchor apple generic '* ]] || return 96
-  [[ "$*" == *'anchor apple generic'* ]] || return 93
-  [[ "$*" == *'certificate leaf[field.1.2.840.113635.100.6.1.13] exists'* ]] || return 94
-  [[ "$*" == *"certificate leaf[subject.OU] = \\\"\${PORTPILOT_RELEASE_TEAM_ID:-RSH5FK4MB6}\\\""* ]] || return 95
-  [ "\${MOCK_SIGNATURE:-developer-id}" = developer-id ] || return 1
-  [ "\${!#}" != "\${MOCK_FAIL_ARTIFACT:-}" ] || return 1
+  if [ "$1" = --verify ]; then
+    [[ "$*" == *'--deep --strict --test-requirement'* ]] || return 92
+    [[ "$6" == '=anchor apple generic '* ]] || return 96
+    [[ "$*" == *'anchor apple generic'* ]] || return 93
+    [[ "$*" == *'certificate leaf[field.1.2.840.113635.100.6.1.13] exists'* ]] || return 94
+    [[ "$*" == *"certificate leaf[subject.OU] = \\\"\${PORTPILOT_RELEASE_TEAM_ID:-RSH5FK4MB6}\\\""* ]] || return 95
+    [ "\${MOCK_SIGNATURE:-developer-id}" = developer-id ] || return 1
+    [ "\${!#}" != "\${MOCK_FAIL_ARTIFACT:-}" ] || return 1
+    return 0
+  fi
+  if [ "$1" = --display ]; then
+    [ "\${!#}" != "\${MOCK_METADATA_FAILURE_ARTIFACT:-}" ] || return 1
+    if [[ "$*" == *'--entitlements :-'* ]]; then
+      if [ "\${!#}" = "\${MOCK_WEAK_ENTITLEMENT_ARTIFACT:-}" ] && { [ -z "\${MOCK_WEAK_ENTITLEMENT_ARCH:-}" ] || [[ "$*" == *"--arch \${MOCK_WEAK_ENTITLEMENT_ARCH} "* ]]; }; then
+        printf '<plist><dict><key>%s</key><true/></dict></plist>\n' "\${MOCK_WEAK_ENTITLEMENT_NAME:-com.apple.security.cs.disable-library-validation}"
+      else
+        printf '<plist><dict/></plist>\n'
+      fi
+      return 0
+    fi
+    if [ "\${!#}" = "\${MOCK_MISSING_RUNTIME_ARTIFACT:-}" ] && { [ -z "\${MOCK_MISSING_RUNTIME_ARCH:-}" ] || [[ "$*" == *"--arch \${MOCK_MISSING_RUNTIME_ARCH} "* ]]; }; then
+      echo 'CodeDirectory v=20500 flags=0x0(none)' >&2
+    else
+      echo 'CodeDirectory v=20500 flags=0x10000(runtime)' >&2
+    fi
+    return 0
+  fi
+  return 91
 }
-plutil() { printf '%s\\n' "\${MOCK_APP_VERSION:-$MOCK_VERSION}"; }
+plutil() {
+  if [[ "$*" == *CFBundleExecutable* ]]; then printf 'PortPilot\\n';
+  else printf '%s\\n' "\${MOCK_APP_VERSION:-$MOCK_VERSION}"; fi
+}
+lipo() {
+  [ "$1" = -archs ] || return 91
+  printf '%s\\n' "\${MOCK_ARCHITECTURES:-arm64 x86_64}"
+}
 ditto() {
   printf 'archive %s\\n' "$*" >> "$MOCK_TRACE"
   [ "\${MOCK_ARCHIVE_FAILURE:-0}" = 0 ] || return 47
@@ -109,14 +136,16 @@ npm() { unexpected_effect "$@"; }
 cp() { unexpected_effect "$@"; }
 xattr() { unexpected_effect "$@"; }
 security() { unexpected_effect "$@"; }
-export -f git codesign plutil ditto unexpected_effect xcodebuild swift xcrun npm cp xattr security
+export -f git codesign plutil lipo ditto unexpected_effect xcodebuild swift xcrun npm cp xattr security
 `;
 
 function policyFixture(t, overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'portpilot-release-policy-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const app = path.join(dir, 'PortPilot.app');
-  fs.mkdirSync(app);
+  fs.mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
+  fs.writeFileSync(path.join(app, 'Contents/Info.plist'), 'synthetic plist fixture');
+  fs.writeFileSync(path.join(app, 'Contents/MacOS/PortPilot'), 'synthetic executable fixture', { mode: 0o700 });
   const cli = path.join(dir, 'portpilot');
   const tui = path.join(dir, 'portpilot-tui');
   fs.writeFileSync(cli, 'synthetic executable fixture', { mode: 0o700 });
@@ -186,6 +215,53 @@ test('release checks CLI and TUI signatures, not only the app', (t) => {
     assert.match(result.stderr, /Developer ID Application signature/);
     assert.equal(fs.existsSync(env.PORTPILOT_RELEASE_DIR), false);
   }
+});
+
+test('release rejects every artifact missing hardened runtime', (t) => {
+  const env = policyFixture(t);
+  const appExecutable = path.join(env.PORTPILOT_APP_PATH, 'Contents/MacOS/PortPilot');
+  for (const artifact of [appExecutable, env.PORTPILOT_CLI_PATH, env.PORTPILOT_TUI_PATH]) {
+    const result = runPolicy('create_release.sh', { ...env, MOCK_MISSING_RUNTIME_ARTIFACT: artifact });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /hardened runtime/);
+    assert.equal(fs.existsSync(env.PORTPILOT_RELEASE_DIR), false);
+  }
+});
+
+test('release rejects one non-runtime slice of a universal artifact', (t) => {
+  const env = policyFixture(t);
+  const appExecutable = path.join(env.PORTPILOT_APP_PATH, 'Contents/MacOS/PortPilot');
+  const result = runPolicy('create_release.sh', {
+    ...env,
+    MOCK_MISSING_RUNTIME_ARTIFACT: appExecutable,
+    MOCK_MISSING_RUNTIME_ARCH: 'x86_64',
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /hardened runtime for x86_64/);
+  assert.equal(fs.existsSync(env.PORTPILOT_RELEASE_DIR), false);
+});
+
+test('release rejects hardened-runtime exception entitlements on every artifact', (t) => {
+  const env = policyFixture(t);
+  const appExecutable = path.join(env.PORTPILOT_APP_PATH, 'Contents/MacOS/PortPilot');
+  for (const artifact of [appExecutable, env.PORTPILOT_CLI_PATH, env.PORTPILOT_TUI_PATH]) {
+    const result = runPolicy('create_release.sh', {
+      ...env,
+      MOCK_WEAK_ENTITLEMENT_ARTIFACT: artifact,
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /forbidden hardened-runtime exception entitlement/);
+    assert.equal(fs.existsSync(env.PORTPILOT_RELEASE_DIR), false);
+  }
+});
+
+test('generated app settings enable hardened runtime', () => {
+  const yaml = fs.readFileSync(path.join(__dirname, '../project.yml'), 'utf8');
+  const project = fs.readFileSync(path.join(__dirname, '../PortPilot.xcodeproj/project.pbxproj'), 'utf8');
+  assert.match(yaml, /ENABLE_HARDENED_RUNTIME: YES/);
+  assert.doesNotMatch(yaml, /ENABLE_HARDENED_RUNTIME: NO/);
+  assert.match(project, /ENABLE_HARDENED_RUNTIME = YES;/);
+  assert.doesNotMatch(project, /ENABLE_HARDENED_RUNTIME = NO;/);
 });
 
 test('release never bumps a version or makes a commit/tag to satisfy policy', (t) => {

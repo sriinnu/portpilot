@@ -203,7 +203,7 @@ class AppSettings: ObservableObject {
     @Published var autoRefreshInterval: Int {
         didSet {
             defaults.set(autoRefreshInterval, forKey: Keys.autoRefreshInterval)
-            // The popover-open refresh timer reads this on each panel open.
+            // The status-item refresh timer observes this, even with the panel closed.
         }
     }
 

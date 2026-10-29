@@ -206,6 +206,7 @@ struct InspectorMetricsPane: View {
     // talking to this process without navigating elsewhere.
     private func connectionsCard(for port: PortProcess) -> some View {
         let conns = viewModel.allConnections.filter { $0.pid == port.pid }.prefix(8)
+        let hasSuccessfulSnapshot = viewModel.lastSuccessfulAllConnectionsRefresh != nil
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Connections")
@@ -214,12 +215,33 @@ struct InspectorMetricsPane: View {
                     .textCase(.uppercase)
                     .tracking(0.6)
                 Spacer()
-                Text("\(viewModel.allConnections.filter { $0.pid == port.pid }.count) total")
-                    .font(appSettings.appFont(size: 10))
-                    .foregroundColor(.secondary.opacity(0.7))
+                if viewModel.allConnectionsError != nil {
+                    Label("Stale", systemImage: "exclamationmark.triangle.fill")
+                        .font(appSettings.appFont(size: 10, weight: .semibold))
+                        .foregroundColor(Theme.Status.warning)
+                } else {
+                    Text(hasSuccessfulSnapshot ? "\(viewModel.allConnections.filter { $0.pid == port.pid }.count) total" : "Pending")
+                        .font(appSettings.appFont(size: 10))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
             }
-            if conns.isEmpty {
-                Text("No established connections")
+
+            if let error = viewModel.allConnectionsError {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(hasSuccessfulSnapshot ? "Connection scan incomplete; showing the last successful snapshot." : "Connection scan has not completed successfully.")
+                    if let lastSuccess = viewModel.lastSuccessfulAllConnectionsRefresh {
+                        Text("Last successful scan: \(lastSuccess.formatted(date: .omitted, time: .standard))")
+                    }
+                }
+                .font(appSettings.appFont(size: 10))
+                .foregroundColor(Theme.Status.warning)
+                .help(error)
+            }
+
+            if conns.isEmpty && viewModel.allConnectionsError != nil && !hasSuccessfulSnapshot {
+                EmptyView()
+            } else if conns.isEmpty {
+                Text(viewModel.allConnectionsError == nil ? "No established connections" : "No established connections in the last successful scan")
                     .font(appSettings.appFont(size: 11))
                     .foregroundColor(.secondary.opacity(0.7))
                     .padding(.vertical, 6)

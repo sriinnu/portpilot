@@ -2,6 +2,41 @@ import XCTest
 @testable import PortManagerLib
 
 final class CronPersistenceConcurrencyTests: XCTestCase {
+    func testCronDiscoveryAcceptsConfirmedNoPersonalCrontab() throws {
+        let output = PortManager.CommandOutput(
+            output: "crontab: no crontab for tester\n",
+            exitStatus: 1,
+            timedOut: false,
+            outputTruncated: false
+        )
+        XCTAssertEqual(try PortManager.checkedCronDiscoveryRead(output), "")
+    }
+
+    func testCronDiscoveryRejectsIncompleteReads() {
+        let cases = [
+            PortManager.CommandOutput(output: "", exitStatus: nil, timedOut: true, outputTruncated: false),
+            PortManager.CommandOutput(output: "partial", exitStatus: 0, timedOut: false, outputTruncated: true),
+            PortManager.CommandOutput(output: "permission denied", exitStatus: 2, timedOut: false, outputTruncated: false),
+            PortManager.CommandOutput(output: "", exitStatus: nil, timedOut: false, outputTruncated: false),
+        ]
+        for output in cases {
+            XCTAssertThrowsError(try PortManager.checkedCronDiscoveryRead(output))
+        }
+    }
+
+    func testIncompleteCronSnapshotRefusesSuccessfulProjection() {
+        let snapshot = CronDiscoverySnapshot(entries: [], errors: ["synthetic read failure"])
+        XCTAssertFalse(snapshot.isComplete)
+        XCTAssertThrowsError(try snapshot.requireComplete())
+    }
+
+    func testContradictoryCronFiltersRefuseSuccessfulEmptySnapshot() {
+        let snapshot = PortManager().getCronjobSnapshot(userOnly: true, systemOnly: true)
+        XCTAssertTrue(snapshot.entries.isEmpty)
+        XCTAssertFalse(snapshot.isComplete)
+        XCTAssertThrowsError(try snapshot.requireComplete())
+    }
+
     func testCronEditTargetsExactDuplicateOccurrence() throws {
         let manager = PortManager()
         let original = """
@@ -135,7 +170,7 @@ final class CronPersistenceConcurrencyTests: XCTestCase {
         }
 
         XCTAssertTrue(failures.values.isEmpty, "Unexpected edit failures: \(failures.values)")
-        XCTAssertEqual(Set(BlocklistStore(path: path).entries()).count, 32)
+        XCTAssertEqual(Set(try BlocklistStore(path: path).entries()).count, 32)
         #if !os(Windows)
         let lockURL = root.appendingPathComponent(".blocklist.txt.lock")
         let attrs = try FileManager.default.attributesOfItem(atPath: lockURL.path)

@@ -650,7 +650,7 @@ struct MenuBarSettingsView: View {
                     .buttonStyle(.bordered)
                 }
 
-                LiquidCard(title: "Menu Bar Popover", icon: "clock", footer: "How often to refresh when the popover is open.") {
+                LiquidCard(title: "Menu Bar Refresh", icon: "clock", footer: "Refreshes ports even with the popover closed. When app-wide Auto-refresh is enabled, its interval takes precedence.") {
                     Picker("Auto-refresh interval", selection: $appSettings.autoRefreshInterval) {
                         Text("5 seconds").tag(5)
                         Text("10 seconds").tag(10)

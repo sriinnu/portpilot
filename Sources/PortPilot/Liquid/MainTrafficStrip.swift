@@ -30,10 +30,10 @@ struct MainTrafficStrip: View {
                 accent: Theme.Action.treeView
             )
             tile(
-                label: "Connections",
-                value: "\(viewModel.allConnections.count)",
+                label: viewModel.allConnectionsError == nil ? "Connections" : "Connections · stale",
+                value: viewModel.lastSuccessfulAllConnectionsRefresh == nil ? "—" : "\(viewModel.allConnections.count)",
                 history: metrics.connections,
-                accent: Theme.Section.kubernetes
+                accent: viewModel.allConnectionsError == nil ? Theme.Section.kubernetes : Theme.Status.warning
             )
             tile(
                 label: "CPU Load",

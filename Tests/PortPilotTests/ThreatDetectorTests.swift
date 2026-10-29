@@ -267,9 +267,21 @@ final class ThreatDetectorTests: XCTestCase {
         let store = BlocklistStore(path: dir.appendingPathComponent("blocklist.txt").path)
         XCTAssertTrue(try store.add("evil.example"))
         XCTAssertFalse(try store.add("EVIL.example")) // dup, case-insensitive
-        XCTAssertEqual(store.entries(), ["evil.example"])
+        XCTAssertEqual(try store.entries(), ["evil.example"])
         XCTAssertTrue(try store.remove("evil.EXAMPLE"))
-        XCTAssertEqual(store.entries(), [])
+        XCTAssertEqual(try store.entries(), [])
+    }
+
+    func testBlocklistReadDistinguishesMissingFromCorrupt() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("blocklist.txt")
+        let store = BlocklistStore(path: file.path)
+
+        XCTAssertEqual(try store.entries(), [])
+        try Data([0xFF, 0xFE]).write(to: file)
+        XCTAssertThrowsError(try store.entries())
+        XCTAssertThrowsError(try PortManager().loadBlocklistFromDisk(path: file.path))
     }
 
     func testBlocklistStoreRejectsGarbage() {

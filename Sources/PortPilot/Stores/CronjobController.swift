@@ -8,6 +8,7 @@ import Foundation
 final class CronjobController: ObservableObject {
     @Published private(set) var jobs: [CronjobEntry] = []
     @Published private(set) var isLoading = false
+    @Published private(set) var discoveryError: String?
     @Published private(set) var runHistory: [String: CronRunRecord] = [:]
     @Published private(set) var runningIDs: Set<String> = []
 
@@ -34,10 +35,16 @@ final class CronjobController: ObservableObject {
         }
 
         Task {
-            let jobs = await snapshotTask.value
+            let snapshot = await snapshotTask.value
             guard latestRefreshID == refreshID else { return }
-            self.jobs = jobs
             isLoading = false
+            guard snapshot.isComplete else {
+                discoveryError = snapshot.errorDescription
+                return
+            }
+            discoveryError = nil
+            let jobs = snapshot.entries
+            self.jobs = jobs
             for job in jobs {
                 runHistory[job.id] = CronRunManager.shared.record(for: job.id)
             }
@@ -45,11 +52,21 @@ final class CronjobController: ObservableObject {
         }
     }
 
-    nonisolated private static func loadSnapshot() -> [CronjobEntry] {
-        PortManager().getCronjobs()
+    nonisolated private static func loadSnapshot() -> CronDiscoverySnapshot {
+        PortManager().getCronjobSnapshot()
     }
 
     // MARK: - Run Controls
+
+    private func allowCurrentScheduleEffect(_ action: String) -> Bool {
+        guard discoveryError == nil else {
+            let message = "Cannot \(action) while schedule discovery is incomplete; refresh successfully first."
+            onError?(message)
+            log.add(source: "cron", message: message, level: .error)
+            return false
+        }
+        return true
+    }
 
     /// Wire up CronRunManager's callbacks so "Run Now" progress/results surface in the UI and Activity log.
     private func setupCallbacks() {
@@ -73,6 +90,7 @@ final class CronjobController: ObservableObject {
 
     /// Trigger a cronjob's command immediately, outside of its schedule.
     func runNow(_ job: CronjobEntry) {
+        guard allowCurrentScheduleEffect("run this schedule") else { return }
         let runTask = Task.detached(priority: .userInitiated) {
             CronRunManager.shared.runNow(job: job)
         }
@@ -86,8 +104,15 @@ final class CronjobController: ObservableObject {
     /// Stop a cronjob run — whatever PortPilot started, plus a best-effort sweep for
     /// matching processes the cron daemon may have kicked off independently.
     func stop(_ job: CronjobEntry) {
+        guard discoveryError == nil || runningIDs.contains(job.id) else {
+            let message = "Cannot stop an unverified stale schedule; refresh successfully first."
+            onError?(message)
+            log.add(source: "cron", message: message, level: .error)
+            return
+        }
         let command = job.command
         let jobID = job.id
+        let includeScheduledMatches = discoveryError == nil
 
         // Both kill paths walk process trees and TERM-wait — doing either on
         // the main actor hung the UI for up to ~3s per Stop click.
@@ -99,11 +124,13 @@ final class CronjobController: ObservableObject {
             } catch {
                 errors.append("tracked process discovery failed: \(error.localizedDescription)")
             }
-            do {
-                let stoppedMatching = try PortManager().stopRunningProcessesResult(matching: command)
-                results.append(stoppedMatching)
-            } catch {
-                errors.append("matching process discovery failed: \(error.localizedDescription)")
+            if includeScheduledMatches {
+                do {
+                    let stoppedMatching = try PortManager().stopRunningProcessesResult(matching: command)
+                    results.append(stoppedMatching)
+                } catch {
+                    errors.append("matching process discovery failed: \(error.localizedDescription)")
+                }
             }
             return CronStopSummary(results: results, errors: errors)
         }
@@ -129,6 +156,7 @@ final class CronjobController: ObservableObject {
 
     /// Pause a user crontab entry so the cron daemon skips it until resumed.
     func pause(_ job: CronjobEntry) {
+        guard allowCurrentScheduleEffect("pause this schedule") else { return }
         let command = job.command
 
         let pauseTask = Task.detached(priority: .userInitiated) {
@@ -149,6 +177,7 @@ final class CronjobController: ObservableObject {
 
     /// Resume a paused user crontab entry.
     func resume(_ job: CronjobEntry) {
+        guard allowCurrentScheduleEffect("resume this schedule") else { return }
         let command = job.command
 
         let resumeTask = Task.detached(priority: .userInitiated) {

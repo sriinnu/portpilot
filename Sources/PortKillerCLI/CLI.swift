@@ -722,9 +722,17 @@ extension PortKiller {
         @Flag(name: .long, help: "Output in JSON format")
         var json: Bool = false
 
+        func validate() throws {
+            if userOnly && systemOnly {
+                throw ValidationError("--user-only and --system-only cannot be used together")
+            }
+        }
+
         func run() throws {
             let portManager = PortManager()
-            let cronjobs = portManager.getCronjobs(userOnly: userOnly, systemOnly: systemOnly)
+            let cronjobs = try portManager
+                .getCronjobSnapshot(userOnly: userOnly, systemOnly: systemOnly)
+                .requireComplete()
 
             if cronjobs.isEmpty {
                 print("No cronjobs found.")
@@ -869,7 +877,7 @@ extension PortKiller {
                 let sample = conns.first?.remoteAddress ?? "-"
                 let processName = conns.first?.processName ?? "unknown"
                 let user = conns.first?.user ?? "unknown"
-                let isBlocklisted = conns.contains { portManager.isBlocklisted(connection: $0) }
+                let isBlocklisted = conns.contains { $0.isBlocklisted }
                 displayItems.append((pid: pid, processName: processName, user: user, count: conns.count, remoteSample: sample, isBlocklisted: isBlocklisted))
             }
 
@@ -951,7 +959,7 @@ extension PortKiller {
         private func outputThreats(_ connections: [EstablishedConnection], portManager: PortManager) throws {
             let assessment = ThreatDetector.assess(
                 connections: connections,
-                isBlocklisted: { portManager.isBlocklisted(connection: $0) }
+                isBlocklisted: { $0.isBlocklisted }
             )
             if json {
                 let encoder = JSONEncoder()
@@ -999,7 +1007,7 @@ extension PortKiller {
                 }
                 let assessment = ThreatDetector.assess(
                     connections: connections,
-                    isBlocklisted: { portManager.isBlocklisted(connection: $0) },
+                    isBlocklisted: { $0.isBlocklisted },
                     baseline: baseline
                 )
                 baseline.advanceSnapshot(connections)

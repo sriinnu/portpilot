@@ -14,8 +14,12 @@ public enum ProxyAccessPolicy: Hashable, Sendable {
         case .loopback:
             return
         case .allowedCIDRs(let values):
-            guard !values.isEmpty, values.allSatisfy({ ProxyCIDR($0) != nil }) else {
+            let cidrs = values.compactMap(ProxyCIDR.init)
+            guard !values.isEmpty, cidrs.count == values.count else {
                 throw ProxyError.invalidAccessPolicy("Enter one or more valid IPv4 or IPv6 CIDRs.")
+            }
+            guard cidrs.allSatisfy({ $0.prefixLength > 0 }) else {
+                throw ProxyError.invalidAccessPolicy("All-address /0 policies are not allowed. Use narrow client CIDRs.")
             }
         }
     }
