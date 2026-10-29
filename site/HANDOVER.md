@@ -54,7 +54,9 @@ This creates a private preview with the original at `/` and V2 at `/v2/`. For
 the public layout, V2 is promoted to `/` and the original moves to `/classic/`:
 
 ```sh
-PORTPILOT_SITE_ORIGIN=https://portpilot.srinivas.dev node site/build.mjs
+PORTPILOT_SITE_ORIGIN=https://portpilot.srinivas.dev \
+PORTPILOT_SOURCE_COMMIT="$(git rev-parse HEAD)" \
+node site/build.mjs
 node site/validate.mjs --public
 ```
 

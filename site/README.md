@@ -39,7 +39,9 @@ published release. Rebuilding after a version bump updates every page.
 For the public `portpilot.srinivas.dev` artifact, set the explicit origin:
 
 ```sh
-PORTPILOT_SITE_ORIGIN=https://portpilot.srinivas.dev node site/build.mjs
+PORTPILOT_SITE_ORIGIN=https://portpilot.srinivas.dev \
+PORTPILOT_SOURCE_COMMIT="$(git rev-parse HEAD)" \
+node site/build.mjs
 ```
 
 The public build promotes V2 to `/`, keeps the original direction at
@@ -48,6 +50,11 @@ without `PORTPILOT_SITE_ORIGIN` remains a private local preview. Cloudflare
 Pages can build from this repository with root directory `site`, command
 `node build.mjs`, output directory `dist`, and the origin environment variable
 set to `https://portpilot.srinivas.dev`.
+
+`PORTPILOT_SOURCE_COMMIT` is optional in the canonical Git checkout. Hosting
+packagers must pass the exact signed canonical commit because their temporary
+source repository may not have a commit yet; the builder accepts only a full
+lowercase SHA.
 
 The search index is built from the rendered guide headings and text. Search,
 theme, copy buttons, the example listener map and reduced-motion controls run
