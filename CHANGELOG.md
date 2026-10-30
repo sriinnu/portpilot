@@ -4,6 +4,8 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+- npm: a published release now stages `@sriinnu/portpilot` from CI (`npm-publish.yml`, trusted publishing, provenance, no token); the maintainer approves it with 2FA. CI still never publishes.
+
 - Rename the shared app scheme file to `PortPilot.xcscheme` so `-scheme PortPilot` (as in `project.yml`, README and `package.json`) resolves; it was `portpilot`.
 - README: CI publishes nothing; the app zip is notarized from 3.5.8.
 
