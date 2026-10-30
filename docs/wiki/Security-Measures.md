@@ -7,6 +7,9 @@ and recheck identity before changing system state.
 
 This page summarizes the current source-level protections. It is not a claim
 that a local build is signed, notarized, installed, or validated on Windows.
+The public companion guide is
+[portpilot.srinivas.dev/guide/security/](https://portpilot.srinivas.dev/guide/security/);
+this repository page remains the source of truth for implementation claims.
 
 ## Runtime authority
 
