@@ -1,15 +1,74 @@
-name: npm Publishing Disabled (signed-release policy)
+name: Stage on npm (maintainer approves with 2FA)
+
+# CI never publishes to npm. This workflow STAGES @sriinnu/portpilot for a
+# signed release tag; the version goes live only after the maintainer runs
+# `npm stage approve <id>` with the security key. Auth is npm trusted
+# publishing (OIDC); no npm token exists. Trust is stage-only:
+#   npm trust github @sriinnu/portpilot --repo sriinnu/portpilot \
+#     --file npm-publish.yml --allow-stage-publish
+# The `signed-release-tags` ruleset already refuses unsigned `v*` tags.
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Signed release tag to stage, e.g. v3.5.9
+        required: true
 
 permissions: {}
 
+concurrency:
+  group: npm-stage
+  cancel-in-progress: false
+
 jobs:
-  publishing-disabled:
+  stage:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - name: Refuse publishing without an approved trusted signing workflow
+      - name: Validate tag
         run: |
-          echo "Publishing is disabled: an explicitly approved trusted signing workflow is required." >&2
-          exit 1
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Tag is annotated, on main, and matches package.json
+        run: |
+          set -euo pipefail
+          [[ "$(git cat-file -t "refs/tags/$TAG")" == tag ]] || { echo "::error::$TAG is not an annotated tag"; exit 1; }
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TAG^{commit}" origin/main || { echo "::error::$TAG is not on main"; exit 1; }
+          version=$(node -p "require('./package.json').version")
+          [[ "v$version" == "$TAG" ]] || { echo "::error::package.json $version does not match $TAG"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # npm stage needs npm >= 11.15; Node 22 ships npm 10.
+      - name: npm with stage support
+        run: npm install -g --ignore-scripts npm@11.20.0 && npm --version
+
+      # --ignore-scripts: prepublishOnly is the LOCAL publish gate and refuses
+      # in CI by design; staging is not publishing.
+      - name: Stage
+        run: |
+          set -euo pipefail
+          if [[ "$(npm view "@sriinnu/portpilot@$VERSION" version 2>/dev/null)" == "$VERSION" ]]; then
+            echo "@sriinnu/portpilot@$VERSION is already on npm."; exit 0
+          fi
+          npm stage publish --provenance --access public --ignore-scripts
+          echo "::notice::@sriinnu/portpilot@$VERSION is staged. Approve: npm stage list @sriinnu/portpilot, then npm stage approve <id>."
