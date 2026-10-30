@@ -4,6 +4,8 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+- CLI and TUI release zips unpack to the bare binary, without a build-directory parent or AppleDouble `._` files.
+
 ## [3.5.8] - 2026-10-30
 
 - Fail closed on incomplete cron and alert-list discovery; keep stale and degraded connection and threat state truthful across app surfaces (#18).
