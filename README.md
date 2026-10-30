@@ -90,7 +90,7 @@ Download from the [releases page](https://github.com/sriinnu/portpilot/releases)
 Public releases use a verified signed main commit and signed annotated version
 tag. The local signed handoff contains:
 
-- PortPilot-macOS-app.zip — Developer ID signed app; check the release notes for notarization status.
+- PortPilot-macOS-app.zip — Developer ID signed app. From 3.5.8 it is also notarized and stapled; `RELEASE.txt` states the notarization status of each release.
 - portpilot-macos-cli.zip and portpilot-macos-tui.zip — Developer ID signed universal macOS binaries.
 - SHA256SUMS.txt and RELEASE.txt — archive checksums and the audited tag/commit.
 
@@ -166,7 +166,7 @@ xcodebuild -project PortPilot.xcodeproj -scheme PortPilot \
 
 The Xcode scheme for the CLI target is `PortPilotCLI`, not `portpilot` — the two scheme names collide on case-insensitive filesystems (see CHANGELOG 3.1.0).
 
-CI (`.github/workflows/build.yml`) runs `swift test` on macOS and Linux, builds the universal binaries and the app, and publishes the release artifacts listed above on `v*` tags.
+CI (`.github/workflows/build.yml`) runs `swift test` on macOS and Linux and builds unsigned internal validation binaries and the app. It publishes nothing: release assets, npm and the Homebrew cask are published by the operator from signed `main` and a signed tag.
 
 ### npm scripts
 
