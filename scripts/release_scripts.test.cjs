@@ -283,6 +283,10 @@ test('verified Developer ID artifacts yield only a local, explicitly non-notariz
   const trace = fs.readFileSync(env.MOCK_TRACE, 'utf8');
   assert.equal((trace.match(/^codesign --verify/gm) || []).length, 3);
   assert.doesNotMatch(trace, /^git (commit|tag|push|pull|add)\b|--sign\b|notarytool|stapler/gm);
+  assert.match(trace, /^archive -c -k --sequesterRsrc --keepParent .*PortPilot\.app /m);
+  for (const zip of ['portpilot-macos-cli.zip', 'portpilot-macos-tui.zip']) {
+    assert.match(trace, new RegExp(`^archive -c -k --norsrc --noextattr --noacl \\S+ \\S+/${zip}$`, 'm'));
+  }
   assert.match(result.stdout, /No publishing, installation, notarization, commit, or tag/);
 });
 

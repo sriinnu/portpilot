@@ -98,8 +98,9 @@ package_release_artifacts() {
   trap 'rm -rf -- "$RELEASE_STAGE"' EXIT
   ditto -c -k --sequesterRsrc --keepParent "$RELEASE_APP" "$RELEASE_STAGE/PortPilot-macOS-app.zip"
   if [[ "$mode" == all ]]; then
-    ditto -c -k --keepParent "$RELEASE_CLI" "$RELEASE_STAGE/portpilot-macos-cli.zip"
-    ditto -c -k --keepParent "$RELEASE_TUI" "$RELEASE_STAGE/portpilot-macos-tui.zip"
+    # Binaries unzip flat, without a build-dir parent or AppleDouble ._ files.
+    ditto -c -k --norsrc --noextattr --noacl "$RELEASE_CLI" "$RELEASE_STAGE/portpilot-macos-cli.zip"
+    ditto -c -k --norsrc --noextattr --noacl "$RELEASE_TUI" "$RELEASE_STAGE/portpilot-macos-tui.zip"
   fi
   printf 'Tag: %s\nCommit: %s\nDeveloper ID team: %s\nNotarization: not performed by this offline handoff\n' "$RELEASE_TAG" "$RELEASE_COMMIT" "$RELEASE_TEAM_ID" > "$RELEASE_STAGE/RELEASE.txt"
   (cd "$RELEASE_STAGE" && shasum -a 256 ./*.zip > SHA256SUMS.txt)
