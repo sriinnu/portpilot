@@ -121,7 +121,11 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       echo "Signed source and Developer ID app/CLI/TUI verified."
       ;;
     publish)
-      release_fail "automatic publishing is disabled until an explicitly approved trusted signing workflow exists"
+      # CI never publishes. A local operator publish needs explicit approval
+      # plus the same signed main/tag checks as every other release step.
+      [[ "${PORTPILOT_NPM_PUBLISH_APPROVED:-}" == 1 && -z "${CI:-}" ]] || release_fail "automatic publishing is disabled; publish locally from signed main with PORTPILOT_NPM_PUBLISH_APPROVED=1"
+      verify_release_source "${2:-}"
+      echo "Signed main and tag $RELEASE_TAG verified for operator-approved npm publish."
       ;;
     *) release_fail "unknown policy mode: $mode" ;;
   esac

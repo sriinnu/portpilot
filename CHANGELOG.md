@@ -4,6 +4,13 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+## [3.5.8] - 2026-10-30
+
+- Fail closed on incomplete cron and alert-list discovery; keep stale and degraded connection and threat state truthful across app surfaces (#18).
+- Reject broad proxy policy and unsafe release-signing configurations (#18).
+- Allow an operator-approved local npm publish from signed main with a matching signed tag; CI still never publishes.
+- Ship the 3.5.x line to npm and Homebrew again; both had stalled at 3.4.0 and 3.1.0.
+
 ## [3.5.7] - 2026-10-23
 
 - Add Support heart and sriinnu GitHub links to the menu-bar and main-window footers.

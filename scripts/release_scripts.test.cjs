@@ -313,6 +313,18 @@ test('release:tag verifies an existing signed tag without creating one', (t) => 
   assert.equal(scripts['release:tag'], 'bash scripts/release_policy.sh source');
 });
 
+test('operator-approved npm publish still requires signed main and a signed tag', (t) => {
+  const env = policyFixture(t, { PORTPILOT_NPM_PUBLISH_APPROVED: '1', CI: '' });
+  const ok = runPolicy('release_policy.sh', env, ['publish']);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /operator-approved npm publish/);
+  const unsignedTag = runPolicy('release_policy.sh', { ...env, MOCK_TAG_STATUS: '1' }, ['publish']);
+  assert.notEqual(unsignedTag.status, 0);
+  const inCI = runPolicy('release_policy.sh', { ...env, CI: 'true' }, ['publish']);
+  assert.notEqual(inCI.status, 0);
+  assert.match(inCI.stderr, /automatic publishing is disabled/);
+});
+
 test('npm publication fails closed and CI has no automatic release publishing authority', () => {
   const result = run('prepublishOnly', '');
   assert.notEqual(result.status, 0);
