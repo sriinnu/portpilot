@@ -133,3 +133,9 @@ The three-agent follow-up and safe reproductions are recorded in
 Test releases use a padded display version such as `3.05.0001`; the canonical
 package/build version remains valid unpadded semver (`3.5.1`). Keep generated
 apps/archives under ignored `build/`, and do not replace the installed copy.
+
+Public releases go to three channels: GitHub Releases, npm, and the Homebrew
+cask in `sriinnu/homebrew-tap`. CI publishes none of them. The operator's
+step-by-step runbook is private (`docs/harness/RELEASING.md`, a local link that
+is never committed); notarization and npm publishing stay operator-run, with an
+interactive login and security-key 2FA each time.

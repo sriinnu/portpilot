@@ -8,9 +8,13 @@ single-user macOS model. Two can nevertheless defeat PortPilot's core promises:
 Quick Proxy accepted an all-address policy that the product said never to use,
 and cron discovery failures were rendered as a successful empty/partial view.
 
-The operator approved all four findings. They are now remediated and covered by
-source-level regressions in this working tree. This is not yet a commit, signed
-release, installed-app verification, live-LAN test, or Windows validation.
+The operator approved all four findings. The remediations and follow-up review
+fixes are merged into `main` at commit
+`a719754c079df89f0507244e3c78be4b084a7340` and covered by source-level
+regressions. They shipped in 3.5.8 (signed tag `v3.5.8` at `4073f3f`): a
+Developer ID signed, notarized and stapled app on GitHub Releases and Homebrew,
+and the source package on npm. This does not establish installed-app
+verification, live-LAN validation, or Windows parity.
 
 | ID | Finding | Severity | Confidence | Source status |
 | --- | --- | --- | --- | --- |
