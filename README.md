@@ -97,7 +97,9 @@ tag. The local signed handoff contains:
 GitHub Actions artifacts are internal validation builds and are not public
 release assets. Linux CLI/TUI are tested in CI and can be built from source;
 this signed macOS handoff does not publish Linux binaries. Notarization and npm
-publishing require separate authorization.
+publishing require separate authorization. CI never publishes to npm; an approved
+local publish runs `PORTPILOT_NPM_PUBLISH_APPROVED=1 npm publish` from signed main
+and refuses unless the matching signed annotated tag points at HEAD.
 
 ### Build from source (macOS: app + CLI + TUI)
 
