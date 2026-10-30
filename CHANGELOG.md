@@ -4,6 +4,9 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+- Rename the shared app scheme file to `PortPilot.xcscheme` so `-scheme PortPilot` (as in `project.yml`, README and `package.json`) resolves; it was `portpilot`.
+- README: CI publishes nothing; the app zip is notarized from 3.5.8.
+
 - CLI and TUI release zips unpack to the bare binary, without a build-directory parent or AppleDouble `._` files.
 
 ## [3.5.8] - 2026-10-30
