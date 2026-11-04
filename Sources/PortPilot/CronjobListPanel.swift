@@ -26,6 +26,11 @@ struct CronjobListPanel: View {
                 Spacer()
 
                 let pausedCount = viewModel.cronjobs.filter(\.isPaused).count
+                if !viewModel.launchdJobs.isEmpty {
+                    Text("\(viewModel.launchdJobs.count) launchd ·")
+                        .font(appSettings.appFont(size: 11))
+                        .foregroundColor(.secondary)
+                }
                 Text(pausedCount > 0 ? "\(viewModel.cronjobs.count) cronjobs · \(pausedCount) paused" : "\(viewModel.cronjobs.count) cronjobs")
                     .font(appSettings.appFont(size: 11))
                     .foregroundColor(.secondary)
@@ -36,8 +41,8 @@ struct CronjobListPanel: View {
                         .foregroundColor(Theme.Action.refresh)
                 }
                 .buttonStyle(.borderless)
-                .help("Refresh cronjobs")
-                .accessibilityLabel("Refresh cronjobs")
+                .help("Refresh schedules")
+                .accessibilityLabel("Refresh schedules")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -76,23 +81,23 @@ struct CronjobListPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.Severity.warning.opacity(0.08))
 
-                    if viewModel.cronjobs.isEmpty {
+                    if viewModel.cronjobs.isEmpty && viewModel.launchdJobs.isEmpty && viewModel.launchdError == nil {
                         Spacer()
                     } else {
                         Divider()
                         cronjobScrollView
                     }
                 }
-            } else if viewModel.cronjobs.isEmpty {
+            } else if viewModel.cronjobs.isEmpty && viewModel.launchdJobs.isEmpty && viewModel.launchdError == nil {
                 Spacer()
                 VStack(spacing: 12) {
                     Image(systemName: "clock")
                         .font(appSettings.appFont(size: 32))
                         .foregroundColor(.secondary)
-                    Text("No Cronjobs Found")
+                    Text("No Schedules Found")
                         .font(appSettings.appFont(size: 13, weight: .medium))
                         .foregroundColor(.primary)
-                    Text("User and system cronjobs appear here")
+                    Text("Cronjobs and scheduled launch agents appear here")
                         .font(appSettings.appFont(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -124,9 +129,119 @@ struct CronjobListPanel: View {
                     .accessibilityLabel("\(job.scheduleHuman ?? job.schedule), \(job.command)\(job.isPaused ? ", paused" : "")")
                     .accessibilityHint(selectedCronjob?.id == job.id ? "Selected" : "Selects this cronjob")
                 }
+                launchdSection
             }
             .padding(.vertical, 4)
         }
+    }
+}
+
+// MARK: - launchd Section
+
+extension CronjobListPanel {
+    @ViewBuilder
+    fileprivate var launchdSection: some View {
+        if !viewModel.launchdJobs.isEmpty || viewModel.launchdError != nil {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("launchd")
+                        .font(appSettings.appFont(size: 11, weight: .semibold))
+                    Text("Read-only")
+                        .font(appSettings.appFont(size: 9, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.15))
+                        .cornerRadius(4)
+                    Spacer()
+                    if viewModel.launchdUnscheduledCount > 0 {
+                        Text("\(viewModel.launchdUnscheduledCount) without a schedule not shown")
+                            .font(appSettings.appFont(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                if let error = viewModel.launchdError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(appSettings.appFont(size: 10))
+                        .foregroundColor(Theme.Severity.warning)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+            .accessibilityElement(children: .combine)
+
+            ForEach(viewModel.launchdJobs) { job in
+                LaunchdRowView(job: job)
+            }
+        }
+    }
+}
+
+/// Deliberately has no actions: launchd jobs are shown, not controlled.
+struct LaunchdRowView: View {
+    @ObservedObject private var appSettings = AppSettings.shared
+
+    let job: LaunchdJobEntry
+
+    private static let nextRunFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm"
+        return f
+    }()
+
+    private var failed: Bool { (job.lastExitCode ?? 0) != 0 }
+
+    private var status: String {
+        switch job.loadState {
+        case .notLoaded: return "Not loaded"
+        case .unknown: return "State unknown"
+        case .loaded:
+            if job.isRunning == true { return "Running" }
+            if let code = job.lastExitCode { return code == 0 ? "Last run OK" : "Last exit \(code)" }
+            return "Not run yet"
+        }
+    }
+
+    private var statusColor: Color {
+        if job.loadState != .loaded { return .secondary }
+        return failed ? Theme.Severity.warning : Theme.Status.connected
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 6, height: 6)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(job.scheduleHuman)
+                    .font(appSettings.appMonoFont(size: 12, weight: .medium))
+                    .foregroundColor(job.loadState == .loaded ? Theme.Status.warning : .secondary)
+                    .lineLimit(1)
+                Text(job.label)
+                    .font(appSettings.appFont(size: 11))
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(status)
+                    .font(appSettings.appFont(size: 10, weight: .medium))
+                    .foregroundColor(statusColor)
+                if let next = job.nextRun, job.loadState == .loaded {
+                    Text("Next \(Self.nextRunFormatter.string(from: next))")
+                        .font(appSettings.appFont(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .help([job.command, job.logPath.map { "Log: \($0)" }, "Plist: \(job.plistPath)"].compactMap { $0 }.joined(separator: "\n"))
+        .accessibilityElement(children: .combine)
     }
 }
 

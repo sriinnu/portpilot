@@ -14,6 +14,7 @@
 		0AE5E0C4D87AADF5DAFEB5D2 /* ConfigurationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2733683733D39FAD5FAE30F8 /* ConfigurationPanel.swift */; };
 		0B024D3B0C818006E02CA79D /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E705010BB6BCC26217B8BE0 /* MenuBarController.swift */; };
 		107E6A3FAB6F82D6DF30C093 /* PortManager+CronDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F733C15C0B5CBBC3113949DD /* PortManager+CronDiscovery.swift */; };
+		A1D90C5E7B2F4E11C0DE5A02 /* PortManager+LaunchdDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D90C5E7B2F4E11C0DE5A01 /* PortManager+LaunchdDiscovery.swift */; };
 		10D96EE61150BDB66AE0029F /* PortPilotApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D517AEBB047FBA5AF22F881 /* PortPilotApp.swift */; };
 		135F70795593D5787A37120D /* MenuBarDropdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68EEF04685F26D7B72F0F51 /* MenuBarDropdownView.swift */; };
 		142AB4A6802AC82BF8DA8F4C /* BlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B539A10F735606C5C2FCB6F1 /* BlocklistStore.swift */; };
@@ -31,6 +32,7 @@
 		26999AF338528CD53D3631D3 /* PortGuardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64593295B71E797F707FD40 /* PortGuardPolicy.swift */; };
 		301F6FF6EE69E86F41827C76 /* CronjobListPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551B6B3A16BDE43795CD16A /* CronjobListPanel.swift */; };
 		353813B5D17A26BC4B6312FE /* PortManager+CronDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F733C15C0B5CBBC3113949DD /* PortManager+CronDiscovery.swift */; };
+		A1D90C5E7B2F4E11C0DE5A03 /* PortManager+LaunchdDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D90C5E7B2F4E11C0DE5A01 /* PortManager+LaunchdDiscovery.swift */; };
 		366BC85BC26DBF7E78069FCF /* TimelinePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D881FD3BE12BC7A446A8494 /* TimelinePanel.swift */; };
 		36BBA1CD6F505249CD1D6184 /* TCPProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27629EA5FE623F463B619EAB /* TCPProxyManager.swift */; };
 		37A3F492387C9A9C3933A55A /* CommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A2620EEA2B1F7EF6DA8433 /* CommandPalette.swift */; };
@@ -181,6 +183,7 @@
 		F708D4774546532BB8331A15 /* ThemePalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePalette.swift; sourceTree = "<group>"; };
 		F711AA3C5F81B0E5670E2023 /* CronRunManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CronRunManager.swift; sourceTree = "<group>"; };
 		F733C15C0B5CBBC3113949DD /* PortManager+CronDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+CronDiscovery.swift"; sourceTree = "<group>"; };
+		A1D90C5E7B2F4E11C0DE5A01 /* PortManager+LaunchdDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortManager+LaunchdDiscovery.swift"; sourceTree = "<group>"; };
 		AC0000000000000000000001 /* InterfaceDirection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceDirection.swift; sourceTree = "<group>"; };
 		AC0000000000000000000003 /* Brand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Brand.swift; sourceTree = "<group>"; };
 		AC0000000000000000000005 /* DesignWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignWorkspace.swift; sourceTree = "<group>"; };
@@ -285,6 +288,7 @@
 				8D335FC05100CC2892A4101D /* PortManager+Connections.swift */,
 				029DF4266C9FDFFD00CF33B1 /* PortManager+CronControl.swift */,
 				F733C15C0B5CBBC3113949DD /* PortManager+CronDiscovery.swift */,
+				A1D90C5E7B2F4E11C0DE5A01 /* PortManager+LaunchdDiscovery.swift */,
 				2F4A83897BFD7F8CD42F50F3 /* PortManager+Docker.swift */,
 				EBDC13CC40C86EFD5D62334D /* PortManager+FrameworkDetector.swift */,
 				E856A016D49BF0EA323BF579 /* PortWatcher.swift */,
@@ -463,6 +467,7 @@
 				8358201A85E771E3088A8713 /* PortManager+Connections.swift in Sources */,
 				E9B1CE09E6468E7FA89BD554 /* PortManager+CronControl.swift in Sources */,
 				107E6A3FAB6F82D6DF30C093 /* PortManager+CronDiscovery.swift in Sources */,
+				A1D90C5E7B2F4E11C0DE5A02 /* PortManager+LaunchdDiscovery.swift in Sources */,
 				A23733852AD7805BA3349298 /* PortManager+Docker.swift in Sources */,
 				1B7317BE6839AE5547446F9B /* PortManager+FrameworkDetector.swift in Sources */,
 				A5C7B7031CBD15F652D56C54 /* PortManager.swift in Sources */,
@@ -527,6 +532,7 @@
 				F438C3C737DDF89CC82661F9 /* PortManager+Connections.swift in Sources */,
 				4A96674D64553176446E5099 /* PortManager+CronControl.swift in Sources */,
 				353813B5D17A26BC4B6312FE /* PortManager+CronDiscovery.swift in Sources */,
+				A1D90C5E7B2F4E11C0DE5A03 /* PortManager+LaunchdDiscovery.swift in Sources */,
 				ED5628FAAFDFF4140B8FD6DF /* PortManager+Docker.swift in Sources */,
 				873918D37E26D4E0006C8831 /* PortManager+FrameworkDetector.swift in Sources */,
 				090F6E3B429AC22F6E659A6A /* PortManager.swift in Sources */,

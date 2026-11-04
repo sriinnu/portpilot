@@ -235,6 +235,8 @@ portpilot cronjobs                         # user + system crontab entries
 portpilot cronjobs --user-only             # personal crontab only
 portpilot cronjobs --system-only           # /etc/crontab and /etc/cron.d only
 portpilot cronjobs --json
+portpilot launchd                          # scheduled launch agents, read-only
+portpilot launchd --json
 portpilot docker                           # Docker containers behind ports
 portpilot program-pids --program node      # PIDs for a program name
 portpilot program-kill --program node      # kill all PIDs for a program name

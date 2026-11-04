@@ -11,6 +11,9 @@ final class CronjobController: ObservableObject {
     @Published private(set) var discoveryError: String?
     @Published private(set) var runHistory: [String: CronRunRecord] = [:]
     @Published private(set) var runningIDs: Set<String> = []
+    @Published private(set) var launchdJobs: [LaunchdJobEntry] = []
+    @Published private(set) var launchdError: String?
+    @Published private(set) var launchdUnscheduledCount = 0
 
     private let log: ActivityLogStore
     /// Wired by the owner after init — the VM's error hook captures self,
@@ -33,11 +36,21 @@ final class CronjobController: ObservableObject {
         let snapshotTask = Task.detached(priority: .userInitiated) {
             Self.loadSnapshot()
         }
+        let launchdTask = Task.detached(priority: .userInitiated) {
+            PortManager().getLaunchdSnapshot()
+        }
 
         Task {
             let snapshot = await snapshotTask.value
+            let launchd = await launchdTask.value
             guard latestRefreshID == refreshID else { return }
             isLoading = false
+            // launchd is read-only and separate, so its failure never blocks cron effects.
+            launchdError = launchd.isComplete ? nil : launchd.errorDescription
+            if launchd.isComplete || !launchd.entries.isEmpty {
+                launchdJobs = launchd.entries
+                launchdUnscheduledCount = launchd.unscheduledCount
+            }
             guard snapshot.isComplete else {
                 discoveryError = snapshot.errorDescription
                 return
