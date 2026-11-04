@@ -139,6 +139,9 @@ class PortViewModel: ObservableObject {
     var cronjobs: [CronjobEntry] { cron.jobs }
     var isLoadingCronjobs: Bool { cron.isLoading }
     var cronDiscoveryError: String? { cron.discoveryError }
+    var launchdJobs: [LaunchdJobEntry] { cron.launchdJobs }
+    var launchdError: String? { cron.launchdError }
+    var launchdUnscheduledCount: Int { cron.launchdUnscheduledCount }
     var cronRunHistory: [String: CronRunRecord] { cron.runHistory }
     var runningCronjobIDs: Set<String> { cron.runningIDs }
 

@@ -16,6 +16,9 @@ It is not an antivirus, endpoint security replacement, full protocol/payload ins
 firewall, privileged service manager, or authenticated remote-administration API.
 Keep existing OS, firewall, and endpoint protections enabled.
 
+Scheduled launch agents from `~/Library/LaunchAgents` are listed read-only. PortPilot
+does not load, unload, run or edit them, and does not read their environment variables.
+
 The macOS app also offers explicit, bounded per-port packet-summary capture
 using the system tcpdump tool. It is off by default, requires existing user
 capture-device access, and does not install a privileged helper. It prints
