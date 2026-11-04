@@ -706,6 +706,51 @@ extension PortKiller {
     }
 }
 
+// MARK: - launchd Command
+extension PortKiller {
+    struct Launchd: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List scheduled launch agents from ~/Library/LaunchAgents (read-only)"
+        )
+
+        @Flag(name: .long, help: "Output in JSON format")
+        var json: Bool = false
+
+        func run() throws {
+            let snapshot = PortManager().getLaunchdSnapshot()
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .prettyPrinted
+                encoder.dateEncodingStrategy = .iso8601
+                print(String(decoding: try encoder.encode(snapshot.entries), as: UTF8.self))
+            } else if snapshot.entries.isEmpty {
+                print(snapshot.isComplete ? "No scheduled launch agents found." : "No readable scheduled launch agents.")
+            } else {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd HH:mm"
+                let header = ["SCHEDULE".padRight(width: 22), "NEXT RUN".padRight(width: 17), "LAST".padRight(width: 11), "LABEL"]
+                print(header.joined(separator: " "))
+                for job in snapshot.entries {
+                    let next = job.nextRun.map(formatter.string(from:)) ?? "-"
+                    let last: String
+                    switch job.loadState {
+                    case .notLoaded: last = "not loaded"
+                    case .unknown: last = "unknown"
+                    case .loaded: last = job.isRunning == true ? "running" : job.lastExitCode.map { "exit \($0)" } ?? "not run"
+                    }
+                    print("\(job.scheduleHuman.padRight(width: 22)) \(next.padRight(width: 17)) \(last.padRight(width: 11)) \(job.label)")
+                }
+                let extra = snapshot.unscheduledCount > 0 ? "; \(snapshot.unscheduledCount) agent(s) with no schedule not shown" : ""
+                print("\nFound \(snapshot.entries.count) scheduled launch agent(s)\(extra)")
+            }
+            guard snapshot.isComplete else {
+                FileHandle.standardError.write(Data("launchd discovery is incomplete: \(snapshot.errorDescription)\n".utf8))
+                throw ExitCode.failure
+            }
+        }
+    }
+}
+
 // MARK: - Cronjobs Command
 extension PortKiller {
     struct Cronjobs: ParsableCommand {
@@ -1055,7 +1100,7 @@ extension PortKiller {
 struct PortKiller: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "A tiny CLI for viewing and clearing ports in use by running processes.",
-        subcommands: [List.self, Kill.self, Pause.self, Resume.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self, Cronjobs.self, Connections.self, BlocklistCommand.self],
+        subcommands: [List.self, Launchd.self, Kill.self, Pause.self, Resume.self, Interactive.self, KillAll.self, PID.self, PIDs.self, Find.self, Docker.self, ProgramPids.self, ProgramKill.self, Proxy.self, TUI.self, Cronjobs.self, Connections.self, BlocklistCommand.self],
         defaultSubcommand: List.self
     )
 }

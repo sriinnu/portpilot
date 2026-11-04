@@ -4,6 +4,10 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- The Schedules tab and `portpilot launchd` list scheduled jobs from `~/Library/LaunchAgents`: schedule, next run, last exit code and log path. They're read-only, and `EnvironmentVariables` are never read into them. A file or check that fails is reported, not shown as empty. Only cron jobs can be run, paused or stopped.
+
 - Rename the shared app scheme file to `PortPilot.xcscheme` so `-scheme PortPilot` (as in `project.yml`, README and `package.json`) resolves; it was `portpilot`.
 - README: CI publishes nothing; the app zip is notarized from 3.5.8.
 
