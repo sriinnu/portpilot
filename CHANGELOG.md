@@ -4,6 +4,8 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+- npm: a published release now stages `@sriinnu/portpilot` from CI (`npm-publish.yml`, trusted publishing, provenance, no token); the maintainer approves it with 2FA. CI still never publishes.
+
 ## [3.6.0] - 2026-11-04
 
 ### Added

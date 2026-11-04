@@ -329,7 +329,7 @@ test('operator-approved npm publish still requires signed main and a signed tag'
   assert.match(inCI.stderr, /automatic publishing is disabled/);
 });
 
-test('npm publication fails closed and CI has no automatic release publishing authority', () => {
+test('npm publication fails closed and CI can only stage, never publish', () => {
   const result = run('prepublishOnly', '');
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /automatic publishing is disabled/);
@@ -337,6 +337,9 @@ test('npm publication fails closed and CI has no automatic release publishing au
   const publish = fs.readFileSync(path.join(__dirname, '../.github/workflows/npm-publish.yml'), 'utf8');
   assert.doesNotMatch(build, /contents: write|action-gh-release|GITHUB_TOKEN|^  release:/m);
   assert.match(build, /internal-unsigned/);
-  assert.doesNotMatch(publish, /npm publish|NPM_TOKEN|^  push:/m);
-  assert.match(publish, /permissions: \{\}/);
+  assert.doesNotMatch(publish, /npm publish|NPM_TOKEN|NODE_AUTH_TOKEN|--allow-publish|^  push:/m);
+  assert.match(publish, /^permissions: \{\}/m);
+  assert.match(publish, /npm stage publish --provenance/);
+  assert.match(publish, /id-token: write/);
+  assert.match(publish, /--allow-stage-publish/);
 });

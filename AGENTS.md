@@ -137,5 +137,6 @@ apps/archives under ignored `build/`, and do not replace the installed copy.
 Public releases go to three channels: GitHub Releases, npm, and the Homebrew
 cask in `sriinnu/homebrew-tap`. CI publishes none of them. The operator's
 step-by-step runbook is private (`docs/harness/RELEASING.md`, a local link that
-is never committed); notarization and npm publishing stay operator-run, with an
+is never committed); notarization stays operator-run, and CI only stages npm
+versions (`npm-publish.yml`), which the operator approves, with an
 interactive login and security-key 2FA each time.
