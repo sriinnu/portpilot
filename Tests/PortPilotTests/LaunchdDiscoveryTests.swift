@@ -112,6 +112,7 @@ final class LaunchdDiscoveryTests: XCTestCase {
     }
 
     func testEnvironmentSecretsNeverReachOutput() throws {
+        try XCTSkipUnless(Platform.current == .macOS, "launchd is macOS only")
         let planted = "planted-environment-value"
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -124,15 +125,16 @@ final class LaunchdDiscoveryTests: XCTestCase {
         ]).write(to: dir.appendingPathComponent("job.plist"))
 
         let snapshot = PortManager().getLaunchdSnapshot(directory: dir)
-        XCTAssertEqual(snapshot.entries.count, 1)
         XCTAssertTrue(snapshot.isComplete, snapshot.errorDescription)
-        XCTAssertEqual(snapshot.entries[0].loadState, .notLoaded)
+        XCTAssertEqual(snapshot.entries.count, 1)
+        XCTAssertEqual(snapshot.entries.first?.loadState, .notLoaded)
         let json = try String(decoding: JSONEncoder().encode(snapshot.entries), as: UTF8.self)
         XCTAssertFalse(json.contains(planted))
         XCTAssertFalse(json.contains("PLANTED_NAME"))
     }
 
     func testSnapshotReportsABrokenFileAlongsideGoodOnes() throws {
+        try XCTSkipUnless(Platform.current == .macOS, "launchd is macOS only")
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -147,6 +149,13 @@ final class LaunchdDiscoveryTests: XCTestCase {
         XCTAssertEqual(snapshot.unscheduledCount, 1)
         XCTAssertFalse(snapshot.isComplete)
         XCTAssertTrue(snapshot.errorDescription.contains("bad.plist"))
+    }
+
+    func testOtherPlatformsReportNothingRatherThanFail() throws {
+        try XCTSkipIf(Platform.current == .macOS, "applies off macOS")
+        let snapshot = PortManager().getLaunchdSnapshot()
+        XCTAssertTrue(snapshot.isComplete)
+        XCTAssertTrue(snapshot.entries.isEmpty)
     }
 
     func testMissingFolderIsEmptyAndComplete() {

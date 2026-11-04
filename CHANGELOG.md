@@ -4,6 +4,8 @@ All notable changes to PortPilot will be documented in this file.
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-11-04
+
 ### Added
 
 - The Schedules tab and `portpilot launchd` list scheduled jobs from `~/Library/LaunchAgents`: schedule, next run, last exit code and log path. They're read-only, and `EnvironmentVariables` are never read into them. A file or check that fails is reported, not shown as empty. Only cron jobs can be run, paused or stopped.
